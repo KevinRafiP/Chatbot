@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { askBot } from "./api";
 
 type Message = {
   id: number;
@@ -6,64 +7,75 @@ type Message = {
   text: string;
 };
 
-type MessageItemProps = {
-  message: Message;
-};
-
-// Shows one chat message with its sender label
-function MessageItem({ message }: MessageItemProps) {
-  const label = message.sender === "user" ? "Kamu" : "Bot";
-  return (
-    <li>
-      <strong>{label}:</strong> {message.text}
-    </li>
-  );
+// Shows one chat bubble, placed left or right by its sender
+function MessageBubble({ message }: { message: Message }) {
+  return <div className={`bubble ${message.sender}`}>{message.text}</div>;
 }
 
-// Main page: holds the message list and the input form
+// Chat page: header, message list, and input form
 function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Adds the typed text to the list, then clears the input
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  // Scrolls to the newest message whenever the list changes
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  // Appends one message to the end of the list
+  function addMessage(sender: Message["sender"], text: string) {
+    setMessages((current) => [...current, { id: current.length + 1, sender, text }]);
+  }
+
+  // Sends the question, waits for the answer, then shows it
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = input.trim();
-    if (text === "") {
+    if (text === "" || loading) {
       return;
     }
 
-    const newMessage: Message = { id: Date.now(), sender: "user", text };
-    setMessages([...messages, newMessage]);
+    addMessage("user", text);
     setInput("");
+    setLoading(true);
+
+    try {
+      const answer = await askBot(text);
+      addMessage("bot", answer);
+    } catch {
+      addMessage("bot", "Maaf, terjadi kesalahan. Coba lagi.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <div>
-      <h1>Latihan Chat</h1>
+    <div className="chat">
+      <header className="chat-header">Chatbot</header>
 
-      {messages.length === 0 && <p>Belum ada pesan.</p>}
+      <main className="chat-messages">
+        {messages.length === 0 && <p className="empty">Halo, ada yang bisa dibantu?</p>}
 
-      <ul>
         {messages.map((message) => (
-          <MessageItem key={message.id} message={message} />
+          <MessageBubble key={message.id} message={message} />
         ))}
-      </ul>
 
-      <form onSubmit={handleSubmit}>
+        {loading && <div className="bubble bot typing">Mengetik...</div>}
+        <div ref={bottomRef} />
+      </main>
+
+      <form className="chat-form" onSubmit={handleSubmit}>
         <input
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Tulis pesan"
+          placeholder="Tulis pertanyaan..."
         />
-        <button type="submit" disabled={input.trim() === ""}>
+        <button type="submit" disabled={input.trim() === "" || loading}>
           Kirim
         </button>
       </form>
-
-      {messages.length > 0 && (
-        <button onClick={() => setMessages([])}>Hapus semua</button>
-      )}
     </div>
   );
 }
