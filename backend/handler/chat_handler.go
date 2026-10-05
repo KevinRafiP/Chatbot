@@ -25,7 +25,7 @@ func Chat(chatbot *service.ChatbotService) http.HandlerFunc {
 			return
 		}
 
-		hasil, err := chatbot.Jawab(r.Context(), permintaan.Pertanyaan)
+		hasil, err := chatbot.Jawab(r.Context(), permintaan.Pertanyaan, nil)
 		if err != nil {
 			log.Println("error chatbot:", err)
 			writeJSON(w, http.StatusInternalServerError, Response{Status: "gagal", Message: "chatbot sedang bermasalah"})

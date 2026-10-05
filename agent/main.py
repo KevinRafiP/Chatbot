@@ -2,7 +2,7 @@ import logging
 import sys
 from http.server import ThreadingHTTPServer
 
-from alat import KotakAlat
+from alat.daftar import KotakAlat
 from config import muat
 from handler import buat_penangan
 from llm.client import Klien

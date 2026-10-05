@@ -27,9 +27,15 @@ type Jawaban struct {
 	PakaiInternet bool     `json:"pakai_internet"`
 }
 
+type Riwayat struct {
+	Peran string `json:"peran"`
+	Teks  string `json:"teks"`
+}
+
 type permintaan struct {
 	Pertanyaan string    `json:"pertanyaan"`
 	Konteks    []Konteks `json:"konteks"`
+	Riwayat    []Riwayat `json:"riwayat"`
 }
 
 type balasan struct {
@@ -52,9 +58,9 @@ func BaruKlien(alamat, apiKey string) *Klien {
 	}
 }
 
-// Tanya mengirim pertanyaan beserta data dari database ke layanan agent
-func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks) (Jawaban, error) {
-	badan, err := json.Marshal(permintaan{Pertanyaan: pertanyaan, Konteks: konteks})
+// Tanya mengirim pertanyaan, data dari database, dan riwayat percakapan ke layanan agent
+func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat) (Jawaban, error) {
+	badan, err := json.Marshal(permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat})
 	if err != nil {
 		return Jawaban{}, err
 	}

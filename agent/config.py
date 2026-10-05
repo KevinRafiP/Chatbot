@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-FOLDER_AGENT = Path(__file__).resolve().parent.parent
+FOLDER_AGENT = Path(__file__).resolve().parent
 
 
 @dataclass
