@@ -1,3 +1,4 @@
+import json
 import logging
 
 
@@ -8,14 +9,15 @@ def buat_aksi(kotak_alat):
         balasan = []
         for p in keadaan["panggilan"]:
             logging.info("agen memanggil alat %s", p.get("name"))
-            # memanggil alat
-            hasil = kotak_alat.jalankan(p.get("name", ""), p.get("args") or {}, keadaan["catatan"])
-            respon = {"name": p.get("name", ""), "response": hasil}
-            if "id" in p:
-                respon["id"] = p["id"]
-            balasan.append({"functionResponse": respon})
+            hasil = kotak_alat.jalankan(p.get("name", ""), p.get("input") or {}, keadaan["catatan"])
+            balasan.append({
+                "toolResult": {
+                    "toolUseId": p.get("toolUseId", ""),
+                    "content": [{"text": json.dumps(hasil, ensure_ascii=False)}],
+                }
+            })
 
-        keadaan["isi"].append({"role": "user", "parts": balasan})
+        keadaan["isi"].append({"role": "user", "content": balasan})
         return keadaan
 
     return aksi

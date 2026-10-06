@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"chatbot/backend/agen"
@@ -76,7 +77,7 @@ func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID int64, per
 	}
 	riwayat := []agen.Riwayat{}
 	for _, p := range lama {
-		riwayat = append(riwayat, agen.Riwayat{Peran: p.Pengirim, Teks: p.Isi})
+		riwayat = append(riwayat, agen.Riwayat{Peran: p.Pengirim, Teks: p.Isi + teksSumber(p.Sumber)})
 	}
 
 	pesan, err := s.repo.SimpanPesan(id, "user", pertanyaan, nil)
@@ -113,6 +114,18 @@ func (s *PercakapanService) pastikanMilik(id, penggunaID int64) error {
 		return ErrPercakapanTidakAda
 	}
 	return nil
+}
+
+// teksSumber menyusun daftar sumber bernomor untuk ditempelkan ke riwayat, agar AI bisa menjawab saat ditanya sumbernya
+func teksSumber(sumber []string) string {
+	if len(sumber) == 0 {
+		return ""
+	}
+	baris := []string{"\n\nSumber:"}
+	for i, s := range sumber {
+		baris = append(baris, fmt.Sprintf("[%d] %s", i+1, s))
+	}
+	return strings.Join(baris, "\n")
 }
 
 // potong memendekkan teks menjadi paling banyak n huruf

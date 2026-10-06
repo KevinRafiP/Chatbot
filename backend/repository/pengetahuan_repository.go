@@ -32,7 +32,8 @@ func (r *PengetahuanRepository) Semua() ([]model.Pengetahuan, error) {
 	return daftar, rows.Err()
 }
 
-func (r *PengetahuanRepository) Cari(daftarKata []string, batas int) ([]model.Pengetahuan, error) {
+// Cari mengambil data yang paling banyak cocok dengan daftar kata; data dengan skor di bawah skorMinimal tidak diambil
+func (r *PengetahuanRepository) Cari(daftarKata []string, skorMinimal, batas int) ([]model.Pengetahuan, error) {
 	query := `
 		SELECT id, judul, isi, kata_kunci, dibuat_pada
 		FROM (
@@ -41,11 +42,12 @@ func (r *PengetahuanRepository) Cari(daftarKata []string, batas int) ([]model.Pe
 					 WHERE kata = ANY(string_to_array(kata_kunci, ' '))) AS skor
 			FROM pengetahuan
 		) AS hasil
-		WHERE skor > 0
+		WHERE skor >= $2
 		ORDER BY skor DESC, id
-		LIMIT $2`
+		LIMIT $3`
 
-	rows, err := r.db.Query(query, daftarKata, batas)
+	rows, err := r.db.Query(query, daftarKata, skorMinimal, batas)
+
 	if err != nil {
 		return nil, err
 	}

@@ -10,6 +10,8 @@ var kataAbaikan = map[string]bool{
 	"dan": true, "atau": true, "itu": true, "ini": true, "saya": true, "aku": true,
 	"bagaimana": true, "berapa": true, "kapan": true, "cara": true, "untuk": true,
 	"dengan": true, "ada": true, "bisa": true, "mau": true, "tolong": true,
+	"siapa": true, "mana": true, "dimana": true, "kenapa": true, "mengapa": true,
+	"adalah": true, "tahun": true, "kalau": true, "jika": true, "tentang": true,
 }
 
 // PecahKata mengubah kalimat menjadi daftar kata penting

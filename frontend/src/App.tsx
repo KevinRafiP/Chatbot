@@ -28,13 +28,16 @@ function MessageBubble({ message }: { message: Message }) {
     <div className={`bubble ${message.sender}`}>
       {message.text}
       {message.sources.length > 0 && (
-        <ul className="sources">
-          {message.sources.map((source) => (
-            <li key={source}>
-              <Source value={source} />
-            </li>
-          ))}
-        </ul>
+        <details className="sources">
+          <summary>Sumber ({message.sources.length})</summary>
+          <ol>
+            {message.sources.map((source) => (
+              <li key={source}>
+                <Source value={source} />
+              </li>
+            ))}
+          </ol>
+        </details>
       )}
     </div>
   );

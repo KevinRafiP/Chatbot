@@ -2,45 +2,52 @@ import json
 import urllib.error
 import urllib.request
 
-ALAMAT_DASAR = "https://generativelanguage.googleapis.com/v1beta"
-
 
 class GalatLLM(Exception):
-    pass
+    def __init__(self, pesan, kode=0):
+        super().__init__(pesan)
+        self.kode = kode
 
 
-class Klien:
-    def __init__(self, api_key, model, batas_waktu=60):
-        self.api_key = api_key
-        self.model = model
-        self.batas_waktu = batas_waktu
+def kirim_json(alamat, badan, header, batas_waktu, nama):
+    """Mengirim JSON lewat POST dan mengembalikan JSON balasan; semua kegagalan dijadikan GalatLLM."""
+    permintaan = urllib.request.Request(alamat, data=badan, headers=header, method="POST")
+    try:
+        with urllib.request.urlopen(permintaan, timeout=batas_waktu) as respon:
+            return json.load(respon)
+    except urllib.error.HTTPError as galat:
+        detail = galat.read().decode("utf-8", "replace")[:300]
+        raise GalatLLM(f"{nama} menolak ({galat.code}): {detail}", galat.code)
+    except (urllib.error.URLError, TimeoutError, ValueError) as galat:
+        raise GalatLLM(f"{nama} tidak bisa dihubungi: {galat}")
 
-    def kirim(self, instruksi_sistem, isi_percakapan, deklarasi_alat=None):
-        """Mengirim percakapan ke Gemini dan mengembalikan content dari kandidat pertama."""
-        badan = {
-            "systemInstruction": {"parts": [{"text": instruksi_sistem}]},
-            "contents": isi_percakapan,
-        }
-        if deklarasi_alat:
-            badan["tools"] = [{"functionDeclarations": deklarasi_alat}]
 
-        permintaan = urllib.request.Request(
-            f"{ALAMAT_DASAR}/models/{self.model}:generateContent",
-            data=json.dumps(badan).encode("utf-8"),
-            headers={"Content-Type": "application/json", "x-goog-api-key": self.api_key},
-            method="POST",
-        )
+def buat_klien(cfg):
+    """Memilih klien LLM sesuai LLM_PROVIDER dan mengembalikan (klien, nama model)."""
+    if cfg.llm_provider == "aws":
+        from llm.aws import KlienAWS
 
-        try:
-            with urllib.request.urlopen(permintaan, timeout=self.batas_waktu) as respon:
-                data = json.load(respon)
-        except urllib.error.HTTPError as galat:
-            detail = galat.read().decode("utf-8", "replace")[:300]
-            raise GalatLLM(f"Gemini menolak ({galat.code}): {detail}")
-        except (urllib.error.URLError, TimeoutError) as galat:
-            raise GalatLLM(f"Gemini tidak bisa dihubungi: {galat}")
+        if cfg.aws_auth_mode != "iam":
+            raise ValueError("AWS_AUTH_MODE hanya mendukung nilai iam")
+        if not cfg.aws_access_key_id or not cfg.aws_secret_access_key:
+            raise ValueError("AWS_ACCESS_KEY_ID dan AWS_SECRET_ACCESS_KEY wajib diisi di .env")
+        if not cfg.llm_model:
+            raise ValueError("LLM_MODEL wajib diisi di .env")
+        klien = KlienAWS(cfg.aws_access_key_id, cfg.aws_secret_access_key, cfg.aws_region, cfg.llm_model)
+        return klien, cfg.llm_model
 
-        kandidat = data.get("candidates") or []
-        if not kandidat or "content" not in kandidat[0]:
-            raise GalatLLM("Gemini tidak memberi jawaban (bisa jadi terkena filter keamanan)")
-        return kandidat[0]["content"]
+    if cfg.llm_provider == "api":
+        from llm.api import KlienAPI
+
+        if not cfg.api_url or not cfg.api_key_llm or not cfg.api_model:
+            raise ValueError("API_URL, API_KEY, dan API_MODEL wajib diisi di .env")
+        return KlienAPI(cfg.api_url, cfg.api_key_llm, cfg.api_model), cfg.api_model
+
+    if cfg.llm_provider == "local":
+        from llm.api import KlienAPI
+
+        if not cfg.local_url or not cfg.local_model:
+            raise ValueError("LOCAL_URL dan LOCAL_MODEL wajib diisi di .env")
+        return KlienAPI(cfg.local_url, "", cfg.local_model, batas_waktu=180), cfg.local_model
+
+    raise ValueError("LLM_PROVIDER harus salah satu dari: aws, api, local")

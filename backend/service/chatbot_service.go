@@ -47,15 +47,18 @@ func (s *ChatbotService) cariData(pertanyaan string) ([]model.Pengetahuan, error
 	if len(daftarKata) == 0 {
 		return []model.Pengetahuan{}, nil
 	}
-	return s.repo.Cari(daftarKata, 3)
+
+	skorMinimal := 1
+	if len(daftarKata) >= 3 {
+		skorMinimal = 2
+	}
+	return s.repo.Cari(daftarKata, skorMinimal, 3)
 }
 
 func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, daftar []model.Pengetahuan, riwayat []agen.Riwayat) (HasilChat, error) {
 	konteks := []agen.Konteks{}
-	sumber := []string{}
 	for _, p := range daftar {
 		konteks = append(konteks, agen.Konteks{Judul: p.Judul, Isi: p.Isi})
-		sumber = append(sumber, p.Judul)
 	}
 
 	jawaban, err := s.agen.Tanya(ctx, pertanyaan, konteks, riwayat)
@@ -63,9 +66,15 @@ func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, dafta
 		return HasilChat{}, err
 	}
 
+	sumber := []string{}
 	for _, sm := range jawaban.Sumber {
-		sumber = append(sumber, sm.URL)
+		if sm.URL != "" {
+			sumber = append(sumber, sm.URL)
+		} else {
+			sumber = append(sumber, sm.Judul)
+		}
 	}
+
 	return HasilChat{
 		Jawaban:       jawaban.Jawaban,
 		Sumber:        sumber,

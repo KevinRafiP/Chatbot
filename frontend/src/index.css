@@ -131,11 +131,20 @@ body {
 }
 
 .sources {
-  margin: 8px 0 0;
-  padding: 8px 0 0 18px;
+  margin-top: 8px;
+  padding-top: 8px;
   border-top: 1px solid #d1d5db;
   font-size: 13px;
   color: #4b5563;
+}
+
+.sources summary {
+  cursor: pointer;
+}
+
+.sources ol {
+  margin: 6px 0 0;
+  padding-left: 22px;
 }
 
 .sources a {

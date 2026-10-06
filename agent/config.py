@@ -10,8 +10,17 @@ class Config:
     host: str
     port: int
     api_key: str
-    gemini_api_key: str
-    gemini_model: str
+    llm_provider: str
+    aws_auth_mode: str
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    aws_region: str
+    llm_model: str
+    api_url: str
+    api_key_llm: str
+    api_model: str
+    local_url: str
+    local_model: str
     tavily_api_key: str
     maks_langkah: int
     maks_baca_url: int
@@ -53,8 +62,17 @@ def muat():
         host=ambil("AGENT_HOST", "127.0.0.1"),
         port=ambil_angka("AGENT_PORT", 8082),
         api_key=ambil("AGENT_API_KEY"),
-        gemini_api_key=ambil("GEMINI_API_KEY"),
-        gemini_model=ambil("GEMINI_MODEL", "gemini-3.8-flash"),
+        llm_provider=ambil("LLM_PROVIDER", "aws").lower(),
+        aws_auth_mode=ambil("AWS_AUTH_MODE", "iam").lower(),
+        aws_access_key_id=ambil("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=ambil("AWS_SECRET_ACCESS_KEY"),
+        aws_region=ambil("AWS_REGION", "ap-southeast-3"),
+        llm_model=ambil("LLM_MODEL"),
+        api_url=ambil("API_URL"),
+        api_key_llm=ambil("API_KEY"),
+        api_model=ambil("API_MODEL"),
+        local_url=ambil("LOCAL_URL", "http://127.0.0.1:11434/v1"),
+        local_model=ambil("LOCAL_MODEL"),
         tavily_api_key=ambil("TAVILY_API_KEY"),
         maks_langkah=ambil_angka("AGENT_MAKS_LANGKAH", 4),
         maks_baca_url=ambil_angka("AGENT_MAKS_BACA_URL", 3),
