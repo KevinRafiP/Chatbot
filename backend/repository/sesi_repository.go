@@ -2,7 +2,6 @@ package repository
 
 import (
 	"database/sql"
-	"fmt"
 	"time"
 
 	"chatbot/backend/model"
@@ -30,7 +29,7 @@ func (r *SesiRepository) BuatTamu(tokenHash, perangkat string, kedaluwarsa time.
 		return model.Pengguna{}, err
 	}
 
-	pengguna.Nama = fmt.Sprintf("Tamu %d", pengguna.ID)
+	pengguna.Nama = "Tamu " + pengguna.ID[:8]
 	if _, err := tx.Exec(`UPDATE pengguna SET nama = $1 WHERE id = $2`, pengguna.Nama, pengguna.ID); err != nil {
 		return model.Pengguna{}, err
 	}

@@ -60,7 +60,7 @@ def muat():
 
     return Config(
         host=ambil("AGENT_HOST", "127.0.0.1"),
-        port=ambil_angka("AGENT_PORT", 8082),
+        port=ambil_angka("AGENT_PORT", ambil_angka("PORT", 8082)),
         api_key=ambil("AGENT_API_KEY"),
         llm_provider=ambil("LLM_PROVIDER", "aws").lower(),
         aws_auth_mode=ambil("AWS_AUTH_MODE", "iam").lower(),
@@ -74,7 +74,7 @@ def muat():
         local_url=ambil("LOCAL_URL", "http://127.0.0.1:11434/v1"),
         local_model=ambil("LOCAL_MODEL"),
         tavily_api_key=ambil("TAVILY_API_KEY"),
-        maks_langkah=ambil_angka("AGENT_MAKS_LANGKAH", 4),
+        maks_langkah=ambil_angka("AGENT_MAKS_LANGKAH", 6),
         maks_baca_url=ambil_angka("AGENT_MAKS_BACA_URL", 3),
         batas_waktu=ambil_angka("AGENT_BATAS_WAKTU_DETIK", 15),
         domain_diblokir=diblokir,

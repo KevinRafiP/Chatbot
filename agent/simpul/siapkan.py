@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from pengaman.aturan import minta_internet, periksa_pertanyaan
+from pengaman.aturan import batas_sumber, minta_internet, periksa_pertanyaan, permintaan_merusak
 
 MAKS_RIWAYAT = 10
 
@@ -14,12 +14,22 @@ def buat_siapkan(kotak_alat):
 
     def siapkan(keadaan):
         pertanyaan = periksa_pertanyaan(keadaan.get("pertanyaan"))
-        boleh_internet = minta_internet(pertanyaan) or not keadaan.get("konteks")
-
         keadaan["pertanyaan"] = pertanyaan
+        keadaan["ditolak"] = permintaan_merusak(pertanyaan)
+        if keadaan["ditolak"]:
+            return keadaan
+
+        boleh_internet = minta_internet(pertanyaan) or not keadaan.get("konteks")
+        minimal, maksimal = batas_sumber(pertanyaan)
+        pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal)
+
         keadaan["deklarasi"] = kotak_alat.deklarasi() if boleh_internet else None
-        keadaan["isi"] = susun_isi(keadaan.get("riwayat"), susun_pesan(pertanyaan, keadaan.get("konteks")))
-        keadaan["catatan"] = {"sumber": sumber_internal(keadaan.get("konteks")), "jumlah_baca": 0}
+        keadaan["isi"] = susun_isi(keadaan.get("riwayat"), pesan)
+        keadaan["catatan"] = {
+            "sumber": sumber_internal(keadaan.get("konteks")),
+            "jumlah_baca": 0,
+            "maks_sumber_luar": maksimal,
+        }
         keadaan["putaran_llm"] = 0
         return keadaan
 
@@ -33,7 +43,7 @@ def susun_isi(riwayat, pesan_baru):
         teks = str(pesan.get("teks", "")).strip()
         if teks:
             peran = "assistant" if pesan.get("peran") == "asisten" else "user"
-            daftar.append((peran, teks[:2000]))
+            daftar.append((peran, teks[:1000]))
     daftar.append(("user", pesan_baru))
 
     hasil = []
@@ -46,17 +56,24 @@ def susun_isi(riwayat, pesan_baru):
             hasil.append({"role": peran, "content": [{"text": teks}]})
     return hasil
 
+
 def sumber_internal(konteks):
     """Mendaftarkan data internal sebagai sumber nomor 1, 2, dst. sesuai urutannya di pesan."""
     return [{"judul": str(item.get("judul", "")), "url": ""} for item in (konteks or [])[:MAKS_KONTEKS]]
 
-def susun_pesan(pertanyaan, konteks):
-    tanggal = f"Tanggal hari ini: {datetime.now(ZONA_WIB):%Y-%m-%d}"
-    if not konteks:
-        return f"{tanggal}\n\nData internal: (tidak ada data yang cocok)\n\nPertanyaan: {pertanyaan}"
 
-    baris = [tanggal, "Data internal:"]
-    for i, item in enumerate(konteks[:5], start=1):
-        baris.append(f"[{i}] {item.get('judul', '')}\n{item.get('isi', '')}")
-    baris.append(f"\nPertanyaan: {pertanyaan}")
+def susun_pesan(pertanyaan, konteks, minimal, maksimal):
+    tanggal = f"Tanggal hari ini: {datetime.now(ZONA_WIB):%Y-%m-%d}"
+    aturan_sumber = f"Sumber luar: paling banyak {maksimal}."
+    if minimal:
+        aturan_sumber = f"Sumber luar: minimal {minimal}, paling banyak {maksimal}."
+
+    baris = [tanggal, aturan_sumber]
+    if not konteks:
+        baris.append("Data internal: (tidak ada data yang cocok)")
+    else:
+        baris.append("Data internal:")
+        for i, item in enumerate(konteks[:MAKS_KONTEKS], start=1):
+            baris.append(f"[{i}] {item.get('judul', '')}\n{item.get('isi', '')}")
+    baris.append(f"Pertanyaan: {pertanyaan}")
     return "\n\n".join(baris)

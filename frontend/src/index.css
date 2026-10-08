@@ -138,8 +138,12 @@ body {
   color: #4b5563;
 }
 
-.sources summary {
-  cursor: pointer;
+.sources-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .sources ol {

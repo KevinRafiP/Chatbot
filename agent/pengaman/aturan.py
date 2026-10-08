@@ -4,7 +4,10 @@ import socket
 from urllib.parse import urlparse
 
 BATAS_PERTANYAAN = 2000
-BATAS_TEKS_WEB = 6000
+BATAS_TEKS_WEB = 3000
+SUMBER_BAWAAN = 2
+SUMBER_TERBANYAK = 10
+TAMBAHAN_DARI_MINIMAL = 3
 
 KATA_MINTA_INTERNET = [
     "internet", "web", "online", "google", "browsing", "telusuri", "searching",
@@ -12,6 +15,22 @@ KATA_MINTA_INTERNET = [
 ]
 
 POLA_URL = re.compile(r"https?://\S+", re.IGNORECASE)
+
+POLA_KATA_SUMBER = re.compile(r"\b(sumber|referensi|rujukan|link|tautan)")
+POLA_MINIMAL = re.compile(r"\b(?:minimal|minimum|min|paling sedikit|setidaknya|sedikitnya)\.?\s*(\d{1,2})\b")
+POLA_MAKSIMAL = re.compile(r"\b(?:maksimal|maksimum|maks|max|paling banyak)\.?\s*(\d{1,2})\b")
+POLA_JUMLAH = re.compile(r"\b(\d{1,2})\s*(?:sumber|referensi|rujukan|link|tautan)")
+
+POLA_MERUSAK = [re.compile(pola) for pola in (
+    r"\b(abaikan|lupakan|hiraukan|ignore|disregard|forget)\b.{0,40}\b(instruksi|perintah|aturan|arahan|instructions?|rules?|prompt)\b",
+    r"\b(system prompt|prompt sistem|instruksi sistem)\b",
+    r"\b(drop|truncate)\s+(table|database)\b",
+    r"\bdelete\s+from\b",
+    r"\brm\s+-rf\b",
+    r"\b(hapus|kosongkan|rusak|hancurkan|musnahkan)\b.{0,40}\b(database|basis data|tabel|sistem|server|algoritma|semua data|seluruh data)\b",
+    r"\b(matikan|nonaktifkan|lewati|bypass)\b.{0,40}\b(pengaman|filter|batasan|aturan|guard ?rail)\b",
+    r"\b(jailbreak|developer mode|mode pengembang)\b",
+)]
 
 
 class GalatPengaman(Exception):
@@ -34,6 +53,32 @@ def minta_internet(teks):
         return True
     return any(kata in kecil for kata in KATA_MINTA_INTERNET)
 
+def permintaan_merusak(teks):
+    """True jika pesan berusaha membatalkan aturan agent atau merusak data dan sistem."""
+    kecil = teks.lower()
+    return any(pola.search(kecil) for pola in POLA_MERUSAK)
+
+
+def batas_sumber(teks):
+    """Membaca permintaan jumlah sumber luar dan mengembalikan (minimal, maksimal)."""
+    kecil = teks.lower()
+    if not POLA_KATA_SUMBER.search(kecil):
+        return 0, SUMBER_BAWAAN
+
+    minimal = angka_pertama(POLA_MINIMAL, kecil)
+    maksimal = angka_pertama(POLA_MAKSIMAL, kecil)
+    if minimal is None and maksimal is None:
+        maksimal = angka_pertama(POLA_JUMLAH, kecil)
+    if maksimal is None:
+        maksimal = SUMBER_BAWAAN if minimal is None else minimal + TAMBAHAN_DARI_MINIMAL
+
+    maksimal = max(1, min(maksimal, SUMBER_TERBANYAK))
+    return min(minimal or 0, maksimal), maksimal
+
+
+def angka_pertama(pola, teks):
+    cocok = pola.search(teks)
+    return int(cocok.group(1)) if cocok else None
 
 def domain_diblokir(host, daftar_blokir):
     host = host.lower()

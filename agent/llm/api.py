@@ -36,13 +36,13 @@ def ke_format_api(giliran):
     """Mengubah satu giliran berbentuk internal (content berisi text/toolUse/toolResult) ke pesan format OpenAI."""
     isi = giliran.get("content", [])
     hasil_alat = [b["toolResult"] for b in isi if "toolResult" in b]
-    if hasil_alat:
-        return [{"role": "tool", "tool_call_id": h["toolUseId"], "content": h["content"][0]["text"]}
-                for h in hasil_alat]
-
     teks = "".join(b.get("text", "") for b in isi)
-    if giliran["role"] != "assistant":
-        return [{"role": "user", "content": teks}]
+    if hasil_alat:
+        pesan = [{"role": "tool", "tool_call_id": h["toolUseId"], "content": h["content"][0]["text"]}
+                 for h in hasil_alat]
+        if teks:
+            pesan.append({"role": "user", "content": teks})
+        return pesan
 
     pesan = {"role": "assistant", "content": teks or None}
     panggilan = [b["toolUse"]["asli"] for b in isi if "toolUse" in b]

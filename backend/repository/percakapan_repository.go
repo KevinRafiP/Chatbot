@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
 	"strings"
 
 	"chatbot/backend/model"
@@ -16,7 +17,7 @@ func BaruPercakapanRepository(db *sql.DB) *PercakapanRepository {
 }
 
 // Semua mengambil percakapan milik satu pengguna, yang terbaru di atas
-func (r *PercakapanRepository) Semua(penggunaID int64) ([]model.Percakapan, error) {
+func (r *PercakapanRepository) Semua(penggunaID string) ([]model.Percakapan, error) {
 	rows, err := r.db.Query(`SELECT id, judul, diperbarui_pada FROM percakapan
 		WHERE pengguna_id = $1 ORDER BY diperbarui_pada DESC`, penggunaID)
 	if err != nil {
@@ -36,7 +37,7 @@ func (r *PercakapanRepository) Semua(penggunaID int64) ([]model.Percakapan, erro
 }
 
 // Buat membuat percakapan kosong untuk satu pengguna
-func (r *PercakapanRepository) Buat(penggunaID int64) (model.Percakapan, error) {
+func (r *PercakapanRepository) Buat(penggunaID string) (model.Percakapan, error) {
 	var p model.Percakapan
 	err := r.db.QueryRow(`INSERT INTO percakapan (pengguna_id) VALUES ($1)
 		RETURNING id, judul, diperbarui_pada`, penggunaID).Scan(&p.ID, &p.Judul, &p.DiperbaruiPada)
@@ -44,7 +45,7 @@ func (r *PercakapanRepository) Buat(penggunaID int64) (model.Percakapan, error) 
 }
 
 // Milik memeriksa apakah percakapan itu ada dan dimiliki pengguna tersebut
-func (r *PercakapanRepository) Milik(id, penggunaID int64) (bool, error) {
+func (r *PercakapanRepository) Milik(id, penggunaID string) (bool, error) {
 	var ada bool
 	err := r.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM percakapan WHERE id = $1 AND pengguna_id = $2)`,
 		id, penggunaID).Scan(&ada)
@@ -52,7 +53,7 @@ func (r *PercakapanRepository) Milik(id, penggunaID int64) (bool, error) {
 }
 
 // Hapus menghapus percakapan milik pengguna; pesannya ikut terhapus oleh ON DELETE CASCADE
-func (r *PercakapanRepository) Hapus(id, penggunaID int64) (bool, error) {
+func (r *PercakapanRepository) Hapus(id, penggunaID string) (bool, error) {
 	hasil, err := r.db.Exec(`DELETE FROM percakapan WHERE id = $1 AND pengguna_id = $2`, id, penggunaID)
 	if err != nil {
 		return false, err
@@ -62,17 +63,17 @@ func (r *PercakapanRepository) Hapus(id, penggunaID int64) (bool, error) {
 }
 
 // UbahJudul mengganti judul percakapan
-func (r *PercakapanRepository) UbahJudul(id int64, judul string) error {
+func (r *PercakapanRepository) UbahJudul(id string, judul string) error {
 	_, err := r.db.Exec(`UPDATE percakapan SET judul = $1 WHERE id = $2`, judul, id)
 	return err
 }
 
 // DaftarPesan mengambil pesan sebuah percakapan dari yang paling lama; batas 0 berarti semua, selain itu hanya N terakhir
-func (r *PercakapanRepository) DaftarPesan(percakapanID int64, batas int) ([]model.Pesan, error) {
+func (r *PercakapanRepository) DaftarPesan(percakapanID string, batas int) ([]model.Pesan, error) {
 	rows, err := r.db.Query(`SELECT id, pengirim, isi, sumber, dibuat_pada FROM (
-			SELECT id, pengirim, isi, sumber, dibuat_pada FROM pesan
-			WHERE percakapan_id = $1 ORDER BY id DESC LIMIT NULLIF($2, 0)
-		) AS terakhir ORDER BY id`, percakapanID, batas)
+			SELECT id, urutan, pengirim, isi, sumber, dibuat_pada FROM pesan
+			WHERE percakapan_id = $1 ORDER BY urutan DESC LIMIT NULLIF($2, 0)
+		) AS terakhir ORDER BY urutan`, percakapanID, batas)
 	if err != nil {
 		return nil, err
 	}
@@ -92,10 +93,18 @@ func (r *PercakapanRepository) DaftarPesan(percakapanID int64, batas int) ([]mod
 }
 
 // SimpanPesan menyimpan satu pesan beserta sumbernya dan memperbarui waktu percakapannya
-func (r *PercakapanRepository) SimpanPesan(percakapanID int64, pengirim, isi string, sumber []string) (model.Pesan, error) {
-	p := model.Pesan{Pengirim: pengirim, Isi: isi, Sumber: pecahSumber(strings.Join(sumber, "\n"))}
-	err := r.db.QueryRow(`INSERT INTO pesan (percakapan_id, pengirim, isi, sumber) VALUES ($1, $2, $3, $4)
-		RETURNING id, dibuat_pada`, percakapanID, pengirim, isi, strings.Join(p.Sumber, "\n")).Scan(&p.ID, &p.DibuatPada)
+func (r *PercakapanRepository) SimpanPesan(percakapanID string, pengirim, isi string, sumber []model.Sumber) (model.Pesan, error) {
+	if sumber == nil {
+		sumber = []model.Sumber{}
+	}
+	teksSumber, err := json.Marshal(sumber)
+	if err != nil {
+		return model.Pesan{}, err
+	}
+
+	p := model.Pesan{Pengirim: pengirim, Isi: isi, Sumber: sumber}
+	err = r.db.QueryRow(`INSERT INTO pesan (percakapan_id, pengirim, isi, sumber) VALUES ($1, $2, $3, $4)
+		RETURNING id, dibuat_pada`, percakapanID, pengirim, isi, string(teksSumber)).Scan(&p.ID, &p.DibuatPada)
 	if err != nil {
 		return model.Pesan{}, err
 	}
@@ -103,12 +112,23 @@ func (r *PercakapanRepository) SimpanPesan(percakapanID int64, pengirim, isi str
 	return p, err
 }
 
-// pecahSumber mengubah teks sumber (satu sumber per baris) menjadi daftar
-func pecahSumber(teks string) []string {
-	daftar := []string{}
+// pecahSumber membaca kolom sumber: bentuk baru berupa JSON, bentuk lama satu sumber per baris
+func pecahSumber(teks string) []model.Sumber {
+	daftar := []model.Sumber{}
+	if strings.HasPrefix(teks, "[") && json.Unmarshal([]byte(teks), &daftar) == nil {
+		return daftar
+	}
+
+	daftar = []model.Sumber{}
 	for _, baris := range strings.Split(teks, "\n") {
-		if baris = strings.TrimSpace(baris); baris != "" {
-			daftar = append(daftar, baris)
+		baris = strings.TrimSpace(baris)
+		if baris == "" {
+			continue
+		}
+		if strings.HasPrefix(baris, "http://") || strings.HasPrefix(baris, "https://") {
+			daftar = append(daftar, model.Sumber{Judul: baris, URL: baris})
+		} else {
+			daftar = append(daftar, model.Sumber{Judul: baris})
 		}
 	}
 	return daftar

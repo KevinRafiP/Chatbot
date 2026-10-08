@@ -13,13 +13,26 @@ def jawab(keadaan):
 
 def batas(keadaan):
     """Simpul akhir saat putaran LLM sudah mencapai batas."""
-    keadaan["hasil"] = hasil(keadaan, "Maaf, pencariannya terlalu panjang. Coba persempit pertanyaannya.")
+    keadaan["hasil"] = hasil(keadaan, "Maaf, saya belum menemukan jawabannya dalam batas pencarian. Coba pertanyaan yang lebih spesifik.")
     return keadaan
 
+def tolak(keadaan):
+    """Simpul akhir untuk permintaan yang ditolak pengaman; LLM tidak dipanggil sama sekali."""
+    keadaan["hasil"] = {
+        "jawaban": "Maaf, saya tidak bisa membantu permintaan itu. Saya hanya bisa menjawab pertanyaan dan mencari informasi.",
+        "sumber": [],
+        "pakai_internet": False,
+    }
+    return keadaan
+
+POLA_DAFTAR_SUMBER = re.compile(r"\n\s*(?:sumber(?: referensi)?|referensi|rujukan)\s*:.*\Z", re.IGNORECASE | re.DOTALL)
 
 def hasil(keadaan, teks):
-    semua = keadaan["catatan"]["sumber"]
-    teks, sumber = rapikan_sitasi(bersihkan_format(teks), semua)
+    catatan = keadaan["catatan"]
+    semua = catatan["sumber"]
+    if semua:
+        teks = POLA_DAFTAR_SUMBER.sub("", teks).strip()
+    teks, sumber = rapikan_sitasi(bersihkan_format(teks), semua, catatan["maks_sumber_luar"])
     return {"jawaban": teks, "sumber": sumber, "pakai_internet": any(s["url"] for s in semua)}
 
 
@@ -34,8 +47,8 @@ def bersihkan_format(teks):
     return teks.strip()
 
 
-def rapikan_sitasi(teks, semua):
-    """Menyisakan sumber yang benar-benar disitasi dan menomori ulang [n] mulai dari 1."""
+def rapikan_sitasi(teks, semua, maks_sumber_luar):
+    """Menyisakan sumber yang disitasi (sumber luar dibatasi jumlahnya) dan menomori ulang [n] mulai dari 1."""
     dipakai = []
 
     def ganti(cocok):
@@ -43,10 +56,13 @@ def rapikan_sitasi(teks, semua):
         if not 1 <= nomor <= len(semua):
             return ""
         if nomor not in dipakai:
+            luar_terpakai = sum(1 for n in dipakai if semua[n - 1]["url"])
+            if semua[nomor - 1]["url"] and luar_terpakai >= maks_sumber_luar:
+                return ""
             dipakai.append(nomor)
         return f" [{dipakai.index(nomor) + 1}]"
 
     teks = POLA_SITASI.sub(ganti, teks).strip()
     if not dipakai:
-        return teks, [s for s in semua if s["url"]]
+        return teks, [s for s in semua if s["url"]][:maks_sumber_luar]
     return teks, [semua[nomor - 1] for nomor in dipakai]

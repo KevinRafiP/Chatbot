@@ -10,10 +10,10 @@ import (
 )
 
 type HasilChat struct {
-	Jawaban       string   `json:"jawaban"`
-	Sumber        []string `json:"sumber"`
-	PakaiInternet bool     `json:"pakai_internet"`
-	Penjawab      string   `json:"penjawab"`
+	Jawaban       string         `json:"jawaban"`
+	Sumber        []model.Sumber `json:"sumber"`
+	PakaiInternet bool           `json:"pakai_internet"`
+	Penjawab      string         `json:"penjawab"`
 }
 
 type ChatbotService struct {
@@ -66,13 +66,9 @@ func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, dafta
 		return HasilChat{}, err
 	}
 
-	sumber := []string{}
+	sumber := []model.Sumber{}
 	for _, sm := range jawaban.Sumber {
-		if sm.URL != "" {
-			sumber = append(sumber, sm.URL)
-		} else {
-			sumber = append(sumber, sm.Judul)
-		}
+		sumber = append(sumber, model.Sumber{Judul: sm.Judul, URL: sm.URL})
 	}
 
 	return HasilChat{
@@ -85,12 +81,9 @@ func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, dafta
 
 func jawabDariDatabase(daftar []model.Pengetahuan) HasilChat {
 	if len(daftar) == 0 {
-		return HasilChat{Jawaban: "Maaf, saya belum punya informasi tentang itu.", Sumber: []string{}, Penjawab: "database"}
+		return HasilChat{Jawaban: "Maaf, saya belum punya informasi tentang itu.", Sumber: []model.Sumber{}, Penjawab: "database"}
 	}
 
-	sumber := []string{}
-	for _, p := range daftar {
-		sumber = append(sumber, p.Judul)
-	}
-	return HasilChat{Jawaban: daftar[0].Isi, Sumber: sumber, Penjawab: "database"}
+	sumber := []model.Sumber{{Judul: daftar[0].Judul}}
+	return HasilChat{Jawaban: daftar[0].Isi + " [1]", Sumber: sumber, Penjawab: "database"}
 }

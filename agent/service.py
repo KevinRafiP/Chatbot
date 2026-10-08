@@ -1,6 +1,6 @@
 from graf import SELESAI, Graf
 from simpul.aksi import buat_aksi
-from simpul.akhir import batas, jawab
+from simpul.akhir import batas, jawab, tolak
 from simpul.pikir import buat_pikir
 from simpul.siapkan import buat_siapkan
 
@@ -15,19 +15,24 @@ class Agen:
         graf = Graf()
         graf.tambah_simpul("siapkan", buat_siapkan(kotak_alat))
         graf.tambah_simpul("pikir", buat_pikir(klien))
-        graf.tambah_simpul("aksi", buat_aksi(kotak_alat))
+        graf.tambah_simpul("aksi", buat_aksi(kotak_alat, self.maks_langkah))
         graf.tambah_simpul("jawab", jawab)
         graf.tambah_simpul("batas", batas)
+        graf.tambah_simpul("tolak", tolak)
 
         graf.atur_awal("siapkan")
-        graf.tambah_sisi("siapkan", "pikir")
+        graf.tambah_sisi_bersyarat("siapkan", self.setelah_siapkan)
         graf.tambah_sisi_bersyarat("pikir", self.setelah_pikir)
         graf.tambah_sisi("aksi", "pikir")
         graf.tambah_sisi("jawab", SELESAI)
         graf.tambah_sisi("batas", SELESAI)
+        graf.tambah_sisi("tolak", SELESAI)
 
         graf.periksa()
         return graf
+
+    def setelah_siapkan(self, keadaan):
+        return "tolak" if keadaan["ditolak"] else "pikir"
 
     def setelah_pikir(self, keadaan):
         if not keadaan["panggilan"]:

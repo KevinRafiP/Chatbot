@@ -34,15 +34,15 @@ func BaruPercakapanService(repo *repository.PercakapanRepository, chatbot *Chatb
 	return &PercakapanService{repo: repo, chatbot: chatbot}
 }
 
-func (s *PercakapanService) Daftar(penggunaID int64) ([]model.Percakapan, error) {
+func (s *PercakapanService) Daftar(penggunaID string) ([]model.Percakapan, error) {
 	return s.repo.Semua(penggunaID)
 }
 
-func (s *PercakapanService) Buat(penggunaID int64) (model.Percakapan, error) {
+func (s *PercakapanService) Buat(penggunaID string) (model.Percakapan, error) {
 	return s.repo.Buat(penggunaID)
 }
 
-func (s *PercakapanService) Hapus(id, penggunaID int64) error {
+func (s *PercakapanService) Hapus(id, penggunaID string) error {
 	terhapus, err := s.repo.Hapus(id, penggunaID)
 	if err != nil {
 		return err
@@ -54,7 +54,7 @@ func (s *PercakapanService) Hapus(id, penggunaID int64) error {
 }
 
 // Pesan mengambil semua pesan sebuah percakapan setelah memastikan pemiliknya
-func (s *PercakapanService) Pesan(id, penggunaID int64) ([]model.Pesan, error) {
+func (s *PercakapanService) Pesan(id, penggunaID string) ([]model.Pesan, error) {
 	if err := s.pastikanMilik(id, penggunaID); err != nil {
 		return nil, err
 	}
@@ -62,7 +62,7 @@ func (s *PercakapanService) Pesan(id, penggunaID int64) ([]model.Pesan, error) {
 }
 
 // Kirim menyimpan pesan pengguna, meminta jawaban dengan riwayat percakapan, lalu menyimpan jawabannya
-func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID int64, pertanyaan string) (HasilPesan, error) {
+func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID string, pertanyaan string) (HasilPesan, error) {
 	pertanyaan = strings.TrimSpace(pertanyaan)
 	if pertanyaan == "" || len(pertanyaan) > BatasPertanyaan {
 		return HasilPesan{}, ErrDataTidakValid
@@ -105,7 +105,7 @@ func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID int64, per
 	return HasilPesan{Judul: judul, Pesan: pesan, Jawaban: jawaban}, nil
 }
 
-func (s *PercakapanService) pastikanMilik(id, penggunaID int64) error {
+func (s *PercakapanService) pastikanMilik(id, penggunaID string) error {
 	milik, err := s.repo.Milik(id, penggunaID)
 	if err != nil {
 		return err
@@ -117,13 +117,13 @@ func (s *PercakapanService) pastikanMilik(id, penggunaID int64) error {
 }
 
 // teksSumber menyusun daftar sumber bernomor untuk ditempelkan ke riwayat, agar AI bisa menjawab saat ditanya sumbernya
-func teksSumber(sumber []string) string {
+func teksSumber(sumber []model.Sumber) string {
 	if len(sumber) == 0 {
 		return ""
 	}
 	baris := []string{"\n\nSumber:"}
 	for i, s := range sumber {
-		baris = append(baris, fmt.Sprintf("[%d] %s", i+1, s))
+		baris = append(baris, strings.TrimSpace(fmt.Sprintf("[%d] %s %s", i+1, s.Judul, s.URL)))
 	}
 	return strings.Join(baris, "\n")
 }

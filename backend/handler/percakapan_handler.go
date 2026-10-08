@@ -5,7 +5,8 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"strconv"
+	"regexp"
+	"strings"
 
 	"chatbot/backend/middleware"
 	"chatbot/backend/service"
@@ -90,12 +91,14 @@ func KirimPesan(percakapan *service.PercakapanService) http.HandlerFunc {
 	}
 }
 
-// bacaID membaca {id} dari alamat; jika bukan angka, langsung membalas 400
-func bacaID(w http.ResponseWriter, r *http.Request) (int64, bool) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil || id <= 0 {
+var polaUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// bacaID membaca {id} dari alamat; jika bentuknya bukan UUID, langsung membalas 400
+func bacaID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	id := strings.ToLower(r.PathValue("id"))
+	if !polaUUID.MatchString(id) {
 		writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "id percakapan tidak valid"})
-		return 0, false
+		return "", false
 	}
 	return id, true
 }

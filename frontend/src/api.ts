@@ -2,12 +2,14 @@ const API_URL = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replac
 const TOKEN_KEY = "chatbot_token";
 
 export type Conversation = { id: number; title: string };
-export type Message = { id: number; sender: "user" | "bot"; text: string; sources: string[] };
+export type Source = { title: string; url: string };
+export type Message = { id: number; sender: "user" | "bot"; text: string; sources: Source[] };
 export type SendResult = { title: string; question: Message; answer: Message };
 
 type ApiResponse<T> = { status: string; message: string; data: T };
 type RawConversation = { id: number; judul: string };
-type RawMessage = { id: number; pengirim: "user" | "asisten"; isi: string; sumber: string[] | null };
+type RawSource = { judul: string; url: string };
+type RawMessage = { id: number; pengirim: "user" | "asisten"; isi: string; sumber: RawSource[] | null };
 type RawSendResult = { judul: string; pesan: RawMessage; jawaban: RawMessage };
 
 let token = readToken();
@@ -97,7 +99,7 @@ function toMessage(raw: RawMessage): Message {
     id: raw.id,
     sender: raw.pengirim === "user" ? "user" : "bot",
     text: raw.isi,
-    sources: raw.sumber ?? [],
+    sources: (raw.sumber ?? []).map((source) => ({ title: source.judul, url: source.url })),
   };
 }
 

@@ -28,6 +28,6 @@ def cari(kueri, api_key, daftar_blokir, batas_waktu, maks_hasil=5):
         hasil.append({
             "judul": item.get("title", ""),
             "url": url,
-            "cuplikan": potong(item.get("content", ""), 800),
+            "cuplikan": potong(item.get("content", ""), 500),
         })
     return hasil

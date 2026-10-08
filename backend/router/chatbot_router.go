@@ -2,7 +2,6 @@ package router
 
 import (
 	"net/http"
-	"strconv"
 	"time"
 
 	"chatbot/backend/handler"
@@ -37,7 +36,7 @@ func BuatChatbot(
 	}
 	// perPengguna memakai id pengguna sebagai kunci, jadi tiap pengguna punya jatah sendiri
 	perPengguna := func(r *http.Request) string {
-		return strconv.FormatInt(middleware.PenggunaDari(r.Context()).ID, 10)
+		return middleware.PenggunaDari(r.Context()).ID
 	}
 
 	mux.HandleFunc("GET /kesehatan", handler.Kesehatan)

@@ -8,36 +8,40 @@ import {
   sendMessage,
   type Conversation,
   type Message,
+  type Source,
 } from "./api";
 
-// Shows one source as a link when it is a web address, otherwise as plain text
-function Source({ value }: { value: string }) {
-  if (value.startsWith("http://") || value.startsWith("https://")) {
-    return (
-      <a href={value} target="_blank" rel="noopener noreferrer">
-        {value}
-      </a>
-    );
-  }
-  return <span>{value}</span>;
+// Shows one reference: its title, plus a link to open it when it has a web address
+function SourceItem({ source }: { source: Source }) {
+  return (
+    <li>
+      {source.title || source.url}
+      {source.url !== "" && (
+        <>
+          {" "}
+          <a href={source.url} target="_blank" rel="noopener noreferrer">
+            [Lihat Sumber]
+          </a>
+        </>
+      )}
+    </li>
+  );
 }
 
-// Shows one chat bubble with its sources, placed left or right by its sender
+// Shows one chat bubble, followed by its numbered references when it has any
 function MessageBubble({ message }: { message: Message }) {
   return (
     <div className={`bubble ${message.sender}`}>
       {message.text}
       {message.sources.length > 0 && (
-        <details className="sources">
-          <summary>Sumber ({message.sources.length})</summary>
+        <div className="sources">
+          <p className="sources-title">Sumber Referensi</p>
           <ol>
-            {message.sources.map((source) => (
-              <li key={source}>
-                <Source value={source} />
-              </li>
+            {message.sources.map((source, index) => (
+              <SourceItem key={index} source={source} />
             ))}
           </ol>
-        </details>
+        </div>
       )}
     </div>
   );

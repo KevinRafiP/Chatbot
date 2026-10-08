@@ -12,6 +12,7 @@ import (
 type Config struct {
 	AppPort             string
 	CORSOrigin          []string
+	DatabaseURL         string
 	DBHost              string
 	DBPort              string
 	DBUser              string
@@ -26,6 +27,10 @@ type Config struct {
 	IngestionPort       string
 	IngestionAPIKey     string
 	WorkerIntervalMenit int
+	EksporFolder        string
+	EksporURL           string
+	EksporKunci         string
+	EksporDriveFolder   string
 }
 
 func Muat() Config {
@@ -34,6 +39,7 @@ func Muat() Config {
 	return Config{
 		AppPort:             ambil("APP_PORT", ambil("PORT", "8080")),
 		CORSOrigin:          ambilDaftar("CORS_ORIGIN", "http://localhost:5173"),
+		DatabaseURL:         ambil("DATABASE_URL", ""),
 		DBHost:              ambil("DB_HOST", "localhost"),
 		DBPort:              ambil("DB_PORT", "5432"),
 		DBUser:              ambil("DB_USER", "postgres"),
@@ -45,16 +51,23 @@ func Muat() Config {
 		IngestionPort:       ambil("INGESTION_PORT", "8081"),
 		IngestionAPIKey:     ambil("INGESTION_API_KEY", ""),
 		WorkerIntervalMenit: ambilAngka("WORKER_INTERVAL_MENIT", 1),
+		EksporFolder:        ambil("EKSPOR_FOLDER", "ekspor"),
+		EksporURL:           ambil("EKSPOR_URL", ""),
+		EksporKunci:         ambil("EKSPOR_KUNCI", ""),
+		EksporDriveFolder:   ambil("EKSPOR_DRIVE_FOLDER", ""),
 		SesiHari:            ambilAngka("SESI_HARI", 30),
 		BatasTamuPerJam:     ambilAngka("BATAS_TAMU_PER_JAM", 60),
 		BatasPesanPerMenit:  ambilAngka("BATAS_PESAN_PER_MENIT", 20),
 	}
 }
 
+// DSN mengembalikan alamat database: DATABASE_URL bila diisi, selain itu dirakit dari bagian DB_*
 func (c Config) DSN() string {
+	if c.DatabaseURL != "" {
+		return c.DatabaseURL
+	}
 	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		c.DBHost, c.DBPort, c.DBUser, c.DBPassword, c.DBName, c.DBSSLMode)
-
 }
 
 func ambil(kunci, bawaan string) string {
