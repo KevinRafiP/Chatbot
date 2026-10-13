@@ -42,7 +42,10 @@ func main() {
 
 	sesiRepo := repository.BaruSesiRepository(db)
 	masaSesi := time.Duration(cfg.SesiHari) * 24 * time.Hour
-	sesiService := service.BaruSesiService(sesiRepo, masaSesi)
+	masaTamu := time.Duration(cfg.SesiTamuJam) * time.Hour
+	sesiService := service.BaruSesiService(sesiRepo, masaSesi, masaTamu)
+	akunService := service.BaruAkunService(repository.BaruAkunRepository(db), sesiService, cfg.EmailAdmin)
+	ingestionService := service.BaruIngestionService(pengetahuanRepo)
 	percakapanService := service.BaruPercakapanService(repository.BaruPercakapanRepository(db), chatbotService)
 
 	intervalWorker := time.Duration(cfg.WorkerIntervalMenit) * time.Minute
@@ -52,7 +55,7 @@ func main() {
 	)
 
 	mux := router.BuatChatbot(pengetahuanRepo, chatbotService, sesiService, percakapanService,
-		cfg.CORSOrigin, cfg.BatasTamuPerJam, cfg.BatasPesanPerMenit)
+		akunService, ingestionService, cfg.CORSOrigin, cfg.BatasTamuPerJam, cfg.BatasPesanPerMenit)
 
 	log.Println("chatbot jalan di http://localhost:" + cfg.AppPort)
 	log.Fatal(http.ListenAndServe(":"+cfg.AppPort, mux))

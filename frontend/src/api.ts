@@ -1,40 +1,46 @@
 const API_URL = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replace(/\/$/, "");
-const TOKEN_KEY = "chatbot_token";
+const ACCOUNT_TOKEN_KEY = "chatbot_token";
+const GUEST_TOKEN_KEY = "chatbot_guest_token";
 
-export type Conversation = { id: number; title: string };
+export type Conversation = { id: string; title: string };
 export type Source = { title: string; url: string };
-export type Message = { id: number; sender: "user" | "bot"; text: string; sources: Source[] };
+export type Message = { id: string; sender: "user" | "bot"; text: string; sources: Source[] };
 export type SendResult = { title: string; question: Message; answer: Message };
+export type Role = "tamu" | "user" | "admin";
+export type Account = { id: string; name: string; email: string; role: Role };
 
 type ApiResponse<T> = { status: string; message: string; data: T };
-type RawConversation = { id: number; judul: string };
+type RawConversation = { id: string; judul: string };
 type RawSource = { judul: string; url: string };
-type RawMessage = { id: number; pengirim: "user" | "asisten"; isi: string; sumber: RawSource[] | null };
+type RawMessage = { id: string; pengirim: "user" | "asisten"; isi: string; sumber: RawSource[] | null };
 type RawSendResult = { judul: string; pesan: RawMessage; jawaban: RawMessage };
+type RawAccount = { id: string; nama: string; jenis: Role; email?: string };
+type RawSession = { token: string; pengguna: RawAccount };
 
-let token = readToken();
+let token = readToken(localStorage, ACCOUNT_TOKEN_KEY) ?? readToken(sessionStorage, GUEST_TOKEN_KEY);
 let loginPromise: Promise<string> | null = null;
 
-// Reads the guest token saved on this device
-function readToken(): string | null {
+// Reads a saved token; storage can be blocked by the browser
+function readToken(storage: Storage, key: string): string | null {
   try {
-    return localStorage.getItem(TOKEN_KEY);
+    return storage.getItem(key);
   } catch {
     return null;
   }
 }
 
-// Keeps the guest token in memory and on this device (null removes it)
-function saveToken(value: string | null) {
+// Account tokens live in localStorage (kept after the tab closes), guest tokens in sessionStorage (gone with the tab)
+function saveToken(value: string | null, kind: "account" | "guest" = "account") {
   token = value;
   try {
-    if (value === null) {
-      localStorage.removeItem(TOKEN_KEY);
-    } else {
-      localStorage.setItem(TOKEN_KEY, value);
+    localStorage.removeItem(ACCOUNT_TOKEN_KEY);
+    sessionStorage.removeItem(GUEST_TOKEN_KEY);
+    if (value !== null) {
+      const storage = kind === "account" ? localStorage : sessionStorage;
+      storage.setItem(kind === "account" ? ACCOUNT_TOKEN_KEY : GUEST_TOKEN_KEY, value);
     }
   } catch {
-    // storage is blocked, the token then only lives until the tab is closed
+    // storage is blocked, the token then only lives in memory
   }
 }
 
@@ -45,7 +51,7 @@ async function loginGuest(): Promise<string> {
     throw new Error("Gagal masuk sebagai tamu");
   }
   const body: ApiResponse<{ token: string }> = await response.json();
-  saveToken(body.data.token);
+  saveToken(body.data.token, "guest");
   return body.data.token;
 }
 
@@ -93,6 +99,11 @@ function toConversation(raw: RawConversation): Conversation {
   return { id: raw.id, title: raw.judul };
 }
 
+// Converts a backend user into the shape used by the UI
+function toAccount(raw: RawAccount): Account {
+  return { id: raw.id, name: raw.nama, email: raw.email ?? "", role: raw.jenis };
+}
+
 // Converts a backend message into the shape used by the UI
 function toMessage(raw: RawMessage): Message {
   return {
@@ -115,20 +126,63 @@ export async function createConversation(): Promise<Conversation> {
 }
 
 // Deletes a conversation together with its messages
-export async function deleteConversation(id: number): Promise<void> {
+export async function deleteConversation(id: string): Promise<void> {
   await request<undefined>("DELETE", `/percakapan/${id}`);
 }
 
+// Renames a conversation and returns the title saved by the server
+export async function renameConversation(id: string, title: string): Promise<Conversation> {
+  return toConversation(await request<RawConversation>("PATCH", `/percakapan/${id}`, { judul: title }));
+}
+
 // Lists the messages of one conversation, oldest first
-export async function listMessages(conversationId: number): Promise<Message[]> {
+export async function listMessages(conversationId: string): Promise<Message[]> {
   const data = await request<RawMessage[]>("GET", `/percakapan/${conversationId}/pesan`);
   return data.map(toMessage);
 }
 
 // Sends a question into a conversation and returns the saved question and answer
-export async function sendMessage(conversationId: number, text: string): Promise<SendResult> {
+export async function sendMessage(conversationId: string, text: string): Promise<SendResult> {
   const data = await request<RawSendResult>("POST", `/percakapan/${conversationId}/pesan`, { pertanyaan: text });
   return { title: data.judul, question: toMessage(data.pesan), answer: toMessage(data.jawaban) };
+}
+
+// Returns who is using this device; a guest session is created when there is none
+export async function getAccount(): Promise<Account> {
+  const account = toAccount(await request<RawAccount>("GET", "/sesi"));
+  if (account.role === "tamu" && token !== null) {
+    saveToken(token, "guest");
+  }
+  return account;
+}
+
+// Registers or logs in; the current guest chats move into the account
+export async function signIn(mode: "masuk" | "daftar", email: string, password: string): Promise<Account> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token !== null) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const response = await fetch(`${API_URL}/akun/${mode}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ email, password }),
+  });
+  const result: ApiResponse<RawSession> = await response.json();
+  if (!response.ok) {
+    throw new Error(result.message);
+  }
+  saveToken(result.data.token, "account");
+  return toAccount(result.data.pengguna);
+}
+
+// Admin only: saves one entry into the internal data used by the chatbot
+export async function addKnowledge(title: string, content: string, keywords: string): Promise<void> {
+  await request<unknown>("POST", "/admin/pengetahuan", { judul: title, isi: content, kata_kunci: keywords });
+}
+
+// Admin only: turns a registered account into an admin
+export async function makeAdmin(email: string): Promise<void> {
+  await request<unknown>("POST", "/admin/admin", { email });
 }
 
 // Deletes this device's login session from the backend and from the device

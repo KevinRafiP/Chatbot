@@ -51,6 +51,32 @@ func HapusPercakapan(percakapan *service.PercakapanService) http.HandlerFunc {
 	}
 }
 
+// GantiNamaPercakapan: PATCH /percakapan/{id} dengan body {"judul": "..."}
+func GantiNamaPercakapan(percakapan *service.PercakapanService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := bacaID(w, r)
+		if !ok {
+			return
+		}
+
+		var permintaan struct {
+			Judul string `json:"judul"`
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+		if err := json.NewDecoder(r.Body).Decode(&permintaan); err != nil {
+			writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "body JSON tidak valid"})
+			return
+		}
+
+		hasil, err := percakapan.GantiNama(id, middleware.PenggunaDari(r.Context()).ID, permintaan.Judul)
+		if err != nil {
+			gagalPercakapan(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, Response{Status: "sukses", Message: "judul percakapan diganti", Data: hasil})
+	}
+}
+
 // DaftarPesan: GET /percakapan/{id}/pesan
 func DaftarPesan(percakapan *service.PercakapanService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -110,6 +136,8 @@ func gagalPercakapan(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusNotFound, Response{Status: "gagal", Message: "percakapan tidak ditemukan"})
 	case errors.Is(err, service.ErrDataTidakValid):
 		writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "pertanyaan wajib diisi, maksimal 2000 huruf"})
+	case errors.Is(err, service.ErrJudulTidakValid):
+		writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "judul wajib diisi, maksimal 100 huruf"})
 	default:
 		log.Println("error percakapan:", err)
 		writeJSON(w, http.StatusInternalServerError, Response{Status: "gagal", Message: "server sedang bermasalah"})

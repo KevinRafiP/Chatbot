@@ -68,6 +68,14 @@ func (r *PercakapanRepository) UbahJudul(id string, judul string) error {
 	return err
 }
 
+// GantiJudul mengganti judul percakapan milik pengguna; sql.ErrNoRows bila percakapan tidak ada
+func (r *PercakapanRepository) GantiJudul(id, penggunaID, judul string) (model.Percakapan, error) {
+	var p model.Percakapan
+	err := r.db.QueryRow(`UPDATE percakapan SET judul = $1 WHERE id = $2 AND pengguna_id = $3
+		RETURNING id, judul, diperbarui_pada`, judul, id, penggunaID).Scan(&p.ID, &p.Judul, &p.DiperbaruiPada)
+	return p, err
+}
+
 // DaftarPesan mengambil pesan sebuah percakapan dari yang paling lama; batas 0 berarti semua, selain itu hanya N terakhir
 func (r *PercakapanRepository) DaftarPesan(percakapanID string, batas int) ([]model.Pesan, error) {
 	rows, err := r.db.Query(`SELECT id, pengirim, isi, sumber, dibuat_pada FROM (

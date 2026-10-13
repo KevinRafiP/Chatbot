@@ -1,0 +1,2 @@
+ALTER TABLE pengguna ADD COLUMN email TEXT UNIQUE;
+ALTER TABLE pengguna ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';

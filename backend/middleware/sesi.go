@@ -33,6 +33,17 @@ func WajibSesi(sesi *service.SesiService, berikutnya http.Handler) http.Handler 
 	})
 }
 
+// WajibAdmin hanya meneruskan request dari akun admin; dipasang di dalam WajibSesi
+func WajibAdmin(berikutnya http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if PenggunaDari(r.Context()).Jenis != "admin" {
+			tolak(w, http.StatusForbidden, "khusus admin")
+			return
+		}
+		berikutnya.ServeHTTP(w, r)
+	})
+}
+
 // AmbilToken membaca token dari header "Authorization: Bearer <token>"
 func AmbilToken(r *http.Request) string {
 	token, ada := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")

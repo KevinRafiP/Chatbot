@@ -9,7 +9,7 @@ ALAMAT_TAVILY = "https://api.tavily.com/search"
 
 def cari(kueri, api_key, daftar_blokir, batas_waktu, maks_hasil=5):
     """Mencari di internet lewat Tavily dan mengembalikan daftar hasil singkat."""
-    badan = {"query": kueri[:300], "max_results": maks_hasil, "search_depth": "basic"}
+    badan = {"query": kueri[:300], "max_results": maks_hasil, "search_depth": "advanced"}
     permintaan = urllib.request.Request(
         ALAMAT_TAVILY,
         data=json.dumps(badan).encode("utf-8"),
@@ -28,6 +28,6 @@ def cari(kueri, api_key, daftar_blokir, batas_waktu, maks_hasil=5):
         hasil.append({
             "judul": item.get("title", ""),
             "url": url,
-            "cuplikan": potong(item.get("content", ""), 500),
+            "cuplikan": potong(item.get("content", ""), 1500),
         })
     return hasil

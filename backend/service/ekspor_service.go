@@ -65,13 +65,13 @@ func (s *EksporService) susun(waktu time.Time) (string, error) {
 		}
 
 		fmt.Fprintf(&b, "\n## %s (%d baris)\n\n", tabel.Nama, len(baris))
-		b.WriteString("| " + strings.Join(tabel.Kolom, " | ") + " |\n")
-		b.WriteString("|" + strings.Repeat(" --- |", len(tabel.Kolom)) + "\n")
+		fmt.Fprintf(&b, "| %s |\n", strings.Join(tabel.Kolom, " | "))
+		fmt.Fprintf(&b, "|%s\n", strings.Repeat(" --- |", len(tabel.Kolom)))
 		for _, nilai := range baris {
 			for i := range nilai {
 				nilai[i] = rapikanSel(nilai[i])
 			}
-			b.WriteString("| " + strings.Join(nilai, " | ") + " |\n")
+			fmt.Fprintf(&b, "| %s |\n", strings.Join(nilai, " | "))
 		}
 	}
 	return b.String(), nil

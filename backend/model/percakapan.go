@@ -6,6 +6,7 @@ type Pengguna struct {
 	ID    string `json:"id"`
 	Nama  string `json:"nama"`
 	Jenis string `json:"jenis"`
+	Email string `json:"email,omitempty"`
 }
 
 type Percakapan struct {

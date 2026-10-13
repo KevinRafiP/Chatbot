@@ -49,8 +49,16 @@ func (r *SesiRepository) CariPengguna(tokenHash string) (model.Pengguna, error) 
 		UPDATE sesi_login s SET terakhir_dipakai = NOW()
 		FROM pengguna p
 		WHERE p.id = s.pengguna_id AND s.token_hash = $1 AND s.kedaluwarsa_pada > NOW()
-		RETURNING p.id, p.nama, p.jenis`, tokenHash).Scan(&pengguna.ID, &pengguna.Nama, &pengguna.Jenis)
+		RETURNING p.id, p.nama, p.jenis, COALESCE(p.email, '')`, tokenHash).
+		Scan(&pengguna.ID, &pengguna.Nama, &pengguna.Jenis, &pengguna.Email)
 	return pengguna, err
+}
+
+// BuatSesi membuat sesi login baru untuk pengguna yang sudah ada
+func (r *SesiRepository) BuatSesi(penggunaID, tokenHash, perangkat string, kedaluwarsa time.Time) error {
+	_, err := r.db.Exec(`INSERT INTO sesi_login (pengguna_id, token_hash, perangkat, kedaluwarsa_pada) VALUES ($1, $2, $3, $4)`,
+		penggunaID, tokenHash, perangkat, kedaluwarsa)
+	return err
 }
 
 // Hapus menghapus satu sesi login berdasarkan token-nya

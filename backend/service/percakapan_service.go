@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -12,12 +13,16 @@ import (
 )
 
 const (
-	BatasRiwayat    = 10
-	BatasPertanyaan = 2000
-	BatasJudul      = 40
+	BatasRiwayat     = 10
+	BatasPertanyaan  = 2000
+	BatasJudul       = 40
+	BatasJudulManual = 100
 )
 
-var ErrPercakapanTidakAda = errors.New("percakapan tidak ditemukan")
+var (
+	ErrPercakapanTidakAda = errors.New("percakapan tidak ditemukan")
+	ErrJudulTidakValid    = errors.New("judul tidak valid")
+)
 
 type HasilPesan struct {
 	Judul   string      `json:"judul"`
@@ -51,6 +56,19 @@ func (s *PercakapanService) Hapus(id, penggunaID string) error {
 		return ErrPercakapanTidakAda
 	}
 	return nil
+}
+
+// GantiNama mengganti judul percakapan dengan judul pilihan pengguna
+func (s *PercakapanService) GantiNama(id, penggunaID, judul string) (model.Percakapan, error) {
+	judul = strings.TrimSpace(judul)
+	if judul == "" || len([]rune(judul)) > BatasJudulManual {
+		return model.Percakapan{}, ErrJudulTidakValid
+	}
+	hasil, err := s.repo.GantiJudul(id, penggunaID, judul)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Percakapan{}, ErrPercakapanTidakAda
+	}
+	return hasil, err
 }
 
 // Pesan mengambil semua pesan sebuah percakapan setelah memastikan pemiliknya
