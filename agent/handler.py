@@ -20,7 +20,7 @@ def buat_penangan(agen, api_key):
             self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
 
         def do_POST(self):
-            if self.path != "/jawab":
+            if self.path not in ("/jawab", "/ringkas"):
                 self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
                 return
 
@@ -42,7 +42,10 @@ def buat_penangan(agen, api_key):
                 return
 
             try:
-                hasil = agen.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"))
+                if self.path == "/ringkas":
+                    hasil = {"ingatan": agen.ringkas(data.get("ingatan"), data.get("riwayat"))}
+                else:
+                    hasil = agen.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"))
             except GalatPengaman as galat:
                 self.kirim_json(400, {"status": "gagal", "message": str(galat)})
                 return

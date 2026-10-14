@@ -46,7 +46,8 @@ func main() {
 	sesiService := service.BaruSesiService(sesiRepo, masaSesi, masaTamu)
 	akunService := service.BaruAkunService(repository.BaruAkunRepository(db), sesiService, cfg.EmailAdmin)
 	ingestionService := service.BaruIngestionService(pengetahuanRepo)
-	percakapanService := service.BaruPercakapanService(repository.BaruPercakapanRepository(db), chatbotService)
+	ingatanService := service.BaruIngatanService(repository.BaruIngatanRepository(db), klienAgen)
+	percakapanService := service.BaruPercakapanService(repository.BaruPercakapanRepository(db), chatbotService, ingatanService)
 
 	intervalWorker := time.Duration(cfg.WorkerIntervalMenit) * time.Minute
 	worker.JalankanSemua(context.Background(),
@@ -54,9 +55,27 @@ func main() {
 		worker.BaruPembersihSesi(sesiRepo, time.Hour),
 	)
 
+	batas := router.Batas{
+		TamuPerJam:       cfg.BatasTamuPerJam,
+		AkunPerMenit:     cfg.BatasAkunPerMenit,
+		PesanPerMenit:    cfg.BatasPesanPerMenit,
+		PesanGlobalMenit: cfg.BatasPesanGlobal,
+		PesanTamu:        cfg.BatasPesanTamu,
+		MasaTamu:         masaTamu,
+	}
 	mux := router.BuatChatbot(pengetahuanRepo, chatbotService, sesiService, percakapanService,
-		akunService, ingestionService, cfg.CORSOrigin, cfg.BatasTamuPerJam, cfg.BatasPesanPerMenit)
+		akunService, ingestionService, cfg.CORSOrigin, batas)
 
+	// batas waktu membaca request mencegah koneksi lambat (slowloris) menahan server terlalu lama;
+	// WriteTimeout tidak dipasang karena jawaban agent bisa butuh lebih dari satu menit
+	server := &http.Server{
+		Addr:              ":" + cfg.AppPort,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    16 << 10,
+	}
 	log.Println("chatbot jalan di http://localhost:" + cfg.AppPort)
-	log.Fatal(http.ListenAndServe(":"+cfg.AppPort, mux))
+	log.Fatal(server.ListenAndServe())
 }

@@ -192,7 +192,7 @@ export function AccountMenu({ account, open, onToggle, onChoose, onLogout }: Acc
       {open && (
         <div className="dropdown" role="menu">
           <p className="account-info">
-            {guest ? "Tamu: percakapan hilang saat tab ditutup" : account.email}
+            {guest ? "Tamu: percakapan tidak disimpan" : account.email}
             {account?.role === "admin" && <span className="badge">admin</span>}
           </p>
           {guest && (

@@ -21,6 +21,7 @@ class Config:
     api_model: str
     local_url: str
     local_model: str
+    local_api_key: str
     tavily_api_key: str
     maks_langkah: int
     maks_baca_url: int
@@ -57,12 +58,20 @@ def muat():
     baca_env(FOLDER_AGENT / ".env")
 
     diblokir = [d.strip().lower() for d in ambil("AGENT_DOMAIN_DIBLOKIR").split(",") if d.strip()]
+    
+    provider = ambil("LLM_PROVIDER", "aws").lower()
+    maks_langkah = ambil_angka("AGENT_MAKS_LANGKAH", 6)
+    maks_baca_url = ambil_angka("AGENT_MAKS_BACA_URL", 3)
+    if provider == "local":
+        # model di laptop lebih lambat, jadi jumlah langkah dan halaman yang dibaca dibatasi tersendiri
+        maks_langkah = ambil_angka("LOCAL_MAKS_LANGKAH", 3)
+        maks_baca_url = ambil_angka("LOCAL_MAKS_BACA_URL", 1)
 
     return Config(
         host=ambil("AGENT_HOST", "127.0.0.1"),
         port=ambil_angka("AGENT_PORT", ambil_angka("PORT", 8082)),
         api_key=ambil("AGENT_API_KEY"),
-        llm_provider=ambil("LLM_PROVIDER", "aws").lower(),
+        llm_provider=provider,
         aws_auth_mode=ambil("AWS_AUTH_MODE", "iam").lower(),
         aws_access_key_id=ambil("AWS_ACCESS_KEY_ID"),
         aws_secret_access_key=ambil("AWS_SECRET_ACCESS_KEY"),
@@ -73,9 +82,10 @@ def muat():
         api_model=ambil("API_MODEL"),
         local_url=ambil("LOCAL_URL", "http://127.0.0.1:11434/v1"),
         local_model=ambil("LOCAL_MODEL"),
+        local_api_key=ambil("LOCAL_API_KEY"),
         tavily_api_key=ambil("TAVILY_API_KEY"),
-        maks_langkah=ambil_angka("AGENT_MAKS_LANGKAH", 6),
-        maks_baca_url=ambil_angka("AGENT_MAKS_BACA_URL", 3),
+        maks_langkah=maks_langkah,
+        maks_baca_url=maks_baca_url,
         batas_waktu=ambil_angka("AGENT_BATAS_WAKTU_DETIK", 15),
         domain_diblokir=diblokir,
     )

@@ -33,10 +33,11 @@ type HasilPesan struct {
 type PercakapanService struct {
 	repo    *repository.PercakapanRepository
 	chatbot *ChatbotService
+	ingatan *IngatanService
 }
 
-func BaruPercakapanService(repo *repository.PercakapanRepository, chatbot *ChatbotService) *PercakapanService {
-	return &PercakapanService{repo: repo, chatbot: chatbot}
+func BaruPercakapanService(repo *repository.PercakapanRepository, chatbot *ChatbotService, ingatan *IngatanService) *PercakapanService {
+	return &PercakapanService{repo: repo, chatbot: chatbot, ingatan: ingatan}
 }
 
 func (s *PercakapanService) Daftar(penggunaID string) ([]model.Percakapan, error) {
@@ -103,7 +104,8 @@ func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID string, pe
 		return HasilPesan{}, err
 	}
 
-	hasil, err := s.chatbot.Jawab(ctx, pertanyaan, riwayat)
+	ingatan, waktunya := s.ingatan.Ambil(penggunaID)
+	hasil, err := s.chatbot.Jawab(ctx, pertanyaan, riwayat, ingatan)
 	if err != nil {
 		return HasilPesan{}, err
 	}
@@ -111,6 +113,11 @@ func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID string, pe
 	jawaban, err := s.repo.SimpanPesan(id, "asisten", hasil.Jawaban, hasil.Sumber)
 	if err != nil {
 		return HasilPesan{}, err
+	}
+
+	if waktunya {
+		terbaru := append(riwayat, agen.Riwayat{Peran: "user", Teks: pertanyaan}, agen.Riwayat{Peran: "asisten", Teks: hasil.Jawaban})
+		s.ingatan.PerbaruiNanti(penggunaID, ingatan, terbaru)
 	}
 
 	judul := ""

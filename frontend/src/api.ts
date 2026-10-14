@@ -16,9 +16,24 @@ type RawMessage = { id: string; pengirim: "user" | "asisten"; isi: string; sumbe
 type RawSendResult = { judul: string; pesan: RawMessage; jawaban: RawMessage };
 type RawAccount = { id: string; nama: string; jenis: Role; email?: string };
 type RawSession = { token: string; pengguna: RawAccount };
+type RawAnswer = { jawaban: string; sumber: RawSource[] | null };
 
-let token = readToken(localStorage, ACCOUNT_TOKEN_KEY) ?? readToken(sessionStorage, GUEST_TOKEN_KEY);
+// Render free puts the backend to sleep; these are the waits before each new try while it wakes up
+const RETRY_DELAYS_MS = [5000, 10000, 20000, 30000];
+
+// Error with the HTTP status, so the UI can tell a guest limit or rate limit from other failures
+export class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+let token = readToken(localStorage, ACCOUNT_TOKEN_KEY) ?? readToken(localStorage, GUEST_TOKEN_KEY);
 let loginPromise: Promise<string> | null = null;
+let wakingListener: ((waking: boolean) => void) | null = null;
 
 // Reads a saved token; storage can be blocked by the browser
 function readToken(storage: Storage, key: string): string | null {
@@ -29,24 +44,58 @@ function readToken(storage: Storage, key: string): string | null {
   }
 }
 
-// Account tokens live in localStorage (kept after the tab closes), guest tokens in sessionStorage (gone with the tab)
+// Both tokens live in localStorage; the guest token is kept too, so closing the tab does not reset the guest message limit
 function saveToken(value: string | null, kind: "account" | "guest" = "account") {
   token = value;
   try {
     localStorage.removeItem(ACCOUNT_TOKEN_KEY);
-    sessionStorage.removeItem(GUEST_TOKEN_KEY);
+    localStorage.removeItem(GUEST_TOKEN_KEY);
     if (value !== null) {
-      const storage = kind === "account" ? localStorage : sessionStorage;
-      storage.setItem(kind === "account" ? ACCOUNT_TOKEN_KEY : GUEST_TOKEN_KEY, value);
+      localStorage.setItem(kind === "account" ? ACCOUNT_TOKEN_KEY : GUEST_TOKEN_KEY, value);
     }
   } catch {
     // storage is blocked, the token then only lives in memory
   }
 }
 
+// Lets the UI show a notice while the backend is waking up
+export function onServerWaking(listener: ((waking: boolean) => void) | null) {
+  wakingListener = listener;
+}
+
+// A sleeping backend makes fetch fail or answer 502/503/504, so wait and try again a few times
+async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const lastTry = attempt >= RETRY_DELAYS_MS.length;
+    try {
+      const response = await fetch(url, init);
+      if (lastTry || ![502, 503, 504].includes(response.status)) {
+        wakingListener?.(false);
+        return response;
+      }
+    } catch (error) {
+      if (lastTry) {
+        wakingListener?.(false);
+        throw error;
+      }
+    }
+    wakingListener?.(true);
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+  }
+}
+
+// Wakes the backend up as soon as the page opens, before the first real request
+export async function warmUp(): Promise<void> {
+  try {
+    await fetchWithRetry(`${API_URL}/kesehatan`);
+  } catch {
+    // the next request will try again
+  }
+}
+
 // Asks the backend for a new guest session
 async function loginGuest(): Promise<string> {
-  const response = await fetch(`${API_URL}/sesi/tamu`, { method: "POST" });
+  const response = await fetchWithRetry(`${API_URL}/sesi/tamu`, { method: "POST" });
   if (!response.ok) {
     throw new Error("Gagal masuk sebagai tamu");
   }
@@ -68,7 +117,7 @@ function ensureToken(): Promise<string> {
   return loginPromise;
 }
 
-// Calls one backend endpoint with the guest token and returns its data
+// Calls one backend endpoint with the saved token and returns its data
 async function request<T>(method: string, path: string, body?: unknown, retry = true): Promise<T> {
   const currentToken = await ensureToken();
   const headers: Record<string, string> = { Authorization: `Bearer ${currentToken}` };
@@ -76,7 +125,7 @@ async function request<T>(method: string, path: string, body?: unknown, retry = 
     headers["Content-Type"] = "application/json";
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetchWithRetry(`${API_URL}${path}`, {
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -89,7 +138,7 @@ async function request<T>(method: string, path: string, body?: unknown, retry = 
 
   const result: ApiResponse<T> = await response.json();
   if (!response.ok) {
-    throw new Error(result.message);
+    throw new ApiError(response.status, result.message);
   }
   return result.data;
 }
@@ -114,7 +163,7 @@ function toMessage(raw: RawMessage): Message {
   };
 }
 
-// Lists the conversations of this guest, newest first
+// Lists the conversations of this account, newest first
 export async function listConversations(): Promise<Conversation[]> {
   const data = await request<RawConversation[]>("GET", "/percakapan");
   return data.map(toConversation);
@@ -147,6 +196,18 @@ export async function sendMessage(conversationId: string, text: string): Promise
   return { title: data.judul, question: toMessage(data.pesan), answer: toMessage(data.jawaban) };
 }
 
+// Guest chats are not saved, so the messages on screen are sent along as history
+export async function sendGuestMessage(text: string, history: Message[]): Promise<Message> {
+  const riwayat = history.map((item) => ({ peran: item.sender === "user" ? "user" : "asisten", teks: item.text }));
+  const data = await request<RawAnswer>("POST", "/tamu/pesan", { pertanyaan: text, riwayat });
+  return {
+    id: `guest-${Date.now()}`,
+    sender: "bot",
+    text: data.jawaban,
+    sources: (data.sumber ?? []).map((source) => ({ title: source.judul, url: source.url })),
+  };
+}
+
 // Returns who is using this device; a guest session is created when there is none
 export async function getAccount(): Promise<Account> {
   const account = toAccount(await request<RawAccount>("GET", "/sesi"));
@@ -156,20 +217,20 @@ export async function getAccount(): Promise<Account> {
   return account;
 }
 
-// Registers or logs in; the current guest chats move into the account
+// Registers or logs in; the guest chat on screen is not carried into the account
 export async function signIn(mode: "masuk" | "daftar", email: string, password: string): Promise<Account> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token !== null) {
     headers.Authorization = `Bearer ${token}`;
   }
-  const response = await fetch(`${API_URL}/akun/${mode}`, {
+  const response = await fetchWithRetry(`${API_URL}/akun/${mode}`, {
     method: "POST",
     headers,
     body: JSON.stringify({ email, password }),
   });
   const result: ApiResponse<RawSession> = await response.json();
   if (!response.ok) {
-    throw new Error(result.message);
+    throw new ApiError(response.status, result.message);
   }
   saveToken(result.data.token, "account");
   return toAccount(result.data.pengguna);

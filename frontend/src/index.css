@@ -304,6 +304,13 @@ button:disabled {
   margin: 0;
 }
 
+.notice {
+  align-self: center;
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .error {
   align-self: center;
   margin: 0;

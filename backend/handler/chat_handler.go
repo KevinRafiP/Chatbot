@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 
@@ -12,22 +13,28 @@ type PermintaanChat struct {
 	Pertanyaan string `json:"pertanyaan"`
 }
 
-// Chat: POST /chat dengan body {"pertanyaan": "..."}
-func Chat(chatbot *service.ChatbotService) http.HandlerFunc {
+type PermintaanTamu struct {
+	Pertanyaan string                `json:"pertanyaan"`
+	Riwayat    []service.RiwayatTamu `json:"riwayat"`
+}
+
+// ChatTamu: POST /tamu/pesan dengan body {"pertanyaan": "...", "riwayat": [{"peran": "user", "teks": "..."}]}
+func ChatTamu(chatbot *service.ChatbotService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var permintaan PermintaanChat
+		var permintaan PermintaanTamu
+		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 		if err := json.NewDecoder(r.Body).Decode(&permintaan); err != nil {
 			writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "body JSON tidak valid"})
 			return
 		}
-		if permintaan.Pertanyaan == "" {
-			writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "pertanyaan wajib diisi"})
+
+		hasil, err := chatbot.JawabTamu(r.Context(), permintaan.Pertanyaan, permintaan.Riwayat)
+		if errors.Is(err, service.ErrDataTidakValid) {
+			writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "pertanyaan wajib diisi (maksimal 2000 huruf) dan riwayat harus valid"})
 			return
 		}
-
-		hasil, err := chatbot.Jawab(r.Context(), permintaan.Pertanyaan, nil)
 		if err != nil {
-			log.Println("error chatbot:", err)
+			log.Println("error chatbot tamu:", err)
 			writeJSON(w, http.StatusInternalServerError, Response{Status: "gagal", Message: "chatbot sedang bermasalah"})
 			return
 		}

@@ -29,7 +29,11 @@ class KlienAPI:
         pilihan = data.get("choices") or []
         if not pilihan or not pilihan[0].get("message"):
             raise GalatLLM("Layanan LLM tidak memberi jawaban")
-        return dari_format_api(pilihan[0]["message"])
+        try:
+            return dari_format_api(pilihan[0]["message"])
+        except GalatLLM as galat:
+            # info tambahan untuk melacak balasan kosong, misalnya prompt terpotong karena konteks model penuh
+            raise GalatLLM(f"{galat} (finish_reason={pilihan[0].get('finish_reason')}, usage={data.get('usage')})", galat.kode)
 
 
 def ke_format_api(giliran):
@@ -44,7 +48,7 @@ def ke_format_api(giliran):
             pesan.append({"role": "user", "content": teks})
         return pesan
 
-    pesan = {"role": "assistant", "content": teks or None}
+    pesan = {"role": giliran.get("role", "user"), "content": teks or None}
     panggilan = [b["toolUse"]["asli"] for b in isi if "toolUse" in b]
     if panggilan:
         pesan["tool_calls"] = panggilan
@@ -73,5 +77,5 @@ def dari_format_api(pesan):
         })
 
     if not isi:
-        raise GalatLLM("Layanan LLM mengirim jawaban kosong")
+        raise GalatLLM("Layanan LLM mengirim jawaban kosong", 204)
     return {"role": "assistant", "content": isi}

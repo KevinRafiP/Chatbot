@@ -32,6 +32,9 @@ type Config struct {
 	EksporKunci         string
 	EksporDriveFolder   string
 	SesiTamuJam         int
+	BatasAkunPerMenit   int
+	BatasPesanGlobal    int
+	BatasPesanTamu      int
 	EmailAdmin          []string
 }
 
@@ -58,9 +61,12 @@ func Muat() Config {
 		EksporKunci:         ambil("EKSPOR_KUNCI", ""),
 		EksporDriveFolder:   ambil("EKSPOR_DRIVE_FOLDER", ""),
 		SesiHari:            ambilAngka("SESI_HARI", 30),
-		BatasTamuPerJam:     ambilAngka("BATAS_TAMU_PER_JAM", 60),
+		BatasTamuPerJam:     ambilAngka("BATAS_TAMU_PER_JAM", 10),
 		BatasPesanPerMenit:  ambilAngka("BATAS_PESAN_PER_MENIT", 20),
-		SesiTamuJam:         ambilAngka("SESI_TAMU_JAM", 24),
+		SesiTamuJam:         ambilAngka("SESI_TAMU_JAM", 10),
+		BatasAkunPerMenit:   ambilAngka("BATAS_AKUN_PER_MENIT", 10),
+		BatasPesanGlobal:    ambilAngka("BATAS_PESAN_GLOBAL_PER_MENIT", 60),
+		BatasPesanTamu:      ambilAngka("BATAS_PESAN_TAMU", 5),
 		EmailAdmin:          ambilDaftar("ADMIN_EMAIL", ""),
 	}
 }

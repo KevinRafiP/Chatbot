@@ -59,3 +59,15 @@ func BatasiLaju(p *Pembatas, kunci func(r *http.Request) string, berikutnya http
 		berikutnya.ServeHTTP(w, r)
 	})
 }
+
+// BatasiTamu membatasi jumlah pesan tiap tamu selama masa sesinya; akun terdaftar tidak dihitung
+func BatasiTamu(p *Pembatas, berikutnya http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pengguna := PenggunaDari(r.Context())
+		if pengguna.Jenis == "tamu" && !p.Izinkan(pengguna.ID) {
+			tolak(w, http.StatusForbidden, "batas pesan tamu habis, silakan masuk untuk melanjutkan")
+			return
+		}
+		berikutnya.ServeHTTP(w, r)
+	})
+}

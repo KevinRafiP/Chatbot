@@ -1,4 +1,5 @@
 from graf import SELESAI, Graf
+from ingatan import ringkas
 from simpul.aksi import buat_aksi
 from simpul.akhir import batas, jawab, tolak
 from simpul.pikir import buat_pikir
@@ -8,6 +9,7 @@ from simpul.siapkan import buat_siapkan
 class Agen:
     def __init__(self, klien, kotak_alat, maks_langkah):
         self.maks_langkah = maks_langkah
+        self.klien = klien
         self.graf = self.rakit(klien, kotak_alat)
 
     def rakit(self, klien, kotak_alat):
@@ -41,6 +43,10 @@ class Agen:
             return "batas"
         return "aksi"
 
-    def jawab(self, pertanyaan, konteks=None, riwayat=None):
-        keadaan = self.graf.jalankan({"pertanyaan": pertanyaan, "konteks": konteks, "riwayat": riwayat})
+    def jawab(self, pertanyaan, konteks=None, riwayat=None, ingatan=None):
+        keadaan = self.graf.jalankan({"pertanyaan": pertanyaan, "konteks": konteks, "riwayat": riwayat, "ingatan": ingatan})
         return keadaan["hasil"]
+
+    def ringkas(self, ingatan_lama, riwayat):
+        """Memperbarui ingatan jangka panjang pengguna dari percakapan terbaru."""
+        return ringkas(self.klien, ingatan_lama, riwayat)

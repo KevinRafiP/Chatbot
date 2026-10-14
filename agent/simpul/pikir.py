@@ -11,9 +11,10 @@ def buat_pikir(klien):
         try:
             konten = klien.kirim(INSTRUKSI_SISTEM, keadaan["isi"], keadaan["deklarasi"])
         except GalatLLM as galat:
-            if galat.kode != 400 or not keadaan["deklarasi"] or keadaan["putaran_llm"] > 0:
+            # 400 = model menolak alat, 204 = model diam saat diberi alat (sering terjadi di model lokal kecil)
+            if galat.kode not in (400, 204) or not keadaan["deklarasi"] or keadaan["putaran_llm"] > 0:
                 raise
-            logging.warning("model menolak permintaan dengan alat, diulang tanpa alat: %s", galat)
+            logging.warning("model gagal memakai alat, diulang tanpa alat: %s", galat)
             keadaan["deklarasi"] = None
             konten = klien.kirim(INSTRUKSI_SISTEM, keadaan["isi"], None)
 

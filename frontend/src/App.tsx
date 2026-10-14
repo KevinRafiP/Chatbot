@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AccountMenu, AdminForm, AuthForm, Dialog, KnowledgeForm, type DialogName } from "./AccountMenu";
 import {
+  ApiError,
   createConversation,
   deleteConversation,
   getAccount,
   listConversations,
   listMessages,
   logout,
+  onServerWaking,
   renameConversation,
+  sendGuestMessage,
   sendMessage,
+  warmUp,
   type Account,
   type Conversation,
   type Message,
@@ -165,17 +169,22 @@ function App() {
   const [account, setAccount] = useState<Account | null>(null);
   const [dialog, setDialog] = useState<DialogName | null>(null);
   const [typingId, setTypingId] = useState<string | null>(null);
+  const [waking, setWaking] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Loads who is using this device, then their conversations, once when the page opens
+  // Wakes the server, loads who is using this device, then their saved conversations; a guest has none
   useEffect(() => {
-    getAccount()
-      .then((current) => {
+    onServerWaking(setWaking);
+    warmUp()
+      .then(getAccount)
+      .then(async (current) => {
         setAccount(current);
-        return listConversations();
+        if (current.role !== "tamu") {
+          setConversations(await listConversations());
+        }
       })
-      .then(setConversations)
       .catch(() => setError("Tidak bisa terhubung ke server."));
+    return () => onServerWaking(null);
   }, []);
 
   // Scrolls to the newest message whenever the list changes
@@ -264,10 +273,11 @@ function App() {
     setDialog(name);
   }
 
-  // After login the list also holds the chats this tab made as a guest
+  // After login the guest chat is cleared and the account's saved chats are shown
   async function handleSignedIn(current: Account) {
     setAccount(current);
     setDialog(null);
+    startNew();
     try {
       setConversations(await listConversations());
     } catch {
@@ -288,6 +298,16 @@ function App() {
     }
   }
 
+  // A guest chat lives only in this page: it is sent with its history and never saved
+  async function sendAsGuest(text: string, draftId: string) {
+    const answer = await sendGuestMessage(text, messages);
+    setMessages((current) => [
+      ...current.map((item) => (item.id === draftId ? { ...item, id: `question-${draftId}` } : item)),
+      answer,
+    ]);
+    setTypingId(answer.id);
+  }
+
   // Sends the question, waits for the answer, then shows both as saved by the server
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -303,6 +323,11 @@ function App() {
     setLoading(true);
 
     try {
+      if (isGuest) {
+        await sendAsGuest(text, draftId);
+        return;
+      }
+
       let id = activeId;
       if (id === null) {
         const created = await createConversation();
@@ -324,15 +349,26 @@ function App() {
           current.map((item) => (item.id === conversationId ? { ...item, title: result.title } : item)),
         );
       }
-    } catch {
-      setError("Pesan gagal terkirim. Coba lagi.");
+    } catch (err) {
+      setMessages((current) => current.filter((item) => item.id !== draftId));
+      setInput(text);
+      if (err instanceof ApiError && err.status === 403 && isGuest) {
+        setError(err.message);
+        openDialog("masuk");
+      } else if (err instanceof ApiError && err.status === 429) {
+        setError(err.message);
+      } else {
+        setError("Pesan gagal terkirim. Coba lagi.");
+      }
     } finally {
       setLoading(false);
     }
   }
 
-  const activeTitle = conversations.find((item) => item.id === activeId)?.title ?? "Percakapan baru";
   const isGuest = account === null || account.role === "tamu";
+  const activeTitle = isGuest
+    ? "Percakapan tamu"
+    : (conversations.find((item) => item.id === activeId)?.title ?? "Percakapan baru");
 
   return (
     <div className={`app ${sidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
@@ -347,13 +383,15 @@ function App() {
           </button>
         </div>
 
-        <button className="new-chat" onClick={startNew} disabled={loading}>
+        <button className="new-chat" onClick={isGuest ? () => openDialog("masuk") : startNew} disabled={loading}>
           + Percakapan baru
         </button>
 
         <p className="list-title">Riwayat</p>
         <ul className="conversation-list">
-          {conversations.length === 0 && <li className="list-empty">Belum ada percakapan</li>}
+          {conversations.length === 0 && (
+            <li className="list-empty">{isGuest ? "Masuk untuk menyimpan percakapan" : "Belum ada percakapan"}</li>
+          )}
           {conversations.map((item) => (
             <ConversationItem
               key={item.id}
@@ -371,11 +409,11 @@ function App() {
 
         {isGuest && (
           <p className="guest-note">
-            Percakapan tamu hilang saat tab ditutup.{" "}
+            Percakapan tamu tidak disimpan dan hilang saat halaman dimuat ulang.{" "}
             <button className="link-button" onClick={() => openDialog("masuk")}>
               Masuk
             </button>{" "}
-            untuk menyimpannya.
+            untuk menyimpan dan mengatur percakapan.
           </p>
         )}
       </aside>
@@ -416,6 +454,7 @@ function App() {
             />
           ))}
 
+          {waking && <p className="notice">Menyalakan server, mohon tunggu sebentar...</p>}
           {loading && <div className="bubble bot typing">Mengetik</div>}
           {error !== "" && <p className="error">{error}</p>}
           <div ref={bottomRef} />

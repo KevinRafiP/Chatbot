@@ -26,14 +26,14 @@ func BaruChatbotService(repo *repository.PengetahuanRepository, klienAgen *agen.
 }
 
 // Jawab mencari data di database, lalu meminta agent menyusun jawaban; jika agent gagal, pakai jawaban database
-func (s *ChatbotService) Jawab(ctx context.Context, pertanyaan string, riwayat []agen.Riwayat) (HasilChat, error) {
+func (s *ChatbotService) Jawab(ctx context.Context, pertanyaan string, riwayat []agen.Riwayat, ingatan string) (HasilChat, error) {
 	daftar, err := s.cariData(pertanyaan)
 	if err != nil {
 		return HasilChat{}, err
 	}
 
 	if s.agen != nil {
-		hasil, err := s.tanyaAgen(ctx, pertanyaan, daftar, riwayat)
+		hasil, err := s.tanyaAgen(ctx, pertanyaan, daftar, riwayat, ingatan)
 		if err == nil {
 			return hasil, nil
 		}
@@ -55,13 +55,13 @@ func (s *ChatbotService) cariData(pertanyaan string) ([]model.Pengetahuan, error
 	return s.repo.Cari(daftarKata, skorMinimal, 3)
 }
 
-func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, daftar []model.Pengetahuan, riwayat []agen.Riwayat) (HasilChat, error) {
+func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, daftar []model.Pengetahuan, riwayat []agen.Riwayat, ingatan string) (HasilChat, error) {
 	konteks := []agen.Konteks{}
 	for _, p := range daftar {
 		konteks = append(konteks, agen.Konteks{Judul: p.Judul, Isi: p.Isi})
 	}
 
-	jawaban, err := s.agen.Tanya(ctx, pertanyaan, konteks, riwayat)
+	jawaban, err := s.agen.Tanya(ctx, pertanyaan, konteks, riwayat, ingatan)
 	if err != nil {
 		return HasilChat{}, err
 	}
