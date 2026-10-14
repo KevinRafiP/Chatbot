@@ -17,7 +17,8 @@ def kirim_json(alamat, badan, header, batas_waktu, nama):
             return json.load(respon)
     except urllib.error.HTTPError as galat:
         detail = galat.read().decode("utf-8", "replace")[:300]
-        raise GalatLLM(f"{nama} menolak ({galat.code}): {detail}", galat.code)
+        jenis = galat.headers.get("x-amzn-ErrorType", "")
+        raise GalatLLM(f"{nama} menolak ({galat.code}) {jenis}: {detail}", galat.code)
     except (urllib.error.URLError, TimeoutError, ValueError) as galat:
         raise GalatLLM(f"{nama} tidak bisa dihubungi: {galat}")
 

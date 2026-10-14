@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AccountMenu, AdminForm, AuthForm, Dialog, KnowledgeForm, type DialogName } from "./AccountMenu";
+import { ScrollHandle } from "./ScrollHandle";
 import {
   ApiError,
   createConversation,
@@ -39,10 +40,10 @@ function SourceItem({ source }: { source: Source }) {
   );
 }
 
-type MessageBubbleProps = { message: Message; animate: boolean; onGrow: () => void };
+type MessageBubbleProps = { message: Message; animate: boolean };
 
-// Shows one chat bubble; a new answer is typed out bit by bit, then its references appear
-function MessageBubble({ message, animate, onGrow }: MessageBubbleProps) {
+// Shows one chat bubble; a new answer is typed out bit by bit without moving the page, then its references appear
+function MessageBubble({ message, animate }: MessageBubbleProps) {
   const [length, setLength] = useState(() =>
     animate && !window.matchMedia(REDUCED_MOTION_QUERY).matches ? 0 : message.text.length,
   );
@@ -55,10 +56,9 @@ function MessageBubble({ message, animate, onGrow }: MessageBubbleProps) {
     const step = Math.max(2, Math.ceil(message.text.length / 150));
     const timer = window.setTimeout(() => {
       setLength((current) => Math.min(current + step, message.text.length));
-      onGrow();
     }, 15);
     return () => window.clearTimeout(timer);
-  }, [length, typing, message.text.length, onGrow]);
+  }, [length, typing, message.text.length]);
   return (
     <div className={`bubble ${message.sender}`}>
       {message.text.slice(0, length)}
@@ -170,7 +170,9 @@ function App() {
   const [dialog, setDialog] = useState<DialogName | null>(null);
   const [typingId, setTypingId] = useState<string | null>(null);
   const [waking, setWaking] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLElement>(null);
 
   // Wakes the server, loads who is using this device, then their saved conversations; a guest has none
   useEffect(() => {
@@ -187,7 +189,7 @@ function App() {
     return () => onServerWaking(null);
   }, []);
 
-  // Scrolls to the newest message whenever the list changes
+  // Scrolls to the newest message when one is sent or a chat is opened, but not while an answer is being typed out
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
@@ -437,7 +439,7 @@ function App() {
           />
         </header>
 
-        <main className="chat-messages">
+        <main className="chat-messages" ref={messagesRef}>
           {messages.length === 0 && (
             <div className="empty">
               <span className="empty-logo" aria-hidden="true" />
@@ -446,12 +448,7 @@ function App() {
           )}
 
           {messages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              animate={message.id === typingId}
-              onGrow={() => bottomRef.current?.scrollIntoView({ block: "end" })}
-            />
+            <MessageBubble key={message.id} message={message} animate={message.id === typingId} />
           ))}
 
           {waking && <p className="notice">Menyalakan server, mohon tunggu sebentar...</p>}
@@ -459,11 +456,14 @@ function App() {
           {error !== "" && <p className="error">{error}</p>}
           <div ref={bottomRef} />
         </main>
+        <ScrollHandle target={messagesRef} faded={inputFocused} />
 
         <form className="chat-form" onSubmit={handleSubmit}>
           <input
             value={input}
             onChange={(event) => setInput(event.target.value)}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
             placeholder="Tulis pertanyaan..."
             maxLength={2000}
           />

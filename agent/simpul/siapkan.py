@@ -22,7 +22,7 @@ def buat_siapkan(kotak_alat):
 
         boleh_internet = minta_internet(pertanyaan) or not keadaan.get("konteks")
         minimal, maksimal = batas_sumber(pertanyaan)
-        pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal), keadaan.get("ingatan")
+        pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal, keadaan.get("ingatan"))
 
         keadaan["deklarasi"] = kotak_alat.deklarasi() if boleh_internet else None
         keadaan["isi"] = susun_isi(keadaan.get("riwayat"), pesan)

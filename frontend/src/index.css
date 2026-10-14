@@ -255,6 +255,7 @@ button:disabled {
 }
 
 .chat {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -286,6 +287,42 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.scroll-handle {
+  display: none;
+  position: absolute;
+  right: 0;
+  z-index: 5;
+  width: 24px;
+  height: 48px;
+  border-radius: 48px 0 0 48px;
+  background: var(--accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  touch-action: none;
+  transition: opacity 0.2s ease;
+}
+
+.scroll-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 9px;
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--accent-soft);
+  transform: translateY(-50%);
+}
+
+.scroll-handle.faded {
+  opacity: 0.15;
+}
+
+@media (pointer: coarse) {
+  .scroll-handle {
+    display: block;
+  }
 }
 
 .empty {
