@@ -18,8 +18,11 @@ type RawAccount = { id: string; nama: string; jenis: Role; email?: string };
 type RawSession = { token: string; pengguna: RawAccount };
 type RawAnswer = { jawaban: string; sumber: RawSource[] | null };
 
-// Render free puts the backend to sleep; these are the waits before each new try while it wakes up
-const RETRY_DELAYS_MS = [5000, 10000, 20000, 30000];
+// Render free puts the backend to sleep; these are the waits before each new try while it wakes up (about 2.5 minutes in total)
+const RETRY_DELAYS_MS = [5000, 10000, 15000, 20000, 30000, 30000, 40000];
+// Render sleeps after 15 minutes without any request, so a server that answered less than 14 minutes ago is still awake
+const AWAKE_WINDOW_MS = 14 * 60 * 1000;
+const AWAKE_AT_KEY = "chatbot_awake_at";
 
 // Error with the HTTP status, so the UI can tell a guest limit or rate limit from other failures
 export class ApiError extends Error {
@@ -71,6 +74,9 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
       const response = await fetch(url, init);
       if (lastTry || ![502, 503, 504].includes(response.status)) {
         wakingListener?.(false);
+        if (response.status < 500) {
+          markAwake();
+        }
         return response;
       }
     } catch (error) {
@@ -84,8 +90,29 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
   }
 }
 
-// Wakes the backend up as soon as the page opens, before the first real request
+// Remembers in this browser when the backend last answered
+function markAwake() {
+  try {
+    localStorage.setItem(AWAKE_AT_KEY, String(Date.now()));
+  } catch {
+    // storage is blocked, the next visit just pings again
+  }
+}
+
+// True when this browser got an answer from the backend within the last 14 minutes
+function recentlyAwake(): boolean {
+  try {
+    return Date.now() - Number(localStorage.getItem(AWAKE_AT_KEY) ?? 0) < AWAKE_WINDOW_MS;
+  } catch {
+    return false;
+  }
+}
+
+// Wakes the backend when a visitor arrives, at most once per 14 minutes per browser, so refreshing does not spam it
 export async function warmUp(): Promise<void> {
+  if (recentlyAwake()) {
+    return;
+  }
   try {
     await fetchWithRetry(`${API_URL}/kesehatan`);
   } catch {

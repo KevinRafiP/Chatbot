@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta, timezone
 
+from ingatan import pilih_ingatan
 from pengaman.aturan import batas_sumber, minta_internet, periksa_pertanyaan, permintaan_merusak
 
 MAKS_RIWAYAT = 10
 
 MAKS_KONTEKS = 10
-MAKS_INGATAN = 1500
 
 ZONA_WIB = timezone(timedelta(hours=7))
 
@@ -22,7 +22,7 @@ def buat_siapkan(kotak_alat):
 
         boleh_internet = minta_internet(pertanyaan) or not keadaan.get("konteks")
         minimal, maksimal = batas_sumber(pertanyaan)
-        pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal, keadaan.get("ingatan"))
+        pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal, pilih_ingatan(keadaan.get("ingatan"), pertanyaan, keadaan.get("riwayat")))
 
         keadaan["deklarasi"] = kotak_alat.deklarasi() if boleh_internet else None
         keadaan["isi"] = susun_isi(keadaan.get("riwayat"), pesan)
@@ -70,7 +70,6 @@ def susun_pesan(pertanyaan, konteks, minimal, maksimal, ingatan=None):
         aturan_sumber = f"Sumber luar: minimal {minimal}, paling banyak {maksimal}."
 
     baris = [tanggal, aturan_sumber]
-    ingatan = str(ingatan or "").strip()[:MAKS_INGATAN]
     if ingatan:
         baris.append(f"Ingatan tentang pengguna:\n{ingatan}")
     if not konteks:

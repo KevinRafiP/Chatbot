@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { AccountMenu, AdminForm, AuthForm, Dialog, KnowledgeForm, type DialogName } from "./AccountMenu";
 import { ScrollHandle } from "./ScrollHandle";
 import {
@@ -23,12 +23,17 @@ import {
 const MOBILE_QUERY = "(max-width: 768px)";
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
+// Only http and https links are opened, so a reference can never run a "javascript:" address
+function isWebAddress(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
 // Shows one reference: its title, plus a link to open it when it has a web address
 function SourceItem({ source }: { source: Source }) {
   return (
     <li>
       {source.title || source.url}
-      {source.url !== "" && (
+      {isWebAddress(source.url) && (
         <>
           {" "}
           <a href={source.url} target="_blank" rel="noopener noreferrer">
@@ -37,6 +42,39 @@ function SourceItem({ source }: { source: Source }) {
         </>
       )}
     </li>
+  );
+}
+
+// Copies a whole answer, including its references, so it can be pasted elsewhere
+function CopyButton({ message }: { message: Message }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    const sources = message.sources.map((source, index) => `${index + 1}. ${source.title}${source.url ? ` - ${source.url}` : ""}`);
+    const text = sources.length > 0 ? `${message.text}\n\nSumber:\n${sources.join("\n")}` : message.text;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // the browser blocked the clipboard
+    }
+  }
+
+  return (
+    <button type="button" className="copy-button" onClick={copy}>
+      {copied ? "Tersalin" : "Salin"}
+    </button>
+  );
+}
+
+// Puts the Vokapas logo beside a bot bubble, like a profile picture
+function BotRow({ children }: { children: ReactNode }) {
+  return (
+    <div className="bot-row">
+      <span className="bot-avatar" aria-hidden="true" />
+      <div className="bot-body">{children}</div>
+    </div>
   );
 }
 
@@ -59,7 +97,8 @@ function MessageBubble({ message, animate }: MessageBubbleProps) {
     }, 15);
     return () => window.clearTimeout(timer);
   }, [length, typing, message.text.length]);
-  return (
+
+  const bubble = (
     <div className={`bubble ${message.sender}`}>
       {message.text.slice(0, length)}
       {!typing && message.sources.length > 0 && (
@@ -73,6 +112,15 @@ function MessageBubble({ message, animate }: MessageBubbleProps) {
         </div>
       )}
     </div>
+  );
+  if (message.sender === "user") {
+    return bubble;
+  }
+  return (
+    <BotRow>
+      {bubble}
+      {!typing && <CopyButton message={message} />}
+    </BotRow>
   );
 }
 
@@ -186,7 +234,16 @@ function App() {
         }
       })
       .catch(() => setError("Tidak bisa terhubung ke server."));
-    return () => onServerWaking(null);
+
+    // A visitor coming back to the tab counts as a new visit: wake the server again if it may have slept
+    function wakeOnReturn() {
+      if (document.visibilityState === "visible") warmUp();
+    }
+    document.addEventListener("visibilitychange", wakeOnReturn);
+    return () => {
+      onServerWaking(null);
+      document.removeEventListener("visibilitychange", wakeOnReturn);
+    };
   }, []);
 
   // Scrolls to the newest message when one is sent or a chat is opened, but not while an answer is being typed out
@@ -452,7 +509,11 @@ function App() {
           ))}
 
           {waking && <p className="notice">Menyalakan server, mohon tunggu sebentar...</p>}
-          {loading && <div className="bubble bot typing">Mengetik</div>}
+          {loading && (
+            <BotRow>
+              <div className="bubble bot typing">Mengetik</div>
+            </BotRow>
+          )}
           {error !== "" && <p className="error">{error}</p>}
           <div ref={bottomRef} />
         </main>
