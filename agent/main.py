@@ -22,7 +22,7 @@ def main():
     if not cfg.tavily_api_key:
         logging.warning("TAVILY_API_KEY kosong: agent hanya bisa membaca URL, tidak bisa mencari")
 
-    agen = Agen(klien, KotakAlat(cfg), cfg.maks_langkah)
+    agen = Agen(klien, KotakAlat(cfg), cfg.maks_langkah, cfg.verifikasi_jawaban)
 
     server = ThreadingHTTPServer((cfg.host, cfg.port), buat_penangan(agen, cfg.api_key))
     logging.info("layanan agent jalan di http://%s:%d (%s, model %s)", cfg.host, cfg.port, cfg.llm_provider, nama_model)

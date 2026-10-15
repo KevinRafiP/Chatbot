@@ -25,6 +25,7 @@ class Config:
     tavily_api_key: str
     maks_langkah: int
     maks_baca_url: int
+    verifikasi_jawaban: bool
     batas_waktu: int
     domain_diblokir: list
 
@@ -52,6 +53,11 @@ def ambil_angka(kunci, bawaan):
         return bawaan
     return nilai if nilai > 0 else bawaan
 
+def ambil_ya(kunci, bawaan):
+    nilai = os.environ.get(kunci, "").strip().lower()
+    if not nilai:
+        return bawaan
+    return nilai in ("1", "ya", "true", "on")
 
 def muat():
     """Membaca .env lalu mengisi Config."""
@@ -62,10 +68,13 @@ def muat():
     provider = ambil("LLM_PROVIDER", "aws").lower()
     maks_langkah = ambil_angka("AGENT_MAKS_LANGKAH", 6)
     maks_baca_url = ambil_angka("AGENT_MAKS_BACA_URL", 3)
+    verifikasi = ambil_ya("AGENT_VERIFIKASI_JAWABAN", True)
     if provider == "local":
         # model di laptop lebih lambat, jadi jumlah langkah dan halaman yang dibaca dibatasi tersendiri
         maks_langkah = ambil_angka("LOCAL_MAKS_LANGKAH", 3)
         maks_baca_url = ambil_angka("LOCAL_MAKS_BACA_URL", 1)
+        # verifikasi menambah satu panggilan LLM, jadi di model lokal bawaannya mati
+        verifikasi = ambil_ya("LOCAL_VERIFIKASI_JAWABAN", False)
 
     return Config(
         host=ambil("AGENT_HOST", "127.0.0.1"),
@@ -86,6 +95,7 @@ def muat():
         tavily_api_key=ambil("TAVILY_API_KEY"),
         maks_langkah=maks_langkah,
         maks_baca_url=maks_baca_url,
+        verifikasi_jawaban=verifikasi,
         batas_waktu=ambil_angka("AGENT_BATAS_WAKTU_DETIK", 15),
         domain_diblokir=diblokir,
     )

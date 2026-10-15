@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AccountMenu, AdminForm, AuthForm, Dialog, KnowledgeForm, type DialogName } from "./AccountMenu";
 import { FavoriteList } from "./FavoriteList";
 import { CopyIcon, MessageItem, StarIcon, TypingItem } from "./MessageItem";
@@ -6,6 +6,7 @@ import { copyMessage } from "./messageText";
 import { ScrollHandle } from "./ScrollHandle";
 import {
   ApiError,
+  BlockedError,
   createConversation,
   deleteConversation,
   getAccount,
@@ -27,6 +28,7 @@ import {
 const MOBILE_QUERY = "(max-width: 768px)";
 const TOAST_MS = 2000;
 const HIGHLIGHT_MS = 4000;
+const INPUT_MAX_HEIGHT = 200;
 
 type ConversationItemProps = {
   conversation: Conversation;
@@ -121,16 +123,17 @@ function App() {
   const [account, setAccount] = useState<Account | null>(null);
   const [dialog, setDialog] = useState<DialogName | null>(null);
   const [typingId, setTypingId] = useState<string | null>(null);
-  const [waking, setWaking] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
+  const [waking, setWaking] = useState(false);
   const [view, setView] = useState<"chat" | "favorites">("chat");
   const [favorites, setFavorites] = useState<FavoriteMessage[] | null>(null);
   const [favoritesError, setFavoritesError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
-  const bottomRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const jumpToRef = useRef<string | null>(null);
   const toastTimer = useRef(0);
   const highlightTimer = useRef(0);
@@ -185,6 +188,17 @@ function App() {
       document.removeEventListener("keydown", close);
     };
   }, [menuId]);
+
+  // Grows the input with its lines, up to a limit, then it scrolls
+  useEffect(() => {
+    const box = inputRef.current;
+    if (box === null) {
+      return;
+    }
+    box.style.height = "auto";
+    box.style.height = `${Math.min(box.scrollHeight, INPUT_MAX_HEIGHT)}px`;
+  }, [input]);
+
 
   // Leaves the phone's message selection on Escape
   useEffect(() => {
@@ -369,6 +383,19 @@ function App() {
     setTypingId(answer.id);
   }
 
+  // On a computer Enter sends and Shift+Enter starts a new line; on a phone Enter always starts a new line.
+  // Enter that confirms a word in a Japanese or Chinese keyboard is left alone
+  function handleInputKey(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+      return;
+    }
+    if (window.matchMedia("(hover: none)").matches) {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  }
+
   // Sends the question, waits for the answer, then shows both as saved by the server
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -421,6 +448,8 @@ function App() {
         openDialog("masuk");
       } else if (err instanceof ApiError && err.status === 429) {
         setError(err.message);
+      } else if (err instanceof BlockedError) {
+        setError("Pesan ditolak oleh pengaman server karena mirip perintah berbahaya (misalnya kode SQL). Ubah kalimatnya lalu coba lagi.");
       } else {
         setError("Pesan gagal terkirim. Coba lagi.");
       }
@@ -575,11 +604,14 @@ function App() {
         )}
 
         <form className={`chat-form ${view === "favorites" ? "hidden" : ""}`} onSubmit={handleSubmit}>
-          <input
+          <textarea
+            ref={inputRef}
+            rows={1}
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onFocus={() => setInputFocused(true)}
             onBlur={() => setInputFocused(false)}
+            onKeyDown={handleInputKey}
             placeholder="Tulis pertanyaan..."
             maxLength={2000}
           />

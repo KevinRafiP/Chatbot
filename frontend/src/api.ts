@@ -47,6 +47,9 @@ export class ApiError extends Error {
   }
 }
 
+// Thrown when the request was refused before reaching the backend, usually because its text looks like an attack
+export class BlockedError extends Error {}
+
 let token = readToken(localStorage, ACCOUNT_TOKEN_KEY) ?? readToken(localStorage, GUEST_TOKEN_KEY);
 let loginPromise: Promise<string> | null = null;
 let wakingListener: ((waking: boolean) => void) | null = null;
@@ -74,6 +77,16 @@ function saveToken(value: string | null, kind: "account" | "guest" = "account") 
   }
 }
 
+// A failed request while the health check still answers means the server is awake and something in front of it,
+// such as Render's firewall, refused this one request
+async function serverAnswers(): Promise<boolean> {
+  try {
+    return (await fetch(`${API_URL}/kesehatan`)).ok;
+  } catch {
+    return false;
+  }
+}
+
 // Lets the UI show a notice while the backend is waking up
 export function onServerWaking(listener: ((waking: boolean) => void) | null) {
   wakingListener = listener;
@@ -90,6 +103,10 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
         return response;
       }
     } catch (error) {
+      if (await serverAnswers()) {
+        wakingListener?.(false);
+        throw new BlockedError();
+      }
       if (lastTry) {
         wakingListener?.(false);
         throw error;

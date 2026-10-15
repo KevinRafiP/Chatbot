@@ -28,6 +28,7 @@ def buat_siapkan(kotak_alat):
         keadaan["isi"] = susun_isi(keadaan.get("riwayat"), pesan)
         keadaan["catatan"] = {
             "sumber": sumber_internal(keadaan.get("konteks")),
+            "bukti": bukti_internal(keadaan.get("konteks")),
             "jumlah_baca": 0,
             "maks_sumber_luar": maksimal,
         }
@@ -62,6 +63,12 @@ def sumber_internal(konteks):
     """Mendaftarkan data internal sebagai sumber nomor 1, 2, dst. sesuai urutannya di pesan."""
     return [{"judul": str(item.get("judul", "")), "url": ""} for item in (konteks or [])[:MAKS_KONTEKS]]
 
+def bukti_internal(konteks):
+    """Isi data internal disimpan per nomor agar bisa dipakai saat verifikasi jawaban."""
+    return {
+        i: {"tingkat": "internal", "isi": str(item.get("isi", ""))[:3000]}
+        for i, item in enumerate((konteks or [])[:MAKS_KONTEKS], start=1)
+    }
 
 def susun_pesan(pertanyaan, konteks, minimal, maksimal, ingatan=None):
     tanggal = f"Tanggal hari ini: {datetime.now(ZONA_WIB):%Y-%m-%d}"
