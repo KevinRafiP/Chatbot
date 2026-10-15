@@ -177,11 +177,12 @@ type AccountMenuProps = {
   open: boolean;
   onToggle: () => void;
   onChoose: (dialog: DialogName) => void;
+  onFavorites: () => void;
   onLogout: () => void;
 };
 
 // The three-dot menu at the top right; admin choices only appear for admin accounts
-export function AccountMenu({ account, open, onToggle, onChoose, onLogout }: AccountMenuProps) {
+export function AccountMenu({ account, open, onToggle, onChoose, onFavorites, onLogout }: AccountMenuProps) {
   const guest = account === null || account.role === "tamu";
 
   return (
@@ -195,6 +196,9 @@ export function AccountMenu({ account, open, onToggle, onChoose, onLogout }: Acc
             {guest ? "Tamu: percakapan tidak disimpan" : account.email}
             {account?.role === "admin" && <span className="badge">admin</span>}
           </p>
+          <button role="menuitem" onClick={onFavorites}>
+            Pesan berbintang
+          </button>
           {guest && (
             <>
               <button role="menuitem" onClick={() => onChoose("masuk")}>

@@ -4,7 +4,15 @@ const GUEST_TOKEN_KEY = "chatbot_guest_token";
 
 export type Conversation = { id: string; title: string };
 export type Source = { title: string; url: string };
-export type Message = { id: string; sender: "user" | "bot"; text: string; sources: Source[] };
+export type Message = {
+  id: string;
+  sender: "user" | "bot";
+  text: string;
+  sources: Source[];
+  sentAt: string;
+  favorite: boolean;
+};
+export type FavoriteMessage = Message & { conversationId: string; conversationTitle: string };
 export type SendResult = { title: string; question: Message; answer: Message };
 export type Role = "tamu" | "user" | "admin";
 export type Account = { id: string; name: string; email: string; role: Role };
@@ -12,7 +20,15 @@ export type Account = { id: string; name: string; email: string; role: Role };
 type ApiResponse<T> = { status: string; message: string; data: T };
 type RawConversation = { id: string; judul: string };
 type RawSource = { judul: string; url: string };
-type RawMessage = { id: string; pengirim: "user" | "asisten"; isi: string; sumber: RawSource[] | null };
+type RawMessage = {
+  id: string;
+  pengirim: "user" | "asisten";
+  isi: string;
+  sumber: RawSource[] | null;
+  favorit: boolean;
+  dibuat_pada: string;
+};
+type RawFavorite = RawMessage & { percakapan_id: string; judul_percakapan: string };
 type RawSendResult = { judul: string; pesan: RawMessage; jawaban: RawMessage };
 type RawAccount = { id: string; nama: string; jenis: Role; email?: string };
 type RawSession = { token: string; pengguna: RawAccount };
@@ -20,9 +36,6 @@ type RawAnswer = { jawaban: string; sumber: RawSource[] | null };
 
 // Render free puts the backend to sleep; these are the waits before each new try while it wakes up (about 2.5 minutes in total)
 const RETRY_DELAYS_MS = [5000, 10000, 15000, 20000, 30000, 30000, 40000];
-// Render sleeps after 15 minutes without any request, so a server that answered less than 14 minutes ago is still awake
-const AWAKE_WINDOW_MS = 14 * 60 * 1000;
-const AWAKE_AT_KEY = "chatbot_awake_at";
 
 // Error with the HTTP status, so the UI can tell a guest limit or rate limit from other failures
 export class ApiError extends Error {
@@ -74,9 +87,6 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
       const response = await fetch(url, init);
       if (lastTry || ![502, 503, 504].includes(response.status)) {
         wakingListener?.(false);
-        if (response.status < 500) {
-          markAwake();
-        }
         return response;
       }
     } catch (error) {
@@ -87,36 +97,6 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
     }
     wakingListener?.(true);
     await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
-  }
-}
-
-// Remembers in this browser when the backend last answered
-function markAwake() {
-  try {
-    localStorage.setItem(AWAKE_AT_KEY, String(Date.now()));
-  } catch {
-    // storage is blocked, the next visit just pings again
-  }
-}
-
-// True when this browser got an answer from the backend within the last 14 minutes
-function recentlyAwake(): boolean {
-  try {
-    return Date.now() - Number(localStorage.getItem(AWAKE_AT_KEY) ?? 0) < AWAKE_WINDOW_MS;
-  } catch {
-    return false;
-  }
-}
-
-// Wakes the backend when a visitor arrives, at most once per 14 minutes per browser, so refreshing does not spam it
-export async function warmUp(): Promise<void> {
-  if (recentlyAwake()) {
-    return;
-  }
-  try {
-    await fetchWithRetry(`${API_URL}/kesehatan`);
-  } catch {
-    // the next request will try again
   }
 }
 
@@ -187,6 +167,8 @@ function toMessage(raw: RawMessage): Message {
     sender: raw.pengirim === "user" ? "user" : "bot",
     text: raw.isi,
     sources: (raw.sumber ?? []).map((source) => ({ title: source.judul, url: source.url })),
+    sentAt: raw.dibuat_pada,
+    favorite: raw.favorit,
   };
 }
 
@@ -232,7 +214,20 @@ export async function sendGuestMessage(text: string, history: Message[]): Promis
     sender: "bot",
     text: data.jawaban,
     sources: (data.sumber ?? []).map((source) => ({ title: source.judul, url: source.url })),
+    sentAt: new Date().toISOString(),
+    favorite: false,
   };
+}
+
+// Stars or unstars a saved message of this account
+export async function setFavorite(messageId: string, favorite: boolean): Promise<void> {
+  await request<undefined>("PATCH", `/pesan/${messageId}/favorit`, { favorit: favorite });
+}
+
+// Lists the starred messages from every conversation of this account, newest first
+export async function listFavorites(): Promise<FavoriteMessage[]> {
+  const data = await request<RawFavorite[]>("GET", "/pesan/favorit");
+  return data.map((raw) => ({ ...toMessage(raw), conversationId: raw.percakapan_id, conversationTitle: raw.judul_percakapan }));
 }
 
 // Returns who is using this device; a guest session is created when there is none

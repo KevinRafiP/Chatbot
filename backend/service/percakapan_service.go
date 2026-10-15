@@ -22,6 +22,8 @@ const (
 var (
 	ErrPercakapanTidakAda = errors.New("percakapan tidak ditemukan")
 	ErrJudulTidakValid    = errors.New("judul tidak valid")
+	ErrPesanTidakAda      = errors.New("pesan tidak ditemukan")
+	BatasFavorit          = 200
 )
 
 type HasilPesan struct {
@@ -128,6 +130,23 @@ func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID string, pe
 		}
 	}
 	return HasilPesan{Judul: judul, Pesan: pesan, Jawaban: jawaban}, nil
+}
+
+// TandaiFavorit memberi atau melepas bintang pada pesan milik pengguna
+func (s *PercakapanService) TandaiFavorit(pesanID, penggunaID string, favorit bool) error {
+	berubah, err := s.repo.UbahFavorit(pesanID, penggunaID, favorit)
+	if err != nil {
+		return err
+	}
+	if !berubah {
+		return ErrPesanTidakAda
+	}
+	return nil
+}
+
+// Favorit mengambil pesan berbintang milik pengguna, paling banyak BatasFavorit pesan
+func (s *PercakapanService) Favorit(penggunaID string) ([]model.PesanFavorit, error) {
+	return s.repo.DaftarFavorit(penggunaID, BatasFavorit)
 }
 
 func (s *PercakapanService) pastikanMilik(id, penggunaID string) error {

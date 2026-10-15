@@ -117,13 +117,50 @@ func KirimPesan(percakapan *service.PercakapanService) http.HandlerFunc {
 	}
 }
 
+// FavoritPesan: PATCH /pesan/{id}/favorit dengan body {"favorit": true}
+func FavoritPesan(percakapan *service.PercakapanService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := bacaID(w, r)
+		if !ok {
+			return
+		}
+
+		var permintaan struct {
+			Favorit bool `json:"favorit"`
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
+		if err := json.NewDecoder(r.Body).Decode(&permintaan); err != nil {
+			writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "body JSON tidak valid"})
+			return
+		}
+
+		if err := percakapan.TandaiFavorit(id, middleware.PenggunaDari(r.Context()).ID, permintaan.Favorit); err != nil {
+			gagalPercakapan(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, Response{Status: "sukses", Message: "favorit diperbarui"})
+	}
+}
+
+// DaftarFavorit: GET /pesan/favorit
+func DaftarFavorit(percakapan *service.PercakapanService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		daftar, err := percakapan.Favorit(middleware.PenggunaDari(r.Context()).ID)
+		if err != nil {
+			gagalPercakapan(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, Response{Status: "sukses", Message: "daftar pesan berbintang", Data: daftar})
+	}
+}
+
 var polaUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // bacaID membaca {id} dari alamat; jika bentuknya bukan UUID, langsung membalas 400
 func bacaID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id := strings.ToLower(r.PathValue("id"))
 	if !polaUUID.MatchString(id) {
-		writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "id percakapan tidak valid"})
+		writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "id tidak valid"})
 		return "", false
 	}
 	return id, true
@@ -134,6 +171,8 @@ func gagalPercakapan(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrPercakapanTidakAda):
 		writeJSON(w, http.StatusNotFound, Response{Status: "gagal", Message: "percakapan tidak ditemukan"})
+	case errors.Is(err, service.ErrPesanTidakAda):
+		writeJSON(w, http.StatusNotFound, Response{Status: "gagal", Message: "pesan tidak ditemukan"})
 	case errors.Is(err, service.ErrDataTidakValid):
 		writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "pertanyaan wajib diisi, maksimal 2000 huruf"})
 	case errors.Is(err, service.ErrJudulTidakValid):

@@ -25,5 +25,13 @@ type Pesan struct {
 	Pengirim   string    `json:"pengirim"`
 	Isi        string    `json:"isi"`
 	Sumber     []Sumber  `json:"sumber"`
+	Favorit    bool      `json:"favorit"`
 	DibuatPada time.Time `json:"dibuat_pada"`
+}
+
+// PesanFavorit adalah pesan berbintang beserta percakapan asalnya, untuk daftar pesan berbintang
+type PesanFavorit struct {
+	Pesan
+	PercakapanID    string `json:"percakapan_id"`
+	JudulPercakapan string `json:"judul_percakapan"`
 }

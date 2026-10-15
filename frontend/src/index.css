@@ -380,11 +380,19 @@ button:disabled {
   color: var(--muted);
 }
 
-.bot-row {
-  align-self: flex-start;
+.message {
   display: flex;
   gap: 8px;
   max-width: 85%;
+  padding-right: 30px;
+}
+
+.message.user {
+  align-self: flex-end;
+}
+
+.message.bot {
+  align-self: flex-start;
 }
 
 .bot-avatar {
@@ -396,31 +404,210 @@ button:disabled {
   background: var(--panel) url("/vokapas-logo.svg") center / 55% no-repeat;
 }
 
-.bot-body {
+.message-body {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
+  gap: 2px;
 }
 
-.bot-row .bubble {
+.message.user .message-body {
+  align-items: flex-end;
+}
+
+.message.bot .message-body {
+  align-items: flex-start;
+}
+
+.bubble-wrap {
+  position: relative;
   max-width: 100%;
 }
 
-.copy-button {
-  padding: 2px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
+.message .bubble {
+  max-width: 100%;
+}
+
+.message-menu {
+  position: absolute;
+  top: 2px;
+  right: -28px;
+}
+
+.message-menu-button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  opacity: 0;
   cursor: pointer;
 }
 
-.copy-button:hover {
-  color: var(--text);
-  border-color: var(--accent);
+.message.user .message-menu-button {
+  color: var(--accent-soft);
+}
+
+.message.bot .message-menu-button {
+  color: var(--muted);
+}
+
+.message:hover .message-menu-button,
+.message.menu-open .message-menu-button,
+.message-menu-button:focus-visible {
+  opacity: 1;
+}
+
+.message-menu-button:hover,
+.message.menu-open .message-menu-button {
+  background: var(--surface-hover);
+}
+
+.message-dropdown {
+  top: 28px;
+}
+
+.message-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.star-icon {
+  flex-shrink: 0;
+  fill: var(--surface);
+  color: var(--muted);
+}
+
+.star-icon.filled {
+  fill: #facc15;
+  color: #facc15;
+}
+
+.message-time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 16px;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+  visibility: hidden;
+}
+
+.message:hover .message-time,
+.message.menu-open .message-time {
+  visibility: visible;
+}
+
+.message.highlight .bubble {
+  animation: glow 1.2s ease-in-out 3;
+}
+
+@keyframes glow {
+  50% {
+    box-shadow: 0 0 0 3px #facc15;
+  }
+}
+
+.hidden {
+  display: none !important;
+}
+
+.toast {
+  position: absolute;
+  bottom: 84px;
+  left: 50%;
+  z-index: 15;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--surface-hover);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  font-size: 13px;
+  transform: translateX(-50%);
+  animation: fade-in 0.15s ease-out;
+}
+
+.favorite-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.favorite-list button {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .favorite-list button:hover {
+    background: var(--surface);
+  }
+}
+
+.favorite-meta {
+  display: contents;
+}
+
+.favorite-from {
+  overflow: hidden;
+  color: var(--accent-soft);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.favorite-time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.favorite-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.favorite-star {
+  align-self: end;
+}
+
+@media (hover: none) {
+  .message {
+    padding-right: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  .message-menu {
+    display: none;
+  }
+
+  .message-time {
+    visibility: visible;
+  }
+
+  .message.selected {
+    border-radius: 16px;
+    background: rgba(91, 33, 182, 0.35);
+    box-shadow: 0 0 0 6px rgba(91, 33, 182, 0.35);
+  }
 }
 
 .sources {

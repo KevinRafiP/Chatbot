@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AccountMenu, AdminForm, AuthForm, Dialog, KnowledgeForm, type DialogName } from "./AccountMenu";
+import { FavoriteList } from "./FavoriteList";
+import { CopyIcon, MessageItem, StarIcon, TypingItem } from "./MessageItem";
+import { copyMessage } from "./messageText";
 import { ScrollHandle } from "./ScrollHandle";
 import {
   ApiError,
@@ -7,122 +10,23 @@ import {
   deleteConversation,
   getAccount,
   listConversations,
+  listFavorites,
   listMessages,
   logout,
   onServerWaking,
   renameConversation,
   sendGuestMessage,
   sendMessage,
-  warmUp,
+  setFavorite,
   type Account,
   type Conversation,
+  type FavoriteMessage,
   type Message,
-  type Source,
 } from "./api";
 
 const MOBILE_QUERY = "(max-width: 768px)";
-const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
-
-// Only http and https links are opened, so a reference can never run a "javascript:" address
-function isWebAddress(url: string): boolean {
-  return /^https?:\/\//i.test(url);
-}
-
-// Shows one reference: its title, plus a link to open it when it has a web address
-function SourceItem({ source }: { source: Source }) {
-  return (
-    <li>
-      {source.title || source.url}
-      {isWebAddress(source.url) && (
-        <>
-          {" "}
-          <a href={source.url} target="_blank" rel="noopener noreferrer">
-            [Lihat Sumber]
-          </a>
-        </>
-      )}
-    </li>
-  );
-}
-
-// Copies a whole answer, including its references, so it can be pasted elsewhere
-function CopyButton({ message }: { message: Message }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    const sources = message.sources.map((source, index) => `${index + 1}. ${source.title}${source.url ? ` - ${source.url}` : ""}`);
-    const text = sources.length > 0 ? `${message.text}\n\nSumber:\n${sources.join("\n")}` : message.text;
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // the browser blocked the clipboard
-    }
-  }
-
-  return (
-    <button type="button" className="copy-button" onClick={copy}>
-      {copied ? "Tersalin" : "Salin"}
-    </button>
-  );
-}
-
-// Puts the Vokapas logo beside a bot bubble, like a profile picture
-function BotRow({ children }: { children: ReactNode }) {
-  return (
-    <div className="bot-row">
-      <span className="bot-avatar" aria-hidden="true" />
-      <div className="bot-body">{children}</div>
-    </div>
-  );
-}
-
-type MessageBubbleProps = { message: Message; animate: boolean };
-
-// Shows one chat bubble; a new answer is typed out bit by bit without moving the page, then its references appear
-function MessageBubble({ message, animate }: MessageBubbleProps) {
-  const [length, setLength] = useState(() =>
-    animate && !window.matchMedia(REDUCED_MOTION_QUERY).matches ? 0 : message.text.length,
-  );
-  const typing = length < message.text.length;
-
-  useEffect(() => {
-    if (!typing) {
-      return;
-    }
-    const step = Math.max(2, Math.ceil(message.text.length / 150));
-    const timer = window.setTimeout(() => {
-      setLength((current) => Math.min(current + step, message.text.length));
-    }, 15);
-    return () => window.clearTimeout(timer);
-  }, [length, typing, message.text.length]);
-
-  const bubble = (
-    <div className={`bubble ${message.sender}`}>
-      {message.text.slice(0, length)}
-      {!typing && message.sources.length > 0 && (
-        <div className="sources">
-          <p className="sources-title">Sumber Referensi</p>
-          <ol>
-            {message.sources.map((source, index) => (
-              <SourceItem key={index} source={source} />
-            ))}
-          </ol>
-        </div>
-      )}
-    </div>
-  );
-  if (message.sender === "user") {
-    return bubble;
-  }
-  return (
-    <BotRow>
-      {bubble}
-      {!typing && <CopyButton message={message} />}
-    </BotRow>
-  );
-}
+const TOAST_MS = 2000;
+const HIGHLIGHT_MS = 4000;
 
 type ConversationItemProps = {
   conversation: Conversation;
@@ -219,14 +123,22 @@ function App() {
   const [typingId, setTypingId] = useState<string | null>(null);
   const [waking, setWaking] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
+  const [view, setView] = useState<"chat" | "favorites">("chat");
+  const [favorites, setFavorites] = useState<FavoriteMessage[] | null>(null);
+  const [favoritesError, setFavoritesError] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [toast, setToast] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLElement>(null);
+  const jumpToRef = useRef<string | null>(null);
+  const toastTimer = useRef(0);
+  const highlightTimer = useRef(0);
 
-  // Wakes the server, loads who is using this device, then their saved conversations; a guest has none
+  // Loads who is using this device, then their saved conversations; a guest has none
   useEffect(() => {
     onServerWaking(setWaking);
-    warmUp()
-      .then(getAccount)
+    getAccount()
       .then(async (current) => {
         setAccount(current);
         if (current.role !== "tamu") {
@@ -235,21 +147,26 @@ function App() {
       })
       .catch(() => setError("Tidak bisa terhubung ke server."));
 
-    // A visitor coming back to the tab counts as a new visit: wake the server again if it may have slept
-    function wakeOnReturn() {
-      if (document.visibilityState === "visible") warmUp();
-    }
-    document.addEventListener("visibilitychange", wakeOnReturn);
-    return () => {
-      onServerWaking(null);
-      document.removeEventListener("visibilitychange", wakeOnReturn);
-    };
+    return () => onServerWaking(null);
   }, []);
 
   // Scrolls to the newest message when one is sent or a chat is opened, but not while an answer is being typed out
+  // or a message is starred
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+    if (jumpToRef.current === null) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages.length, loading]);
+
+  // After a starred message is chosen, scrolls to it once it is on screen
+  useEffect(() => {
+    const target = jumpToRef.current;
+    const element = target === null ? null : document.getElementById(`message-${target}`);
+    if (element !== null) {
+      jumpToRef.current = null;
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [messages.length, view]);
 
   // Closes the three-dot menu on a click outside it or on Escape
   useEffect(() => {
@@ -258,7 +175,7 @@ function App() {
     }
     function close(event: Event) {
       if (event instanceof KeyboardEvent && event.key !== "Escape") return;
-      if (event.target instanceof Element && event.target.closest(".item-menu, .account-menu")) return;
+      if (event.target instanceof Element && event.target.closest(".item-menu, .account-menu, .message-menu")) return;
       setMenuId(null);
     }
     document.addEventListener("pointerdown", close);
@@ -268,6 +185,18 @@ function App() {
       document.removeEventListener("keydown", close);
     };
   }, [menuId]);
+
+  // Leaves the phone's message selection on Escape
+  useEffect(() => {
+    if (selectedId === null) {
+      return;
+    }
+    function clear(event: KeyboardEvent) {
+      if (event.key === "Escape") setSelectedId(null);
+    }
+    document.addEventListener("keydown", clear);
+    return () => document.removeEventListener("keydown", clear);
+  }, [selectedId]);
 
   // On a phone the list covers the chat, so it closes after a choice
   function closeSidebarOnMobile() {
@@ -281,11 +210,14 @@ function App() {
     setActiveId(id);
     setMessages([]);
     setTypingId(null);
+    setSelectedId(null);
+    setView("chat");
     setError("");
     closeSidebarOnMobile();
     try {
       setMessages(await listMessages(id));
     } catch {
+      jumpToRef.current = null;
       setError("Gagal memuat percakapan.");
     }
   }
@@ -295,8 +227,78 @@ function App() {
     setActiveId(null);
     setMessages([]);
     setTypingId(null);
+    setSelectedId(null);
+    setView("chat");
     setError("");
     closeSidebarOnMobile();
+  }
+
+  // Shows a short note at the bottom of the chat that goes away by itself
+  function showToast(text: string) {
+    setToast(text);
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(""), TOAST_MS);
+  }
+
+  // Copies a message from its menu or from the phone's selection bar
+  async function copy(message: Message) {
+    setMenuId(null);
+    setSelectedId(null);
+    showToast((await copyMessage(message)) ? "Pesan disalin" : "Gagal menyalin pesan");
+  }
+
+  // Stars or unstars a message right away; an account saves it on the server and undoes it if saving fails
+  async function toggleFavorite(message: Message) {
+    setMenuId(null);
+    setSelectedId(null);
+    if (message.id.startsWith("draft-")) {
+      return;
+    }
+    const favorite = !message.favorite;
+    const mark = (value: boolean) =>
+      setMessages((current) => current.map((item) => (item.id === message.id ? { ...item, favorite: value } : item)));
+    mark(favorite);
+    if (isGuest) {
+      return;
+    }
+    try {
+      await setFavorite(message.id, favorite);
+    } catch {
+      mark(!favorite);
+      setError("Gagal menyimpan pesan favorit.");
+    }
+  }
+
+  // Shows the starred messages; a guest only has the ones in this page
+  async function openFavorites() {
+    setMenuId(null);
+    setSelectedId(null);
+    setView("favorites");
+    setFavoritesError("");
+    if (isGuest) {
+      const starred = messages.filter((item) => item.favorite).reverse();
+      setFavorites(starred.map((item) => ({ ...item, conversationId: "", conversationTitle: "" })));
+      return;
+    }
+    setFavorites(null);
+    try {
+      setFavorites(await listFavorites());
+    } catch {
+      setFavoritesError("Gagal memuat pesan berbintang.");
+    }
+  }
+
+  // Opens the conversation of a starred message, then scrolls to that message and makes it glow for a moment
+  function openFavorite(item: FavoriteMessage) {
+    jumpToRef.current = item.id;
+    setHighlightId(item.id);
+    window.clearTimeout(highlightTimer.current);
+    highlightTimer.current = window.setTimeout(() => setHighlightId(null), HIGHLIGHT_MS);
+    if (!isGuest && item.conversationId !== activeId) {
+      openConversation(item.conversationId);
+    } else {
+      setView("chat");
+    }
   }
 
   // Saves a new title, then shows the title the server kept
@@ -376,7 +378,10 @@ function App() {
     }
 
     const draftId = `draft-${Date.now()}`;
-    setMessages((current) => [...current, { id: draftId, sender: "user", text, sources: [] }]);
+    setMessages((current) => [
+      ...current,
+      { id: draftId, sender: "user", text, sources: [], sentAt: new Date().toISOString(), favorite: false },
+    ]);
     setInput("");
     setError("");
     setLoading(true);
@@ -425,6 +430,7 @@ function App() {
   }
 
   const isGuest = account === null || account.role === "tamu";
+  const selected = messages.find((item) => item.id === selectedId) ?? null;
   const activeTitle = isGuest
     ? "Percakapan tamu"
     : (conversations.find((item) => item.id === activeId)?.title ?? "Percakapan baru");
@@ -481,22 +487,50 @@ function App() {
 
       <div className="chat">
         <header className="chat-header">
-          {!sidebarOpen && (
-            <button className="icon-button" onClick={() => setSidebarOpen(true)} aria-label="Buka menu">
-              ☰
-            </button>
+          {selected !== null ? (
+            <>
+              <button className="icon-button" onClick={() => setSelectedId(null)} aria-label="Batal memilih">
+                ✕
+              </button>
+              <span className="chat-title">1 dipilih</span>
+              <button className="icon-button" onClick={() => copy(selected)} aria-label="Salin pesan">
+                <CopyIcon />
+              </button>
+              <button
+                className="icon-button"
+                onClick={() => toggleFavorite(selected)}
+                aria-label={selected.favorite ? "Hapus favorit" : "Jadikan favorit"}
+              >
+                <StarIcon filled={selected.favorite} />
+              </button>
+            </>
+          ) : (
+            <>
+              {view === "favorites" ? (
+                <button className="icon-button" onClick={() => setView("chat")} aria-label="Kembali ke percakapan">
+                  ←
+                </button>
+              ) : (
+                !sidebarOpen && (
+                  <button className="icon-button" onClick={() => setSidebarOpen(true)} aria-label="Buka menu">
+                    ☰
+                  </button>
+                )
+              )}
+              <span className="chat-title">{view === "favorites" ? "Pesan berbintang" : activeTitle}</span>
+              <AccountMenu
+                account={account}
+                open={menuId === "account"}
+                onToggle={() => setMenuId((current) => (current === "account" ? null : "account"))}
+                onChoose={openDialog}
+                onFavorites={openFavorites}
+                onLogout={handleLogout}
+              />
+            </>
           )}
-          <span className="chat-title">{activeTitle}</span>
-          <AccountMenu
-            account={account}
-            open={menuId === "account"}
-            onToggle={() => setMenuId((current) => (current === "account" ? null : "account"))}
-            onChoose={openDialog}
-            onLogout={handleLogout}
-          />
         </header>
 
-        <main className="chat-messages" ref={messagesRef}>
+        <main className={`chat-messages ${view === "favorites" ? "hidden" : ""}`} ref={messagesRef}>
           {messages.length === 0 && (
             <div className="empty">
               <span className="empty-logo" aria-hidden="true" />
@@ -505,21 +539,42 @@ function App() {
           )}
 
           {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} animate={message.id === typingId} />
+            <MessageItem
+              key={message.id}
+              message={message}
+              animate={message.id === typingId}
+              menuOpen={menuId === `msg:${message.id}`}
+              selected={message.id === selectedId}
+              highlighted={message.id === highlightId}
+              onToggleMenu={() => setMenuId((current) => (current === `msg:${message.id}` ? null : `msg:${message.id}`))}
+              onCopy={() => copy(message)}
+              onToggleFavorite={() => toggleFavorite(message)}
+              onLongPress={() => {
+                setMenuId(null);
+                setSelectedId(message.id);
+              }}
+              onTap={() => setSelectedId((current) => (current === null || current === message.id ? null : message.id))}
+            />
           ))}
 
           {waking && <p className="notice">Menyalakan server, mohon tunggu sebentar...</p>}
-          {loading && (
-            <BotRow>
-              <div className="bubble bot typing">Mengetik</div>
-            </BotRow>
-          )}
+          {loading && <TypingItem />}
           {error !== "" && <p className="error">{error}</p>}
           <div ref={bottomRef} />
         </main>
+        {view === "favorites" && (
+          <main className="chat-messages">
+            <FavoriteList items={favorites} error={favoritesError} onOpen={openFavorite} />
+          </main>
+        )}
         <ScrollHandle target={messagesRef} faded={inputFocused} />
+        {toast !== "" && (
+          <div className="toast" role="status">
+            {toast}
+          </div>
+        )}
 
-        <form className="chat-form" onSubmit={handleSubmit}>
+        <form className={`chat-form ${view === "favorites" ? "hidden" : ""}`} onSubmit={handleSubmit}>
           <input
             value={input}
             onChange={(event) => setInput(event.target.value)}

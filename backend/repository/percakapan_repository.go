@@ -78,8 +78,8 @@ func (r *PercakapanRepository) GantiJudul(id, penggunaID, judul string) (model.P
 
 // DaftarPesan mengambil pesan sebuah percakapan dari yang paling lama; batas 0 berarti semua, selain itu hanya N terakhir
 func (r *PercakapanRepository) DaftarPesan(percakapanID string, batas int) ([]model.Pesan, error) {
-	rows, err := r.db.Query(`SELECT id, pengirim, isi, sumber, dibuat_pada FROM (
-			SELECT id, urutan, pengirim, isi, sumber, dibuat_pada FROM pesan
+	rows, err := r.db.Query(`SELECT id, pengirim, isi, sumber, favorit, dibuat_pada FROM (
+			SELECT id, urutan, pengirim, isi, sumber, favorit, dibuat_pada FROM pesan
 			WHERE percakapan_id = $1 ORDER BY urutan DESC LIMIT NULLIF($2, 0)
 		) AS terakhir ORDER BY urutan`, percakapanID, batas)
 	if err != nil {
@@ -91,7 +91,7 @@ func (r *PercakapanRepository) DaftarPesan(percakapanID string, batas int) ([]mo
 	for rows.Next() {
 		var p model.Pesan
 		var sumber string
-		if err := rows.Scan(&p.ID, &p.Pengirim, &p.Isi, &sumber, &p.DibuatPada); err != nil {
+		if err := rows.Scan(&p.ID, &p.Pengirim, &p.Isi, &sumber, &p.Favorit, &p.DibuatPada); err != nil {
 			return nil, err
 		}
 		p.Sumber = pecahSumber(sumber)
@@ -118,6 +118,41 @@ func (r *PercakapanRepository) SimpanPesan(percakapanID string, pengirim, isi st
 	}
 	_, err = r.db.Exec(`UPDATE percakapan SET diperbarui_pada = NOW() WHERE id = $1`, percakapanID)
 	return p, err
+}
+
+// UbahFavorit menandai atau melepas bintang sebuah pesan, hanya bila percakapannya milik pengguna itu
+func (r *PercakapanRepository) UbahFavorit(pesanID, penggunaID string, favorit bool) (bool, error) {
+	hasil, err := r.db.Exec(`UPDATE pesan p SET favorit = $3 FROM percakapan c
+		WHERE p.id = $1 AND p.percakapan_id = c.id AND c.pengguna_id = $2`, pesanID, penggunaID, favorit)
+	if err != nil {
+		return false, err
+	}
+	jumlah, err := hasil.RowsAffected()
+	return jumlah > 0, err
+}
+
+// DaftarFavorit mengambil pesan berbintang dari semua percakapan milik pengguna, yang terbaru di atas
+func (r *PercakapanRepository) DaftarFavorit(penggunaID string, batas int) ([]model.PesanFavorit, error) {
+	rows, err := r.db.Query(`SELECT p.id, p.pengirim, p.isi, p.sumber, p.dibuat_pada, c.id, c.judul
+		FROM pesan p JOIN percakapan c ON c.id = p.percakapan_id
+		WHERE c.pengguna_id = $1 AND p.favorit ORDER BY p.dibuat_pada DESC LIMIT $2`, penggunaID, batas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	daftar := []model.PesanFavorit{}
+	for rows.Next() {
+		var p model.PesanFavorit
+		var sumber string
+		if err := rows.Scan(&p.ID, &p.Pengirim, &p.Isi, &sumber, &p.DibuatPada, &p.PercakapanID, &p.JudulPercakapan); err != nil {
+			return nil, err
+		}
+		p.Sumber = pecahSumber(sumber)
+		p.Favorit = true
+		daftar = append(daftar, p)
+	}
+	return daftar, rows.Err()
 }
 
 // pecahSumber membaca kolom sumber: bentuk baru berupa JSON, bentuk lama satu sumber per baris
