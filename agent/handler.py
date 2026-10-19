@@ -20,7 +20,7 @@ def buat_penangan(agen, api_key):
             self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
 
         def do_POST(self):
-            if self.path not in ("/jawab", "/jawab-stream" "/ringkas"):
+            if self.path not in ("/jawab", "/jawab-stream", "/ringkas"):
                 self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
                 return
 
