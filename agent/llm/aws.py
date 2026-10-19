@@ -5,7 +5,7 @@ import urllib.parse
 from llm.client import GalatLLM, buka, kirim_json
 from llm.tanda_tangan import tanda_tangani
 
-MAKS_TOKEN_JAWABAN = 1024
+MAKS_TOKEN_JAWABAN = 4096
 
 
 class KlienAWS:
