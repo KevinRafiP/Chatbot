@@ -381,6 +381,20 @@ button:disabled {
   color: var(--muted);
 }
 
+/* Blinking bar at the end of an answer that is still arriving */
+.bubble.streaming::after {
+  content: "\258D";
+  margin-left: 2px;
+  color: var(--muted);
+  animation: blink 1s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
 .message {
   display: flex;
   gap: 8px;
@@ -800,6 +814,28 @@ button:disabled {
 
 .form-success {
   color: #4ade80;
+}
+
+.form-note {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.modal-form .checkbox-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.modal-form .checkbox-row input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
 }
 
 .form-switch {

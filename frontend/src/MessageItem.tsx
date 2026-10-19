@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { memo, useEffect, useRef, useState, type PointerEvent } from "react";
 import type { Message, Source } from "./api";
 import { formatTime } from "./messageText";
 
@@ -76,7 +76,7 @@ type MessageItemProps = {
 
 // One chat message: the bubble, a small menu at its top right (shown on hover), and the time it was sent.
 // On a phone the menu is replaced by a long press, like WhatsApp
-export function MessageItem(props: MessageItemProps) {
+export function MessageItemView(props: MessageItemProps) {
   const { message, menuOpen, selected, highlighted } = props;
   const [length, setLength] = useState(() =>
     props.animate && !window.matchMedia(REDUCED_MOTION_QUERY).matches ? 0 : message.text.length,
@@ -90,7 +90,7 @@ export function MessageItem(props: MessageItemProps) {
     if (!typing) {
       return;
     }
-    const step = Math.max(2, Math.ceil(message.text.length / 150));
+    const step = Math.max(2, Math.ceil(message.text.length / 60));
     const timer = window.setTimeout(() => {
       setLength((current) => Math.min(current + step, message.text.length));
     }, 15);
@@ -201,13 +201,29 @@ export function MessageItem(props: MessageItemProps) {
   );
 }
 
-// The "typing" bubble shown while the answer is being made
-export function TypingItem() {
+// Typing in the input box no longer redraws every message: one is redrawn only when its own data changes.
+// The click handlers are left out on purpose, since App makes new ones on every render
+export const MessageItem = memo(
+  MessageItemView,
+  (before, after) =>
+    before.message === after.message &&
+    before.animate === after.animate &&
+    before.menuOpen === after.menuOpen &&
+    before.selected === after.selected &&
+    before.highlighted === after.highlighted,
+);
+
+// The bubble shown while the answer is being made: the answer so far, or else the current step such as "Mencari: ..."
+export function TypingItem({ status, text }: { status: string; text: string }) {
   return (
     <div className="message bot">
       <span className="bot-avatar" aria-hidden="true" />
       <div className="message-body">
-        <div className="bubble bot typing">Mengetik</div>
+        {text !== "" ? (
+          <div className="bubble bot streaming">{text}</div>
+        ) : (
+          <div className="bubble bot typing">{status || "Mengetik"}</div>
+        )}
       </div>
     </div>
   );

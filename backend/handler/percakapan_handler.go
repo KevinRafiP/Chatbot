@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"chatbot/backend/agen"
 	"chatbot/backend/middleware"
 	"chatbot/backend/service"
 )
@@ -108,7 +109,23 @@ func KirimPesan(percakapan *service.PercakapanService) http.HandlerFunc {
 			return
 		}
 
-		hasil, err := percakapan.Kirim(r.Context(), id, middleware.PenggunaDari(r.Context()).ID, permintaan.Pertanyaan)
+		var sse *penulisSSE
+		var kabar agen.Kabar
+		if mintaStream(r) {
+			sse = &penulisSSE{w: w}
+			kabar = sse.kabar
+		}
+
+		hasil, err := percakapan.Kirim(r.Context(), id, middleware.PenggunaDari(r.Context()).ID, permintaan.Pertanyaan, kabar)
+		if sse != nil && sse.mulai {
+			if err != nil {
+				log.Println("error kirim pesan (stream):", err)
+				sse.kirim("galat", Response{Status: "gagal", Message: "chatbot sedang bermasalah"})
+				return
+			}
+			sse.kirim("selesai", hasil)
+			return
+		}
 		if err != nil {
 			gagalPercakapan(w, err)
 			return

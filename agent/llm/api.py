@@ -1,6 +1,6 @@
 import json
 
-from llm.client import GalatLLM, kirim_json
+from llm.client import GalatLLM, buka, kirim_json
 
 
 class KlienAPI:
@@ -10,8 +10,9 @@ class KlienAPI:
         self.model = model
         self.batas_waktu = batas_waktu
 
-    def kirim(self, instruksi_sistem, isi_percakapan, deklarasi_alat=None):
-        """Mengirim percakapan ke layanan berformat OpenAI (chat/completions) dan mengembalikan pesan balasan model."""
+    def kirim(self, instruksi_sistem, isi_percakapan, deklarasi_alat=None, wajib_alat=False, saat_teks=None):
+        """Mengirim percakapan ke layanan berformat OpenAI (chat/completions) dan mengembalikan pesan balasan model.
+        Jika saat_teks diisi, balasan diminta sebagai stream dan saat_teks(potongan) dipanggil setiap ada teks baru."""
         pesan = [{"role": "system", "content": instruksi_sistem}]
         for giliran in isi_percakapan:
             pesan.extend(ke_format_api(giliran))
@@ -19,22 +20,66 @@ class KlienAPI:
         badan = {"model": self.model, "messages": pesan}
         if deklarasi_alat:
             badan["tools"] = [{"type": "function", "function": d} for d in deklarasi_alat]
+            if wajib_alat:
+                badan["tool_choice"] = "required"
 
         header = {"Content-Type": "application/json"}
         if self.api_key:
             header["Authorization"] = f"Bearer {self.api_key}"
-        data = kirim_json(f"{self.alamat}/chat/completions", json.dumps(badan).encode("utf-8"),
-                          header, self.batas_waktu, "Layanan LLM")
-
-        pilihan = data.get("choices") or []
-        if not pilihan or not pilihan[0].get("message"):
-            raise GalatLLM("Layanan LLM tidak memberi jawaban")
+        alamat = f"{self.alamat}/chat/completions"
+        if saat_teks:
+            badan["stream"] = True
+            with buka(alamat, json.dumps(badan).encode("utf-8"), header, self.batas_waktu, "Layanan LLM") as respon:
+                balasan, alasan = rakit_pesan_stream(respon, saat_teks)
+            pemakaian = None
+        else:
+            data = kirim_json(alamat, json.dumps(badan).encode("utf-8"), header, self.batas_waktu, "Layanan LLM")
+            pilihan = data.get("choices") or []
+            if not pilihan or not pilihan[0].get("message"):
+                raise GalatLLM("Layanan LLM tidak memberi jawaban")
+            balasan, alasan, pemakaian = pilihan[0]["message"], pilihan[0].get("finish_reason"), data.get("usage")
         try:
-            return dari_format_api(pilihan[0]["message"])
+            return dari_format_api(balasan)
         except GalatLLM as galat:
             # info tambahan untuk melacak balasan kosong, misalnya prompt terpotong karena konteks model penuh
-            raise GalatLLM(f"{galat} (finish_reason={pilihan[0].get('finish_reason')}, usage={data.get('usage')})", galat.kode)
+            raise GalatLLM(f"{galat} (finish_reason={alasan}, usage={pemakaian})", galat.kode)
 
+def rakit_pesan_stream(respon, saat_teks):
+    """Menyusun kembali pesan utuh dari baris "data: {...}" stream format OpenAI, sambil meneruskan teksnya."""
+    teks, panggilan, alasan = "", {}, None
+    for baris in respon:
+        baris = baris.decode("utf-8", "replace").strip()
+        if not baris.startswith("data:"):
+            continue
+        isi = baris[5:].strip()
+        if isi == "[DONE]":
+            break
+        try:
+            data = json.loads(isi)
+        except ValueError:
+            continue
+        if data.get("error"):
+            raise GalatLLM(f"Layanan LLM menghentikan stream: {str(data['error'])[:300]}")
+
+        for pilihan in data.get("choices") or []:
+            delta = pilihan.get("delta") or {}
+            if delta.get("content"):
+                teks += delta["content"]
+                saat_teks(delta["content"])
+            for potongan in delta.get("tool_calls") or []:
+                tujuan = panggilan.setdefault(potongan.get("index", 0),
+                                              {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+                if potongan.get("id"):
+                    tujuan["id"] = potongan["id"]
+                fungsi = potongan.get("function") or {}
+                tujuan["function"]["name"] += fungsi.get("name") or ""
+                tujuan["function"]["arguments"] += fungsi.get("arguments") or ""
+            alasan = pilihan.get("finish_reason") or alasan
+
+    pesan = {"role": "assistant", "content": teks or None}
+    if panggilan:
+        pesan["tool_calls"] = [panggilan[nomor] for nomor in sorted(panggilan)]
+    return pesan, alasan
 
 def ke_format_api(giliran):
     """Mengubah satu giliran berbentuk internal (content berisi text/toolUse/toolResult) ke pesan format OpenAI."""

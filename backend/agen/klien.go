@@ -1,6 +1,7 @@
 package agen
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -61,13 +62,22 @@ type Klien struct {
 	alamat string
 	apiKey string
 	http   *http.Client
+	stream *http.Client
 }
+
+// BatasWaktuStream adalah waktu paling lama satu jawaban stream; client stream tidak memakai Timeout
+// karena Timeout ikut memotong body yang masih mengalir
+const BatasWaktuStream = 3 * time.Minute
+
+// Kabar menerima kabar dari agent selama jawaban dibuat: jenis "status", "teks", atau "ulang"
+type Kabar func(jenis string, data json.RawMessage)
 
 func BaruKlien(alamat, apiKey string) *Klien {
 	return &Klien{
 		alamat: strings.TrimRight(alamat, "/"),
 		apiKey: apiKey,
 		http:   &http.Client{Timeout: 90 * time.Second},
+		stream: &http.Client{},
 	}
 }
 
@@ -82,6 +92,66 @@ func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks,
 	var jawaban Jawaban
 	err := k.kirimUlang(ctx, "/jawab", permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan}, &jawaban)
 	return jawaban, err
+}
+
+// TanyaStream sama seperti Tanya, tetapi jawaban diterima sebagai Server-Sent Events;
+// setiap status dan potongan teks diteruskan ke kabar, lalu hasil akhirnya dikembalikan
+func (k *Klien) TanyaStream(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan string, kabar Kabar) (Jawaban, error) {
+	badan, err := json.Marshal(permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan})
+	if err != nil {
+		return Jawaban{}, err
+	}
+	ctx, batal := context.WithTimeout(ctx, BatasWaktuStream)
+	defer batal()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, k.alamat+"/jawab-stream", bytes.NewReader(badan))
+	if err != nil {
+		return Jawaban{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", k.apiKey)
+
+	resp, err := k.stream.Do(req)
+	if err != nil {
+		return Jawaban{}, fmt.Errorf("agent tidak bisa dihubungi: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		isi, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<10))
+		return Jawaban{}, fmt.Errorf("agent menolak stream (status %d): %.200s", resp.StatusCode, isi)
+	}
+
+	pembaca := bufio.NewScanner(resp.Body)
+	pembaca.Buffer(make([]byte, 64<<10), 1<<20)
+	jenis := ""
+	for pembaca.Scan() {
+		baris := pembaca.Text()
+		if nama, ok := strings.CutPrefix(baris, "event: "); ok {
+			jenis = nama
+			continue
+		}
+		isi, ok := strings.CutPrefix(baris, "data: ")
+		if !ok {
+			continue
+		}
+		switch jenis {
+		case "selesai":
+			var jawaban Jawaban
+			return jawaban, json.Unmarshal([]byte(isi), &jawaban)
+		case "galat":
+			var galat struct {
+				Message string `json:"message"`
+			}
+			json.Unmarshal([]byte(isi), &galat)
+			return Jawaban{}, fmt.Errorf("agent gagal: %s", galat.Message)
+		default:
+			kabar(jenis, json.RawMessage(isi))
+		}
+	}
+	if err := pembaca.Err(); err != nil {
+		return Jawaban{}, fmt.Errorf("stream agent terputus: %w", err)
+	}
+	return Jawaban{}, errors.New("stream agent berakhir tanpa jawaban")
 }
 
 // Ringkas meminta agent menggabungkan ingatan lama dengan percakapan terbaru menjadi ingatan baru

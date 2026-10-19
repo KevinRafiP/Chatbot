@@ -25,15 +25,16 @@ func BaruChatbotService(repo *repository.PengetahuanRepository, klienAgen *agen.
 	return &ChatbotService{repo: repo, agen: klienAgen}
 }
 
-// Jawab mencari data di database, lalu meminta agent menyusun jawaban; jika agent gagal, pakai jawaban database
-func (s *ChatbotService) Jawab(ctx context.Context, pertanyaan string, riwayat []agen.Riwayat, ingatan string) (HasilChat, error) {
+// Jawab mencari data di database, lalu meminta agent menyusun jawaban; jika agent gagal, pakai jawaban database.
+// Jika kabar diisi, jawaban agent diterima sebagai stream dan setiap status atau potongan teks diteruskan ke kabar
+func (s *ChatbotService) Jawab(ctx context.Context, pertanyaan string, riwayat []agen.Riwayat, ingatan string, kabar agen.Kabar) (HasilChat, error) {
 	daftar, err := s.cariData(pertanyaan)
 	if err != nil {
 		return HasilChat{}, err
 	}
 
 	if s.agen != nil {
-		hasil, err := s.tanyaAgen(ctx, pertanyaan, daftar, riwayat, ingatan)
+		hasil, err := s.tanyaAgen(ctx, pertanyaan, daftar, riwayat, ingatan, kabar)
 		if err == nil {
 			return hasil, nil
 		}
@@ -55,13 +56,19 @@ func (s *ChatbotService) cariData(pertanyaan string) ([]model.Pengetahuan, error
 	return s.repo.Cari(daftarKata, skorMinimal, 3)
 }
 
-func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, daftar []model.Pengetahuan, riwayat []agen.Riwayat, ingatan string) (HasilChat, error) {
+func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, daftar []model.Pengetahuan, riwayat []agen.Riwayat, ingatan string, kabar agen.Kabar) (HasilChat, error) {
 	konteks := []agen.Konteks{}
 	for _, p := range daftar {
 		konteks = append(konteks, agen.Konteks{Judul: p.Judul, Isi: p.Isi})
 	}
 
-	jawaban, err := s.agen.Tanya(ctx, pertanyaan, konteks, riwayat, ingatan)
+	var jawaban agen.Jawaban
+	var err error
+	if kabar != nil {
+		jawaban, err = s.agen.TanyaStream(ctx, pertanyaan, konteks, riwayat, ingatan, kabar)
+	} else {
+		jawaban, err = s.agen.Tanya(ctx, pertanyaan, konteks, riwayat, ingatan)
+	}
 	if err != nil {
 		return HasilChat{}, err
 	}

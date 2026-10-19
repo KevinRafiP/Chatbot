@@ -1,9 +1,13 @@
 from datetime import datetime, timedelta, timezone
 
 from ingatan import pilih_ingatan
-from pengaman.aturan import batas_sumber, minta_internet, periksa_pertanyaan, permintaan_merusak
+from pengaman.aturan import batas_sumber, butuh_cari, minta_internet, periksa_pertanyaan, permintaan_merusak
 
 MAKS_RIWAYAT = 10
+# 4 pesan terakhir dikirim hampir utuh agar jawaban sebelumnya (beserta daftar sumbernya) terbaca lengkap
+JUMLAH_PESAN_TERBARU = 4
+MAKS_HURUF_TERBARU = 5000
+MAKS_HURUF_LAMA = 1000
 
 MAKS_KONTEKS = 10
 
@@ -25,6 +29,8 @@ def buat_siapkan(kotak_alat):
         pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal, pilih_ingatan(keadaan.get("ingatan"), pertanyaan, keadaan.get("riwayat")))
 
         keadaan["deklarasi"] = kotak_alat.deklarasi() if boleh_internet else None
+        # pertanyaan fakta wajib dicari dulu di putaran pertama, agar model tidak menjawab dari ingatannya sendiri
+        keadaan["wajib_cari"] = bool(keadaan["deklarasi"]) and kotak_alat.wajib_cari() and butuh_cari(pertanyaan)
         keadaan["isi"] = susun_isi(keadaan.get("riwayat"), pesan)
         keadaan["catatan"] = {
             "sumber": sumber_internal(keadaan.get("konteks")),
@@ -41,11 +47,13 @@ def buat_siapkan(kotak_alat):
 def susun_isi(riwayat, pesan_baru):
     """Menyusun riwayat dan pesan baru menjadi giliran user/assistant yang selalu bergantian, diawali user."""
     daftar = []
-    for pesan in (riwayat or [])[-MAKS_RIWAYAT:]:
+    terpilih = (riwayat or [])[-MAKS_RIWAYAT:]
+    for urutan, pesan in enumerate(terpilih):
         teks = str(pesan.get("teks", "")).strip()
         if teks:
             peran = "assistant" if pesan.get("peran") == "asisten" else "user"
-            daftar.append((peran, teks[:1000]))
+            batas = MAKS_HURUF_TERBARU if urutan >= len(terpilih) - JUMLAH_PESAN_TERBARU else MAKS_HURUF_LAMA
+            daftar.append((peran, teks[:batas]))
     daftar.append(("user", pesan_baru))
 
     hasil = []

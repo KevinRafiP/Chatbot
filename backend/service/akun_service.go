@@ -22,21 +22,27 @@ var (
 )
 
 type AkunService struct {
-	repo       *repository.AkunRepository
-	sesi       *SesiService
-	emailAdmin []string
+	repo           *repository.AkunRepository
+	sesi           *SesiService
+	emailAdmin     []string
+	pengirim       PengirimEmail
+	alamatFrontend string
 }
 
-func BaruAkunService(repo *repository.AkunRepository, sesi *SesiService, emailAdmin []string) *AkunService {
+// pengirim boleh nil: akun baru langsung aktif tanpa verifikasi email
+func BaruAkunService(repo *repository.AkunRepository, sesi *SesiService, emailAdmin []string,
+	pengirim PengirimEmail, alamatFrontend string) *AkunService {
 	daftar := []string{}
 	for _, email := range emailAdmin {
 		daftar = append(daftar, strings.ToLower(email))
 	}
-	return &AkunService{repo: repo, sesi: sesi, emailAdmin: daftar}
+	return &AkunService{repo: repo, sesi: sesi, emailAdmin: daftar,
+		pengirim: pengirim, alamatFrontend: strings.TrimRight(alamatFrontend, "/")}
 }
 
-// Daftar membuat akun baru, membuka sesinya, dan memindahkan percakapan tamu yang sedang dipakai
-func (s *AkunService) Daftar(email, password, tokenTamu, perangkat string) (string, model.Pengguna, error) {
+// Daftar membuat akun baru. Bila verifikasi email aktif, token yang dikembalikan kosong dan link verifikasi dikirim;
+// selain itu sesinya langsung dibuka dan percakapan tamu yang sedang dipakai ikut dipindahkan
+func (s *AkunService) Daftar(email, password, tokenTamu, perangkat string, ingat bool) (string, model.Pengguna, error) {
 	email, err := rapikanEmail(email)
 	if err != nil {
 		return "", model.Pengguna{}, err
@@ -56,15 +62,22 @@ func (s *AkunService) Daftar(email, password, tokenTamu, perangkat string) (stri
 		return "", model.Pengguna{}, err
 	}
 	nama, _, _ := strings.Cut(email, "@")
-	pengguna, err := s.repo.Buat(nama, email, string(hash), s.jenisUntuk(email, "user"))
+	pengguna, err := s.repo.Buat(nama, email, string(hash), s.jenisUntuk(email, "user"), s.pengirim == nil)
 	if err != nil {
 		return "", model.Pengguna{}, err
 	}
-	return s.bukaSesi(pengguna, tokenTamu, perangkat)
+	if s.pengirim != nil {
+		// email yang gagal terkirim tidak membatalkan pendaftaran; pengguna masih bisa menekan "Kirim ulang"
+		if err := s.kirimVerifikasi(pengguna, ingat); err != nil && !errors.Is(err, ErrGagalKirimEmail) {
+			return "", model.Pengguna{}, err
+		}
+		return "", pengguna, nil
+	}
+	return s.bukaSesi(pengguna, tokenTamu, perangkat, ingat)
 }
 
 // Masuk memeriksa email dan password, lalu membuka sesi baru
-func (s *AkunService) Masuk(email, password, tokenTamu, perangkat string) (string, model.Pengguna, error) {
+func (s *AkunService) Masuk(email, password, tokenTamu, perangkat string, ingat bool) (string, model.Pengguna, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	pengguna, hash, err := s.repo.CariEmail(email)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -76,14 +89,16 @@ func (s *AkunService) Masuk(email, password, tokenTamu, perangkat string) (strin
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
 		return "", model.Pengguna{}, ErrLoginSalah
 	}
-
+	if s.pengirim != nil && !pengguna.Terverifikasi {
+		return "", model.Pengguna{}, ErrEmailBelumDiverifikasi
+	}
 	if jenis := s.jenisUntuk(email, pengguna.Jenis); jenis != pengguna.Jenis {
 		if _, err := s.repo.UbahJenis(email, jenis); err != nil {
 			return "", model.Pengguna{}, err
 		}
 		pengguna.Jenis = jenis
 	}
-	return s.bukaSesi(pengguna, tokenTamu, perangkat)
+	return s.bukaSesi(pengguna, tokenTamu, perangkat, ingat)
 }
 
 // JadikanAdmin mengubah akun yang sudah terdaftar menjadi admin
@@ -103,13 +118,13 @@ func (s *AkunService) JadikanAdmin(email string) error {
 }
 
 // bukaSesi membuat token untuk akun; percakapan dari token tamu (jika ada) ikut dipindahkan
-func (s *AkunService) bukaSesi(pengguna model.Pengguna, tokenTamu, perangkat string) (string, model.Pengguna, error) {
+func (s *AkunService) bukaSesi(pengguna model.Pengguna, tokenTamu, perangkat string, ingat bool) (string, model.Pengguna, error) {
 	if tamu, err := s.sesi.Periksa(tokenTamu); err == nil && tamu.Jenis == "tamu" {
 		if err := s.repo.PindahkanPercakapan(tamu.ID, pengguna.ID); err != nil {
 			return "", model.Pengguna{}, err
 		}
 	}
-	token, err := s.sesi.BuatSesi(pengguna.ID, perangkat)
+	token, err := s.sesi.BuatSesi(pengguna.ID, perangkat, ingat)
 	return token, pengguna, err
 }
 

@@ -14,6 +14,9 @@ import (
 
 var ErrSesiTidakValid = errors.New("sesi tidak valid")
 
+// masaSesiSingkat dipakai bila "Ingat saya" tidak dicentang
+const masaSesiSingkat = 24 * time.Hour
+
 type SesiService struct {
 	repo     *repository.SesiRepository
 	masa     time.Duration
@@ -37,13 +40,18 @@ func (s *SesiService) MasukTamu(perangkat string) (string, model.Pengguna, error
 	return token, pengguna, nil
 }
 
-// BuatSesi membuka sesi login untuk akun terdaftar dan mengembalikan token-nya
-func (s *SesiService) BuatSesi(penggunaID, perangkat string) (string, error) {
+// BuatSesi membuka sesi login untuk akun terdaftar dan mengembalikan token-nya;
+// ingat=false membuat sesinya hanya berlaku 1 hari
+func (s *SesiService) BuatSesi(penggunaID, perangkat string, ingat bool) (string, error) {
 	token, err := tokenBaru()
 	if err != nil {
 		return "", err
 	}
-	err = s.repo.BuatSesi(penggunaID, hashToken(token), potongPerangkat(perangkat), time.Now().Add(s.masa))
+	masa := s.masa
+	if !ingat {
+		masa = masaSesiSingkat
+	}
+	err = s.repo.BuatSesi(penggunaID, hashToken(token), potongPerangkat(perangkat), time.Now().Add(masa))
 	return token, err
 }
 

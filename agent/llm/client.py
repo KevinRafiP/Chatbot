@@ -11,10 +11,17 @@ class GalatLLM(Exception):
 
 def kirim_json(alamat, badan, header, batas_waktu, nama):
     """Mengirim JSON lewat POST dan mengembalikan JSON balasan; semua kegagalan dijadikan GalatLLM."""
+    with buka(alamat, badan, header, batas_waktu, nama) as respon:
+        try:
+            return json.load(respon)
+        except (TimeoutError, ValueError, OSError) as galat:
+            raise GalatLLM(f"{nama} tidak bisa dihubungi: {galat}")
+
+def buka(alamat, badan, header, batas_waktu, nama):
+    """Mengirim POST dan mengembalikan respons yang masih terbuka, agar balasan stream bisa dibaca sedikit demi sedikit."""
     permintaan = urllib.request.Request(alamat, data=badan, headers=header, method="POST")
     try:
-        with urllib.request.urlopen(permintaan, timeout=batas_waktu) as respon:
-            return json.load(respon)
+        return urllib.request.urlopen(permintaan, timeout=batas_waktu)
     except urllib.error.HTTPError as galat:
         detail = galat.read().decode("utf-8", "replace")[:300]
         jenis = galat.headers.get("x-amzn-ErrorType", "")

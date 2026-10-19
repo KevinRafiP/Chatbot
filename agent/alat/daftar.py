@@ -38,13 +38,18 @@ class KotakAlat:
             daftar.insert(0, DEKLARASI_CARI)
         return daftar
 
+    def wajib_cari(self):
+        """Pencarian hanya bisa diwajibkan jika cari_web tersedia dan fiturnya dinyalakan."""
+        return bool(self.cfg.tavily_api_key) and self.cfg.wajib_cari
+
     def jalankan(self, nama, argumen, catatan):
         """Menjalankan satu alat dan selalu mengembalikan dict (hasil atau galat)."""
         try:
             if nama == "cari_web" and self.cfg.tavily_api_key:
                 hasil = cari(str(argumen.get("kueri", "")), self.cfg.tavily_api_key,
                              self.cfg.domain_diblokir, self.cfg.batas_waktu,
-                             maks_hasil=min(catatan["maks_sumber_luar"] + 2, 10))
+                             maks_hasil=min(catatan["maks_sumber_luar"] + 2, 10),
+                             kedalaman=self.cfg.tavily_kedalaman)
                 for item in hasil:
                     item["tingkat"] = tingkat_sumber(item["url"])
                     item["nomor"] = tambah_sumber(catatan, item["judul"], item["url"], item["cuplikan"])

@@ -82,8 +82,9 @@ func (s *PercakapanService) Pesan(id, penggunaID string) ([]model.Pesan, error) 
 	return s.repo.DaftarPesan(id, 0)
 }
 
-// Kirim menyimpan pesan pengguna, meminta jawaban dengan riwayat percakapan, lalu menyimpan jawabannya
-func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID string, pertanyaan string) (HasilPesan, error) {
+// Kirim menyimpan pesan pengguna, meminta jawaban dengan riwayat percakapan, lalu menyimpan jawabannya.
+// kabar boleh nil; jika diisi, status dan potongan teks jawaban diteruskan selama jawaban dibuat
+func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID string, pertanyaan string, kabar agen.Kabar) (HasilPesan, error) {
 	pertanyaan = strings.TrimSpace(pertanyaan)
 	if pertanyaan == "" || len(pertanyaan) > BatasPertanyaan {
 		return HasilPesan{}, ErrDataTidakValid
@@ -107,7 +108,7 @@ func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID string, pe
 	}
 
 	ingatan, waktunya := s.ingatan.Ambil(penggunaID)
-	hasil, err := s.chatbot.Jawab(ctx, pertanyaan, riwayat, ingatan)
+	hasil, err := s.chatbot.Jawab(ctx, pertanyaan, riwayat, ingatan, kabar)
 	if err != nil {
 		return HasilPesan{}, err
 	}

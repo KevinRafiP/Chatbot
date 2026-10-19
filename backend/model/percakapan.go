@@ -3,10 +3,11 @@ package model
 import "time"
 
 type Pengguna struct {
-	ID    string `json:"id"`
-	Nama  string `json:"nama"`
-	Jenis string `json:"jenis"`
-	Email string `json:"email,omitempty"`
+	ID            string `json:"id"`
+	Nama          string `json:"nama"`
+	Jenis         string `json:"jenis"`
+	Email         string `json:"email,omitempty"`
+	Terverifikasi bool   `json:"-"` // Terverifikasi hanya dipakai di backend, tidak dikirim ke browser
 }
 
 type Percakapan struct {

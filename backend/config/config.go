@@ -36,6 +36,11 @@ type Config struct {
 	BatasPesanGlobal    int
 	BatasPesanTamu      int
 	EmailAdmin          []string
+	EmailLayanan        string
+	EmailAPIKey         string
+	EmailPengirim       string
+	NamaPengirim        string
+	FrontendURL         string
 }
 
 func Muat() Config {
@@ -68,6 +73,11 @@ func Muat() Config {
 		BatasPesanGlobal:    ambilAngka("BATAS_PESAN_GLOBAL_PER_MENIT", 60),
 		BatasPesanTamu:      ambilAngka("BATAS_PESAN_TAMU", 5),
 		EmailAdmin:          ambilDaftar("ADMIN_EMAIL", ""),
+		EmailLayanan:        ambil("EMAIL_LAYANAN", ""),
+		EmailAPIKey:         ambil("EMAIL_API_KEY", ""),
+		EmailPengirim:       ambil("EMAIL_PENGIRIM", ""),
+		NamaPengirim:        ambil("NAMA_PENGIRIM", "Vokapas"),
+		FrontendURL:         ambil("FRONTEND_URL", ""),
 	}
 }
 

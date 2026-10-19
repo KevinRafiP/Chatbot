@@ -16,6 +16,14 @@ KATA_MINTA_INTERNET = [
 
 POLA_URL = re.compile(r"https?://\S+", re.IGNORECASE)
 
+# pesan yang tidak perlu dicek ke internet dulu: sapaan, terima kasih, pertanyaan tentang diri pengguna, dan tulisan kreatif
+POLA_TANPA_CARI = [re.compile(pola) for pola in (
+    r"^(halo|hai|hi|hello|hey|pagi|siang|sore|malam|selamat \w+|terima ?kasih|makasih|thanks?|thank you|oke|ok|siap|mantap|sip|baik)\b[\s\w]{0,15}[!.?]*$",
+    r"\b(ingat|kenal)\b.{0,15}\b(aku|saya|namaku|nama saya)\b",
+    r"\bsiapa\b.{0,10}\b(aku|saya|namaku|nama saya)\b",
+    r"\b(buat|buatkan|bikin|bikinkan|tulis|tuliskan|karang|karangkan)\b.{0,30}\b(cerita|cerpen|puisi|pantun|lagu|lirik|naskah|caption|ucapan|surat|dongeng)\b",
+)]
+
 POLA_KATA_SUMBER = re.compile(r"\b(sumber|referensi|rujukan|link|tautan)")
 POLA_MINIMAL = re.compile(r"\b(?:minimal|minimum|min|paling sedikit|setidaknya|sedikitnya)\.?\s*(\d{1,2})\b")
 POLA_MAKSIMAL = re.compile(r"\b(?:maksimal|maksimum|maks|max|paling banyak)\.?\s*(\d{1,2})\b")
@@ -52,6 +60,13 @@ def minta_internet(teks):
     if POLA_URL.search(kecil):
         return True
     return any(kata in kecil for kata in KATA_MINTA_INTERNET)
+
+def butuh_cari(teks):
+    """True jika pertanyaan sebaiknya dicek ke internet dulu sebelum dijawab, agar fakta tidak diambil dari ingatan model."""
+    kecil = " ".join(teks.lower().split())
+    if len(kecil) < 4:
+        return False
+    return not any(pola.search(kecil) for pola in POLA_TANPA_CARI)
 
 def permintaan_merusak(teks):
     """True jika pesan berusaha membatalkan aturan agent atau merusak data dan sistem."""

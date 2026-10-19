@@ -14,6 +14,12 @@ import (
 type permintaanAkun struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	Ingat    *bool  `json:"ingat"`
+}
+
+// ingat bernilai true bila "ingat" tidak dikirim, agar frontend lama tetap mendapat sesi panjang
+func (p permintaanAkun) ingat() bool {
+	return p.Ingat == nil || *p.Ingat
 }
 
 // Daftar: POST /akun/daftar dengan body {"email": "...", "password": "..."}
@@ -23,7 +29,12 @@ func Daftar(akun *service.AkunService) http.HandlerFunc {
 		if !bacaJSON(w, r, &p) {
 			return
 		}
-		token, pengguna, err := akun.Daftar(p.Email, p.Password, middleware.AmbilToken(r), r.UserAgent())
+		token, pengguna, err := akun.Daftar(p.Email, p.Password, middleware.AmbilToken(r), r.UserAgent(), p.ingat())
+		if err == nil && token == "" {
+			writeJSON(w, http.StatusAccepted, Response{Status: "sukses", Message: "cek email untuk verifikasi",
+				Data: map[string]any{"perlu_verifikasi": true, "email": pengguna.Email}})
+			return
+		}
 		kirimSesi(w, http.StatusCreated, "akun dibuat", token, pengguna, err)
 	}
 }
@@ -35,7 +46,7 @@ func Masuk(akun *service.AkunService) http.HandlerFunc {
 		if !bacaJSON(w, r, &p) {
 			return
 		}
-		token, pengguna, err := akun.Masuk(p.Email, p.Password, middleware.AmbilToken(r), r.UserAgent())
+		token, pengguna, err := akun.Masuk(p.Email, p.Password, middleware.AmbilToken(r), r.UserAgent(), p.ingat())
 		kirimSesi(w, http.StatusOK, "berhasil masuk", token, pengguna, err)
 	}
 }
@@ -76,7 +87,8 @@ func kirimSesi(w http.ResponseWriter, status int, pesan, token string, pengguna 
 // gagalAkun memilih status dan pesan yang aman untuk tiap jenis error akun
 func gagalAkun(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, service.ErrEmailTidakValid), errors.Is(err, service.ErrPasswordTidakValid):
+	case errors.Is(err, service.ErrEmailTidakValid), errors.Is(err, service.ErrPasswordTidakValid),
+		errors.Is(err, service.ErrTokenVerifikasiSalah):
 		writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: err.Error()})
 	case errors.Is(err, service.ErrEmailSudahAda):
 		writeJSON(w, http.StatusConflict, Response{Status: "gagal", Message: err.Error()})
@@ -84,6 +96,10 @@ func gagalAkun(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusUnauthorized, Response{Status: "gagal", Message: err.Error()})
 	case errors.Is(err, service.ErrAkunTidakAda):
 		writeJSON(w, http.StatusNotFound, Response{Status: "gagal", Message: err.Error()})
+	case errors.Is(err, service.ErrEmailBelumDiverifikasi):
+		writeJSON(w, http.StatusForbidden, Response{Status: "gagal", Message: err.Error()})
+	case errors.Is(err, service.ErrGagalKirimEmail):
+		writeJSON(w, http.StatusInternalServerError, Response{Status: "gagal", Message: err.Error()})
 	default:
 		log.Println("error akun:", err)
 		writeJSON(w, http.StatusInternalServerError, Response{Status: "gagal", Message: "server sedang bermasalah"})

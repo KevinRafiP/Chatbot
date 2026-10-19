@@ -17,7 +17,7 @@ type RiwayatTamu struct {
 }
 
 // JawabTamu menjawab pertanyaan tamu memakai riwayat dari browser-nya, tanpa menyimpan apa pun
-func (s *ChatbotService) JawabTamu(ctx context.Context, pertanyaan string, riwayat []RiwayatTamu) (HasilChat, error) {
+func (s *ChatbotService) JawabTamu(ctx context.Context, pertanyaan string, riwayat []RiwayatTamu, kabar agen.Kabar) (HasilChat, error) {
 	pertanyaan = strings.TrimSpace(pertanyaan)
 	if pertanyaan == "" || len(pertanyaan) > BatasPertanyaan {
 		return HasilChat{}, ErrDataTidakValid
@@ -33,5 +33,5 @@ func (s *ChatbotService) JawabTamu(ctx context.Context, pertanyaan string, riway
 		}
 		bersih = append(bersih, agen.Riwayat{Peran: r.Peran, Teks: potong(strings.TrimSpace(r.Teks), BatasTeksRiwayatTamu)})
 	}
-	return s.Jawab(ctx, pertanyaan, bersih, "")
+	return s.Jawab(ctx, pertanyaan, bersih, "", kabar)
 }

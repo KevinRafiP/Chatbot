@@ -9,6 +9,7 @@ import (
 	"chatbot/backend/agen"
 	"chatbot/backend/config"
 	"chatbot/backend/database"
+	"chatbot/backend/email"
 	"chatbot/backend/repository"
 	"chatbot/backend/router"
 	"chatbot/backend/service"
@@ -44,7 +45,23 @@ func main() {
 	masaSesi := time.Duration(cfg.SesiHari) * 24 * time.Hour
 	masaTamu := time.Duration(cfg.SesiTamuJam) * time.Hour
 	sesiService := service.BaruSesiService(sesiRepo, masaSesi, masaTamu)
-	akunService := service.BaruAkunService(repository.BaruAkunRepository(db), sesiService, cfg.EmailAdmin)
+	// link verifikasi mengarah ke frontend; bila FRONTEND_URL kosong dipakai CORS_ORIGIN yang pertama
+	alamatFrontend := cfg.FrontendURL
+	if alamatFrontend == "" && len(cfg.CORSOrigin) > 0 {
+		alamatFrontend = cfg.CORSOrigin[0]
+	}
+	var pengirimEmail service.PengirimEmail
+	switch cfg.EmailLayanan {
+	case "brevo":
+		pengirimEmail = email.BaruKlienBrevo(cfg.EmailAPIKey, cfg.EmailPengirim, cfg.NamaPengirim)
+		log.Println("verifikasi email aktif (brevo), link ke:", alamatFrontend)
+	case "":
+		log.Println("EMAIL_LAYANAN kosong: akun baru langsung aktif tanpa verifikasi email")
+	default:
+		log.Fatal("EMAIL_LAYANAN tidak dikenal: ", cfg.EmailLayanan)
+	}
+	akunService := service.BaruAkunService(repository.BaruAkunRepository(db), sesiService, cfg.EmailAdmin,
+		pengirimEmail, alamatFrontend)
 	ingestionService := service.BaruIngestionService(pengetahuanRepo)
 	ingatanService := service.BaruIngatanService(repository.BaruIngatanRepository(db), klienAgen)
 	percakapanService := service.BaruPercakapanService(repository.BaruPercakapanRepository(db), chatbotService, ingatanService)

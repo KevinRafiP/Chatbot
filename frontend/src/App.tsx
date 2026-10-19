@@ -19,13 +19,21 @@ import {
   sendGuestMessage,
   sendMessage,
   setFavorite,
+  verifyEmail,
   type Account,
+  type AnswerUpdate,
   type Conversation,
   type FavoriteMessage,
   type Message,
 } from "./api";
 
 const MOBILE_QUERY = "(max-width: 768px)";
+
+// The code from the link in the verification email, read once when the page opens and then removed from the address bar
+const VERIFY_CODE = new URLSearchParams(window.location.search).get("verifikasi");
+if (VERIFY_CODE !== null) {
+  window.history.replaceState(null, "", window.location.pathname);
+}
 const TOAST_MS = 2000;
 const HIGHLIGHT_MS = 4000;
 const INPUT_MAX_HEIGHT = 200;
@@ -131,6 +139,7 @@ function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
+  const [live, setLive] = useState({ status: "", text: "" });
   const messagesRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -138,10 +147,25 @@ function App() {
   const toastTimer = useRef(0);
   const highlightTimer = useRef(0);
 
-  // Loads who is using this device, then their saved conversations; a guest has none
+  // Loads who is using this device, then their saved conversations; a guest has none.
+  // Opening the link from the verification email logs into the new account first
   useEffect(() => {
     onServerWaking(setWaking);
-    getAccount()
+    const start =
+      VERIFY_CODE === null
+        ? getAccount()
+        : verifyEmail(VERIFY_CODE).then(
+            (current) => {
+              setToast("Email terverifikasi, selamat datang!");
+              toastTimer.current = window.setTimeout(() => setToast(""), TOAST_MS);
+              return current;
+            },
+            () => {
+              setError("Link verifikasi salah atau sudah kedaluwarsa.");
+              return getAccount();
+            },
+          );
+    start
       .then(async (current) => {
         setAccount(current);
         if (current.role !== "tamu") {
@@ -374,13 +398,22 @@ function App() {
   }
 
   // A guest chat lives only in this page: it is sent with its history and never saved
-  async function sendAsGuest(text: string, draftId: string) {
-    const answer = await sendGuestMessage(text, messages);
+  async function sendAsGuest(text: string, draftId: string, onUpdate: (update: AnswerUpdate) => void): Promise<Message> {
+    const answer = await sendGuestMessage(text, messages, onUpdate);
     setMessages((current) => [
       ...current.map((item) => (item.id === draftId ? { ...item, id: `question-${draftId}` } : item)),
       answer,
     ]);
-    setTypingId(answer.id);
+    return answer;
+  }
+
+  // Shows the current step, or adds the newly arrived piece of the answer
+  function showUpdate(update: AnswerUpdate) {
+    setLive((current) => {
+      if (update.kind === "status") return { ...current, status: update.text };
+      if (update.kind === "reset") return { ...current, text: "" };
+      return { ...current, text: current.text + update.text };
+    });
   }
 
   // On a computer Enter sends and Shift+Enter starts a new line; on a phone Enter always starts a new line.
@@ -411,11 +444,20 @@ function App() {
     ]);
     setInput("");
     setError("");
+    setLive({ status: "", text: "" });
     setLoading(true);
+
+    // An answer that already appeared piece by piece is not typed out again
+    let streamed = false;
+    const onUpdate = (update: AnswerUpdate) => {
+      if (update.kind === "text") streamed = true;
+      showUpdate(update);
+    };
 
     try {
       if (isGuest) {
-        await sendAsGuest(text, draftId);
+        const answer = await sendAsGuest(text, draftId, onUpdate);
+        setTypingId(streamed ? null : answer.id);
         return;
       }
 
@@ -428,13 +470,13 @@ function App() {
       }
 
       const conversationId = id;
-      const result = await sendMessage(conversationId, text);
+      const result = await sendMessage(conversationId, text, onUpdate);
       setMessages((current) => [
         ...current.filter((item) => item.id !== draftId),
         result.question,
         result.answer,
       ]);
-      setTypingId(result.answer.id);
+      setTypingId(streamed ? null : result.answer.id);
       if (result.title !== "") {
         setConversations((current) =>
           current.map((item) => (item.id === conversationId ? { ...item, title: result.title } : item)),
@@ -587,7 +629,7 @@ function App() {
           ))}
 
           {waking && <p className="notice">Menyalakan server, mohon tunggu sebentar...</p>}
-          {loading && <TypingItem />}
+          {loading && <TypingItem status={live.status} text={live.text} />}
           {error !== "" && <p className="error">{error}</p>}
           <div ref={bottomRef} />
         </main>

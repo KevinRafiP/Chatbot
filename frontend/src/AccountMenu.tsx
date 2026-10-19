@@ -1,11 +1,15 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { addKnowledge, makeAdmin, signIn, type Account } from "./api";
+import { addKnowledge, ApiError, makeAdmin, resendVerification, signIn, type Account } from "./api";
 
 export type DialogName = "masuk" | "daftar" | "pengetahuan" | "admin";
 
+// How long the resend button waits; the backend also ignores a resend within one minute
+const RESEND_WAIT_SECONDS = 60;
+
 // Uses the server's message when there is one, otherwise a general message
 function errorText(error: unknown, fallback: string): string {
-  return error instanceof Error && error.constructor === Error && error.message !== "" ? error.message : fallback;
+  const fromServer = error instanceof ApiError || (error instanceof Error && error.constructor === Error);
+  return fromServer && error.message !== "" ? error.message : fallback;
 }
 
 // A centered box over the page; closes on Escape, the × button, or a click on the dark area
@@ -39,23 +43,83 @@ type AuthFormProps = {
   onSwitch: () => void;
 };
 
-// Login or register form; the guest chats on this tab move into the account
+// Login or register form; the guest chats on this tab move into the account.
+// A new account has to open the link sent to its email first, so the form then shows where the link went
 export function AuthForm({ mode, onDone, onSwitch }: AuthFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [remember, setRemember] = useState(true);
+  const [pendingEmail, setPendingEmail] = useState("");
+  const [notice, setNotice] = useState("");
+  const [wait, setWait] = useState(0);
+
+  // Counts the resend wait down once per second
+  useEffect(() => {
+    if (wait <= 0) {
+      return;
+    }
+    const timer = window.setTimeout(() => setWait(wait - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [wait]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      onDone(await signIn(mode, email.trim(), password));
+      const account = await signIn(mode, email.trim(), password, remember);
+      if (account !== null) {
+        onDone(account);
+        return;
+      }
+      setPendingEmail(email.trim());
+      setWait(RESEND_WAIT_SECONDS);
+    } catch (err) {
+      // 403 means the password is right but the email is not confirmed yet
+      if (err instanceof ApiError && err.status === 403) {
+        setPendingEmail(email.trim());
+      } else {
+        setError(errorText(err, "Tidak bisa terhubung ke server."));
+      }
+    }
+    setBusy(false);
+  }
+
+  async function resend() {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await resendVerification(pendingEmail, remember);
+      setNotice("Link baru sudah dikirim.");
+      setWait(RESEND_WAIT_SECONDS);
     } catch (err) {
       setError(errorText(err, "Tidak bisa terhubung ke server."));
-      setBusy(false);
     }
+    setBusy(false);
+  }
+
+  if (pendingEmail !== "") {
+    return (
+      <div className="modal-form">
+        <p className="form-note">
+          Buka link verifikasi yang kami kirim ke <strong>{pendingEmail}</strong> untuk mengaktifkan akun. Tidak ada di
+          kotak masuk? Cek folder Spam.
+        </p>
+        {notice !== "" && <p className="form-success">{notice}</p>}
+        {error !== "" && <p className="form-error">{error}</p>}
+        <button type="button" className="primary" onClick={resend} disabled={busy || wait > 0}>
+          {wait > 0 ? `Kirim ulang (${wait})` : "Kirim ulang"}
+        </button>
+        <p className="form-switch">
+          <button type="button" className="link-button" onClick={() => setPendingEmail("")}>
+            Kembali
+          </button>
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -75,6 +139,10 @@ export function AuthForm({ mode, onDone, onSwitch }: AuthFormProps) {
           maxLength={72}
           required
         />
+      </label>
+      <label className="checkbox-row">
+        <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
+        Ingat saya
       </label>
       {error !== "" && <p className="form-error">{error}</p>}
       <button type="submit" className="primary" disabled={busy}>

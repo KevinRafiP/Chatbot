@@ -7,9 +7,9 @@ from pengaman.aturan import domain_diblokir, potong
 ALAMAT_TAVILY = "https://api.tavily.com/search"
 
 
-def cari(kueri, api_key, daftar_blokir, batas_waktu, maks_hasil=5):
-    """Mencari di internet lewat Tavily dan mengembalikan daftar hasil singkat."""
-    badan = {"query": kueri[:300], "max_results": maks_hasil, "search_depth": "advanced"}
+def cari(kueri, api_key, daftar_blokir, batas_waktu, maks_hasil=5, kedalaman="advanced"):
+    """Mencari di internet lewat Tavily dan mengembalikan daftar hasil singkat. basic = 1 kredit, advanced = 2 kredit."""
+    badan = {"query": kueri[:300], "max_results": maks_hasil, "search_depth": kedalaman}
     permintaan = urllib.request.Request(
         ALAMAT_TAVILY,
         data=json.dumps(badan).encode("utf-8"),

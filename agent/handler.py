@@ -20,7 +20,7 @@ def buat_penangan(agen, api_key):
             self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
 
         def do_POST(self):
-            if self.path not in ("/jawab", "/ringkas"):
+            if self.path not in ("/jawab", "/jawab-stream" "/ringkas"):
                 self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
                 return
 
@@ -40,7 +40,9 @@ def buat_penangan(agen, api_key):
             except ValueError:
                 self.kirim_json(400, {"status": "gagal", "message": "body JSON tidak valid"})
                 return
-
+            if self.path == "/jawab-stream":
+                self.jawab_stream(data)
+                return
             try:
                 if self.path == "/ringkas":
                     hasil = {"ingatan": agen.ringkas(data.get("ingatan"), data.get("riwayat"))}
@@ -59,6 +61,30 @@ def buat_penangan(agen, api_key):
                 return
 
             self.kirim_json(200, {"status": "sukses", "message": "jawaban agent", "data": hasil})
+
+        def jawab_stream(self, data):
+            """Mengirim jawaban sebagai Server-Sent Events: status langkah, potongan teks, lalu hasil akhir."""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+
+            def kabar(jenis, isi):
+                self.wfile.write(f"event: {jenis}\ndata: {json.dumps(isi, ensure_ascii=False)}\n\n".encode("utf-8"))
+
+            try:
+                hasil = agen.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"), kabar)
+                kabar("selesai", hasil)
+            except (BrokenPipeError, ConnectionResetError):
+                logging.info("backend menutup stream sebelum jawaban selesai")
+            except GalatPengaman as galat:
+                kabar("galat", {"message": str(galat)})
+            except GalatLLM as galat:
+                logging.error("LLM gagal: %s", galat)
+                kabar("galat", {"message": "layanan AI sedang bermasalah"})
+            except Exception:
+                logging.exception("galat tak terduga")
+                kabar("galat", {"message": "agent sedang bermasalah"})
 
         def kirim_json(self, status, data):
             badan = json.dumps(data, ensure_ascii=False).encode("utf-8")

@@ -17,6 +17,10 @@ export type SendResult = { title: string; question: Message; answer: Message };
 export type Role = "tamu" | "user" | "admin";
 export type Account = { id: string; name: string; email: string; role: Role };
 
+// What the backend reports while an answer is being made: a step such as "Mencari: ...", a new piece of the
+// answer, or "reset" when the text so far was only a lead-in before a search and has to be cleared
+export type AnswerUpdate = { kind: "status"; text: string } | { kind: "text"; text: string } | { kind: "reset" };
+
 type ApiResponse<T> = { status: string; message: string; data: T };
 type RawConversation = { id: string; judul: string };
 type RawSource = { judul: string; url: string };
@@ -32,6 +36,7 @@ type RawFavorite = RawMessage & { percakapan_id: string; judul_percakapan: strin
 type RawSendResult = { judul: string; pesan: RawMessage; jawaban: RawMessage };
 type RawAccount = { id: string; nama: string; jenis: Role; email?: string };
 type RawSession = { token: string; pengguna: RawAccount };
+type RawSignIn = RawSession | { perlu_verifikasi: true; email: string };
 type RawAnswer = { jawaban: string; sumber: RawSource[] | null };
 
 // Render free puts the backend to sleep; these are the waits before each new try while it wakes up (about 2.5 minutes in total)
@@ -50,7 +55,8 @@ export class ApiError extends Error {
 // Thrown when the request was refused before reaching the backend, usually because its text looks like an attack
 export class BlockedError extends Error {}
 
-let token = readToken(localStorage, ACCOUNT_TOKEN_KEY) ?? readToken(localStorage, GUEST_TOKEN_KEY);
+let token =
+  readToken(sessionStorage, ACCOUNT_TOKEN_KEY) ?? readToken(localStorage, ACCOUNT_TOKEN_KEY) ?? readToken(localStorage, GUEST_TOKEN_KEY);
 let loginPromise: Promise<string> | null = null;
 let wakingListener: ((waking: boolean) => void) | null = null;
 
@@ -63,14 +69,18 @@ function readToken(storage: Storage, key: string): string | null {
   }
 }
 
-// Both tokens live in localStorage; the guest token is kept too, so closing the tab does not reset the guest message limit
-function saveToken(value: string | null, kind: "account" | "guest" = "account") {
+// An account token goes to localStorage when "Ingat saya" is ticked, otherwise to sessionStorage, which the browser
+// empties when the tab is closed. The guest token always lives in localStorage, so closing the tab does not reset the
+// guest message limit. Every save clears the old tokens first, so logging out also forgets the remembered login
+function saveToken(value: string | null, kind: "account" | "guest" = "account", remember = true) {
   token = value;
   try {
     localStorage.removeItem(ACCOUNT_TOKEN_KEY);
     localStorage.removeItem(GUEST_TOKEN_KEY);
+    sessionStorage.removeItem(ACCOUNT_TOKEN_KEY);
     if (value !== null) {
-      localStorage.setItem(kind === "account" ? ACCOUNT_TOKEN_KEY : GUEST_TOKEN_KEY, value);
+      const storage = kind === "account" && !remember ? sessionStorage : localStorage;
+      storage.setItem(kind === "account" ? ACCOUNT_TOKEN_KEY : GUEST_TOKEN_KEY, value);
     }
   } catch {
     // storage is blocked, the token then only lives in memory
@@ -167,6 +177,63 @@ async function request<T>(method: string, path: string, body?: unknown, retry = 
   return result.data;
 }
 
+// Like request, but asks for the answer as Server-Sent Events and passes every step and piece of text to onUpdate.
+// fetch is used instead of EventSource because EventSource can only send GET requests.
+// A backend that answers with plain JSON (an error, or an answer made without the agent) is handled as well
+async function streamRequest<T>(path: string, body: unknown, onUpdate: (update: AnswerUpdate) => void, retry = true): Promise<T> {
+  const currentToken = await ensureToken();
+  const response = await fetchWithRetry(`${API_URL}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${currentToken}`, "Content-Type": "application/json", Accept: "text/event-stream" },
+    body: JSON.stringify(body),
+  });
+
+  if (response.status === 401 && retry) {
+    saveToken(null);
+    return streamRequest<T>(path, body, onUpdate, false);
+  }
+  if (!(response.headers.get("Content-Type") ?? "").includes("text/event-stream") || response.body === null) {
+    const result: ApiResponse<T> = await response.json();
+    if (!response.ok) {
+      throw new ApiError(response.status, result.message);
+    }
+    return result.data;
+  }
+
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) {
+      throw new ApiError(502, "Jawaban terputus sebelum selesai.");
+    }
+    buffer += value;
+    // Events are separated by a blank line; the last part may still be incomplete, so it stays in the buffer
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+    for (const event of events) {
+      let name = "";
+      let data = "";
+      for (const line of event.split("\n")) {
+        if (line.startsWith("event: ")) name = line.slice(7);
+        if (line.startsWith("data: ")) data = line.slice(6);
+      }
+      const payload = data === "" ? {} : JSON.parse(data);
+      if (name === "selesai") {
+        await reader.cancel();
+        return payload as T;
+      }
+      if (name === "galat") {
+        await reader.cancel();
+        throw new ApiError(500, payload.message ?? "Chatbot sedang bermasalah.");
+      }
+      if (name === "status") onUpdate({ kind: "status", text: payload.teks ?? "" });
+      if (name === "teks") onUpdate({ kind: "text", text: payload.teks ?? "" });
+      if (name === "ulang") onUpdate({ kind: "reset" });
+    }
+  }
+}
+
 // Converts a backend conversation into the shape used by the UI
 function toConversation(raw: RawConversation): Conversation {
   return { id: raw.id, title: raw.judul };
@@ -216,16 +283,16 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
   return data.map(toMessage);
 }
 
-// Sends a question into a conversation and returns the saved question and answer
-export async function sendMessage(conversationId: string, text: string): Promise<SendResult> {
-  const data = await request<RawSendResult>("POST", `/percakapan/${conversationId}/pesan`, { pertanyaan: text });
+// Sends a question into a conversation and returns the saved question and answer; onUpdate shows the answer as it is made
+export async function sendMessage(conversationId: string, text: string, onUpdate: (update: AnswerUpdate) => void): Promise<SendResult> {
+  const data = await streamRequest<RawSendResult>(`/percakapan/${conversationId}/pesan`, { pertanyaan: text }, onUpdate);
   return { title: data.judul, question: toMessage(data.pesan), answer: toMessage(data.jawaban) };
 }
 
 // Guest chats are not saved, so the messages on screen are sent along as history
-export async function sendGuestMessage(text: string, history: Message[]): Promise<Message> {
+export async function sendGuestMessage(text: string, history: Message[], onUpdate: (update: AnswerUpdate) => void): Promise<Message> {
   const riwayat = history.map((item) => ({ peran: item.sender === "user" ? "user" : "asisten", teks: item.text }));
-  const data = await request<RawAnswer>("POST", "/tamu/pesan", { pertanyaan: text, riwayat });
+  const data = await streamRequest<RawAnswer>("/tamu/pesan", { pertanyaan: text, riwayat }, onUpdate);
   return {
     id: `guest-${Date.now()}`,
     sender: "bot",
@@ -256,23 +323,46 @@ export async function getAccount(): Promise<Account> {
   return account;
 }
 
-// Registers or logs in; the guest chat on screen is not carried into the account
-export async function signIn(mode: "masuk" | "daftar", email: string, password: string): Promise<Account> {
+// Sends one of the account forms with the current token, if any
+async function postAccount<T>(path: string, body: unknown): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token !== null) {
     headers.Authorization = `Bearer ${token}`;
   }
-  const response = await fetchWithRetry(`${API_URL}/akun/${mode}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ email, password }),
-  });
-  const result: ApiResponse<RawSession> = await response.json();
+  const response = await fetchWithRetry(`${API_URL}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+  const result: ApiResponse<T> = await response.json();
   if (!response.ok) {
     throw new ApiError(response.status, result.message);
   }
-  saveToken(result.data.token, "account");
-  return toAccount(result.data.pengguna);
+  return result.data;
+}
+
+// Registers or logs in; the guest chat on screen is not carried into the account.
+// Returns null when a new account has to confirm its email first; remember=false keeps the login only until the tab closes
+export async function signIn(mode: "masuk" | "daftar", email: string, password: string, remember: boolean): Promise<Account | null> {
+  const data = await postAccount<RawSignIn>(`/akun/${mode}`, { email, password, ingat: remember });
+  if ("perlu_verifikasi" in data) {
+    return null;
+  }
+  saveToken(data.token, "account", remember);
+  return toAccount(data.pengguna);
+}
+
+let verifyPromise: Promise<Account> | null = null;
+
+// Logs into the account whose email link was opened. A link works only once, so a second call
+// (React runs effects twice in development) gets the same result instead of a new request
+export function verifyEmail(code: string): Promise<Account> {
+  verifyPromise ??= postAccount<RawSession & { ingat: boolean }>("/akun/verifikasi", { token: code }).then((data) => {
+    saveToken(data.token, "account", data.ingat);
+    return toAccount(data.pengguna);
+  });
+  return verifyPromise;
+}
+
+// Sends a new verification link; the backend answers the same way for unknown emails
+export async function resendVerification(email: string, remember: boolean): Promise<void> {
+  await postAccount<unknown>("/akun/kirim-ulang", { email, ingat: remember });
 }
 
 // Admin only: saves one entry into the internal data used by the chatbot

@@ -47,8 +47,11 @@ class Agen:
             return "batas"
         return "aksi"
 
-    def jawab(self, pertanyaan, konteks=None, riwayat=None, ingatan=None):
-        keadaan = self.graf.jalankan({"pertanyaan": pertanyaan, "konteks": konteks, "riwayat": riwayat, "ingatan": ingatan})
+    def jawab(self, pertanyaan, konteks=None, riwayat=None, ingatan=None, kabar=None):
+        """kabar(jenis, isi) dipanggil setiap ada langkah atau potongan teks baru; kosong berarti tanpa stream."""
+        keadaan = self.graf.jalankan({
+            "pertanyaan": pertanyaan, "konteks": konteks, "riwayat": riwayat, "ingatan": ingatan, "kabar": kabar,
+        })
         return keadaan["hasil"]
 
     def ringkas(self, ingatan_lama, riwayat):

@@ -15,10 +15,10 @@ func BaruAkunRepository(db *sql.DB) *AkunRepository {
 }
 
 // Buat menyimpan akun baru; email yang sudah dipakai ditolak oleh UNIQUE di database
-func (r *AkunRepository) Buat(nama, email, passwordHash, jenis string) (model.Pengguna, error) {
-	p := model.Pengguna{Nama: nama, Email: email, Jenis: jenis}
-	err := r.db.QueryRow(`INSERT INTO pengguna (nama, email, password_hash, jenis) VALUES ($1, $2, $3, $4)
-		RETURNING id`, nama, email, passwordHash, jenis).Scan(&p.ID)
+func (r *AkunRepository) Buat(nama, email, passwordHash, jenis string, terverifikasi bool) (model.Pengguna, error) {
+	p := model.Pengguna{Nama: nama, Email: email, Jenis: jenis, Terverifikasi: terverifikasi}
+	err := r.db.QueryRow(`INSERT INTO pengguna (nama, email, password_hash, jenis, email_terverifikasi) VALUES ($1, $2, $3, $4, $5)
+		RETURNING id`, nama, email, passwordHash, jenis, terverifikasi).Scan(&p.ID)
 	return p, err
 }
 
@@ -26,8 +26,8 @@ func (r *AkunRepository) Buat(nama, email, passwordHash, jenis string) (model.Pe
 func (r *AkunRepository) CariEmail(email string) (model.Pengguna, string, error) {
 	var p model.Pengguna
 	var hash string
-	err := r.db.QueryRow(`SELECT id, nama, email, jenis, password_hash FROM pengguna WHERE email = $1`, email).
-		Scan(&p.ID, &p.Nama, &p.Email, &p.Jenis, &hash)
+	err := r.db.QueryRow(`SELECT id, nama, email, jenis, password_hash, email_terverifikasi FROM pengguna WHERE email = $1`, email).
+		Scan(&p.ID, &p.Nama, &p.Email, &p.Jenis, &hash, &p.Terverifikasi)
 	return p, hash, err
 }
 

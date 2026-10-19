@@ -1,4 +1,5 @@
 import logging
+import time
 
 SELESAI = "__selesai__"
 
@@ -43,6 +44,7 @@ class Graf:
         """Menjalankan simpul satu per satu mengikuti sisi sampai SELESAI."""
         sekarang = self.awal
         jejak = []
+        waktu = []
 
         while sekarang != SELESAI:
             if len(jejak) >= self.maks_langkah:
@@ -51,11 +53,13 @@ class Graf:
                 raise GalatGraf(f"simpul {sekarang} tidak ada")
 
             jejak.append(sekarang)
+            mulai = time.monotonic()
             keadaan = self.simpul[sekarang](keadaan)
+            waktu.append(f"{sekarang} {time.monotonic() - mulai:.1f}s")
 
             tujuan = self.sisi[sekarang]
             sekarang = tujuan(keadaan) if callable(tujuan) else tujuan
 
-        logging.info("jejak graf: %s", " -> ".join(jejak))
+        logging.info("jejak graf: %s", " -> ".join(waktu))
         keadaan["jejak"] = jejak
         return keadaan
