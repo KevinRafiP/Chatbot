@@ -1,11 +1,12 @@
 import json
+import logging
 import struct
 import urllib.parse
 
 from llm.client import GalatLLM, buka, kirim_json
 from llm.tanda_tangan import tanda_tangani
 
-MAKS_TOKEN_JAWABAN = 4096
+MAKS_TOKEN_JAWABAN = 8192
 
 
 class KlienAWS:
@@ -43,13 +44,14 @@ class KlienAWS:
             pesan, alasan = (data.get("output") or {}).get("message"), data.get("stopReason")
 
         if not pesan or not pesan.get("content"):
-            raise GalatLLM(f"Bedrock tidak memberi jawaban (alasan berhenti: {alasan})")
+            raise GalatLLM(f"Bedrock tidak memberi jawaban (alasan berhenti: {alasan})", 204)
         return pesan
 
 def rakit_pesan_stream(respon, saat_teks):
     """Menyusun kembali pesan utuh (teks dan toolUse) dari event ConverseStream, sambil meneruskan teksnya."""
     blok = {}
     alasan = None
+    panjang_pikir = 0
     for header, isi in baca_event_aws(respon):
         data = json.loads(isi or b"{}")
         if header.get(":message-type") != "event":
@@ -66,6 +68,8 @@ def rakit_pesan_stream(respon, saat_teks):
                 saat_teks(delta["text"])
             elif "toolUse" in delta and "toolUse" in blok.get(nomor, {}):
                 blok[nomor]["toolUse"]["input"] += delta["toolUse"].get("input", "")
+            elif "reasoningContent" in delta:
+                panjang_pikir += len(delta["reasoningContent"].get("text", ""))
         elif jenis == "messageStop":
             alasan = data.get("stopReason")
 
@@ -80,6 +84,8 @@ def rakit_pesan_stream(respon, saat_teks):
             konten.append(isi_blok)
         elif isi_blok["text"].strip():
             konten.append(isi_blok)
+        if not konten:
+            logging.warning("stream Bedrock tanpa jawaban: alasan=%s, panjang pikiran=%d karakter", alasan, panjang_pikir)
     return {"role": "assistant", "content": konten}, alasan
 
 
