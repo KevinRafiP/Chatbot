@@ -91,6 +91,6 @@ func jawabDariDatabase(daftar []model.Pengetahuan) HasilChat {
 		return HasilChat{Jawaban: "Maaf, saya belum punya informasi tentang itu.", Sumber: []model.Sumber{}, Penjawab: "database"}
 	}
 
-	sumber := []model.Sumber{{Judul: daftar[0].Judul}}
-	return HasilChat{Jawaban: daftar[0].Isi + " [1]", Sumber: sumber, Penjawab: "database"}
+	// data internal tidak ditampilkan sebagai sumber
+	return HasilChat{Jawaban: daftar[0].Isi, Sumber: []model.Sumber{}, Penjawab: "database"}
 }

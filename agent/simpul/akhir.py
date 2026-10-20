@@ -89,7 +89,8 @@ def bersihkan_format(teks):
 
 
 def rapikan_sitasi(teks, semua, maks_sumber_luar):
-    """Menyisakan sumber yang disitasi (sumber luar dibatasi jumlahnya) dan menomori ulang [n] mulai dari 1."""
+    """Menyisakan sumber luar yang disitasi (jumlahnya dibatasi) dan menomori ulang [n] mulai dari 1.
+    Data internal tidak pernah ditampilkan sebagai sumber, jadi nomornya dibuang."""
     dipakai = []
 
     def ganti(cocok):
