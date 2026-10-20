@@ -82,9 +82,17 @@ func (s *PercakapanService) Pesan(id, penggunaID string) ([]model.Pesan, error) 
 	return s.repo.DaftarPesan(id, 0)
 }
 
+// profilPengguna memilih profil agent dari mode pilihan pengguna; selain "cepat" dianggap "mendalam"
+func profilPengguna(mode string) string {
+	if mode == agen.ProfilCepat {
+		return agen.ProfilCepat
+	}
+	return agen.ProfilMendalam
+}
+
 // Kirim menyimpan pesan pengguna, meminta jawaban dengan riwayat percakapan, lalu menyimpan jawabannya.
-// kabar boleh nil; jika diisi, status dan potongan teks jawaban diteruskan selama jawaban dibuat
-func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID string, pertanyaan string, kabar agen.Kabar) (HasilPesan, error) {
+// mode adalah pilihan pengguna ("cepat" atau "mendalam"); kabar boleh nil, jika diisi status dan potongan teks diteruskan
+func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID string, pertanyaan, mode string, kabar agen.Kabar) (HasilPesan, error) {
 	pertanyaan = strings.TrimSpace(pertanyaan)
 	if pertanyaan == "" || len(pertanyaan) > BatasPertanyaan {
 		return HasilPesan{}, ErrDataTidakValid
@@ -108,7 +116,7 @@ func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID string, pe
 	}
 
 	ingatan, waktunya := s.ingatan.Ambil(penggunaID)
-	hasil, err := s.chatbot.Jawab(ctx, pertanyaan, riwayat, ingatan, false, kabar)
+	hasil, err := s.chatbot.Jawab(ctx, pertanyaan, riwayat, ingatan, profilPengguna(mode), kabar)
 	if err != nil {
 		return HasilPesan{}, err
 	}

@@ -94,7 +94,7 @@ func DaftarPesan(percakapan *service.PercakapanService) http.HandlerFunc {
 	}
 }
 
-// KirimPesan: POST /percakapan/{id}/pesan dengan body {"pertanyaan": "..."}
+// KirimPesan: POST /percakapan/{id}/pesan dengan body {"pertanyaan": "...", "mode": "cepat" | "mendalam"}
 func KirimPesan(percakapan *service.PercakapanService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := bacaID(w, r)
@@ -116,7 +116,7 @@ func KirimPesan(percakapan *service.PercakapanService) http.HandlerFunc {
 			kabar = sse.kabar
 		}
 
-		hasil, err := percakapan.Kirim(r.Context(), id, middleware.PenggunaDari(r.Context()).ID, permintaan.Pertanyaan, kabar)
+		hasil, err := percakapan.Kirim(r.Context(), id, middleware.PenggunaDari(r.Context()).ID, permintaan.Pertanyaan, permintaan.Mode, kabar)
 		if sse != nil && sse.mulai {
 			if err != nil {
 				log.Println("error kirim pesan (stream):", err)

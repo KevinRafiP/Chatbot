@@ -41,4 +41,6 @@ def keterangan_alat(panggilan):
         return f"Mencari: {str(masukan.get('kueri', ''))[:80]}"
     if panggilan.get("name") == "baca_url":
         return f"Membaca: {urllib.parse.urlsplit(str(masukan.get('url', ''))).netloc}"
+    if panggilan.get("name") == "hitung":
+        return f"Menghitung: {str(masukan.get('ekspresi', ''))[:80]}"
     return "Menjalankan alat"

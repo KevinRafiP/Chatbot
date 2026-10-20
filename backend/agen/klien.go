@@ -41,8 +41,15 @@ type permintaan struct {
 	Konteks    []Konteks `json:"konteks"`
 	Riwayat    []Riwayat `json:"riwayat"`
 	Ingatan    string    `json:"ingatan,omitempty"`
-	Tamu       bool      `json:"tamu,omitempty"`
+	Profil     string    `json:"profil"`
 }
+
+// Profil agent: tamu paling hemat, cepat untuk jawaban singkat, mendalam untuk pemikiran yang lebih kompleks
+const (
+	ProfilTamu     = "tamu"
+	ProfilCepat    = "cepat"
+	ProfilMendalam = "mendalam"
+)
 
 type permintaanRingkas struct {
 	Ingatan string    `json:"ingatan"`
@@ -89,17 +96,17 @@ var jedaUlang = []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Sec
 type galatSementara struct{ error }
 
 // Tanya mengirim pertanyaan, data dari database, riwayat percakapan, dan ingatan tentang pengguna ke layanan agent;
-// tamu=true membuat agent memakai profil hemat (model tamu, langkah lebih sedikit, jawaban lebih singkat)
-func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan string, tamu bool) (Jawaban, error) {
+// profil menentukan kemampuan agent: ProfilTamu, ProfilCepat, atau ProfilMendalam
+func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan, profil string) (Jawaban, error) {
 	var jawaban Jawaban
-	err := k.kirimUlang(ctx, "/jawab", permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Tamu: tamu}, &jawaban)
+	err := k.kirimUlang(ctx, "/jawab", permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Profil: profil}, &jawaban)
 	return jawaban, err
 }
 
 // TanyaStream sama seperti Tanya, tetapi jawaban diterima sebagai Server-Sent Events;
 // setiap status dan potongan teks diteruskan ke kabar, lalu hasil akhirnya dikembalikan
-func (k *Klien) TanyaStream(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan string, tamu bool, kabar Kabar) (Jawaban, error) {
-	badan, err := json.Marshal(permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Tamu: tamu})
+func (k *Klien) TanyaStream(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan, profil string, kabar Kabar) (Jawaban, error) {
+	badan, err := json.Marshal(permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Profil: profil})
 	if err != nil {
 		return Jawaban{}, err
 	}

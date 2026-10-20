@@ -12,6 +12,7 @@ import (
 
 type PermintaanChat struct {
 	Pertanyaan string `json:"pertanyaan"`
+	Mode       string `json:"mode"`
 }
 
 type PermintaanTamu struct {

@@ -19,12 +19,34 @@ KATA_MINTA_INTERNET = [
 
 POLA_URL = re.compile(r"https?://\S+", re.IGNORECASE)
 
-# pesan yang tidak perlu dicek ke internet dulu: sapaan, terima kasih, pertanyaan tentang diri pengguna, dan tulisan kreatif
+# pesan yang tidak perlu dicek ke internet dulu: sapaan, terima kasih, pertanyaan tentang diri pengguna, tulisan kreatif, tugas (hitung, kode, rencana, rangkuman), dan soal logika
 POLA_TANPA_CARI = [re.compile(pola) for pola in (
     r"^(halo|hai|hi|hello|hey|pagi|siang|sore|malam|selamat \w+|terima ?kasih|makasih|thanks?|thank you|oke|ok|siap|mantap|sip|baik)\b[\s\w]{0,15}[!.?]*$",
     r"\b(ingat|kenal)\b.{0,15}\b(aku|saya|namaku|nama saya)\b",
     r"\bsiapa\b.{0,10}\b(aku|saya|namaku|nama saya)\b",
     r"\b(buat|buatkan|bikin|bikinkan|tulis|tuliskan|karang|karangkan)\b.{0,30}\b(cerita|cerpen|puisi|pantun|lagu|lirik|naskah|caption|ucapan|surat|dongeng)\b",
+    r"\b(hitung|hitungkan|selesaikan|kerjakan|rumus|persamaan|integral|turunan|faktorkan|konversi|konversikan)\b",
+    r"\d\s*[+*×÷^]\s*\d|\d\s+[x:/-]\s+\d|\b(akar|pangkat|persen dari)\b",
+    r"\b(buat|buatkan|tulis|tuliskan|perbaiki|debug|jelaskan|optimalkan)\b.{0,20}\b(kode|program|fungsi|script|skrip|query|sql|regex|algoritma)\b",
+    r"\b(susun|susunkan|buat|buatkan|bikin)\b.{0,20}\b(rencana|jadwal|anggaran|budget|ringkasan|rangkuman|outline|kerangka|daftar)\b",
+    r"\b(rangkum|rangkumkan|ringkas|ringkaskan|terjemahkan|parafrasekan|tulis ulang|perbaiki kalimat|koreksi)\b",
+    r"\b(teka[- ]?teki|logika|silogisme|premis|deret|pola bilangan|soal cerita|benar atau salah)\b",
+)]
+
+# pengguna menyatakan jawaban sebelumnya salah atau meminta dicari ulang: pencarian diwajibkan dan cache tidak dipakai
+POLA_CARI_ULANG = [re.compile(pola) for pola in (
+    r"\b(cari|carikan|cek|periksa|search|check)\s*(ulang|lagi|kembali|again)\b",
+    r"\b(jawaban(mu|nya)?|itu|kamu|info(rmasi)?(mu|nya)?|data(mu|nya)?|sumber(mu|nya)?|that|this|you)\s+"
+    r"(salah|keliru|ngawur|ngaco|tidak (benar|tepat|akurat|valid)|kurang (tepat|akurat)|(gak|ga|nggak|enggak|tidak) bener|(is |are )?wrong|incorrect)\b",
+    r"^(salah|keliru|ngawur|ngaco|wrong|incorrect)\b(?!\s+satu)",
+    r"\b(sudah|udah)\s+(usang|basi|kedaluwarsa|tidak berlaku|ketinggalan)\b|\boutdated\b",
+)]
+
+# pertanyaan tentang selera Vokapas sendiri, misalnya "kamu suka yang mana"; jawabannya diundi, bukan dicari
+POLA_SELERA = [re.compile(pola) for pola in (
+    r"\b(kamu|kau|lu|lo|elu|elo|anda|vokapas)\s+(lebih\s+)?(suka|pilih|milih|prefer|demen|seneng|senang|tertarik)\b",
+    r"\b(favorit|kesukaan|jagoan)\s?(mu|kamu|anda|lu|lo)\b",
+    r"\b(do|would)\s+you\s+(rather|prefer|like|choose|pick)\b|\byour\s+(favou?rite|pick|preference)\b",
 )]
 
 POLA_KATA_SUMBER = re.compile(r"\b(sumber|referensi|rujukan|link|tautan)")
@@ -91,6 +113,16 @@ def butuh_cari(teks):
         return False
     return not any(pola.search(kecil) for pola in POLA_TANPA_CARI)
 
+def minta_cari_ulang(teks):
+    """True jika pengguna bilang jawaban sebelumnya salah atau usang, atau meminta dicari ulang."""
+    kecil = " ".join(teks.lower().split())
+    return any(pola.search(kecil) for pola in POLA_CARI_ULANG)
+
+def tanya_selera(teks):
+    """True jika pengguna menanyakan selera Vokapas sendiri, bukan meminta saran untuk dirinya."""
+    kecil = " ".join(teks.lower().split())
+    return any(pola.search(kecil) for pola in POLA_SELERA)
+    
 def permintaan_merusak(teks):
     """True jika pesan berusaha membatalkan aturan agent, membocorkan rahasia, atau merusak data dan sistem, termasuk yang disamarkan."""
     if POLA_DAN.search(teks):

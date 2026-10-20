@@ -20,6 +20,8 @@ export type Account = { id: string; name: string; email: string; role: Role };
 // What the backend reports while an answer is being made: a step such as "Mencari: ...", a new piece of the
 // answer, or "reset" when the text so far was only a lead-in before a search and has to be cleared
 export type AnswerUpdate = { kind: "status"; text: string } | { kind: "text"; text: string } | { kind: "reset" };
+// "fast" answers quickly with fewer searches, "deep" thinks longer and may read more sources
+export type AnswerMode = "fast" | "deep";
 
 type ApiResponse<T> = { status: string; message: string; data: T };
 type RawConversation = { id: string; judul: string };
@@ -284,8 +286,14 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
 }
 
 // Sends a question into a conversation and returns the saved question and answer; onUpdate shows the answer as it is made
-export async function sendMessage(conversationId: string, text: string, onUpdate: (update: AnswerUpdate) => void): Promise<SendResult> {
-  const data = await streamRequest<RawSendResult>(`/percakapan/${conversationId}/pesan`, { pertanyaan: text }, onUpdate);
+export async function sendMessage(
+  conversationId: string,
+  text: string,
+  mode: AnswerMode,
+  onUpdate: (update: AnswerUpdate) => void,
+): Promise<SendResult> {
+  const body = { pertanyaan: text, mode: mode === "fast" ? "cepat" : "mendalam" };
+  const data = await streamRequest<RawSendResult>(`/percakapan/${conversationId}/pesan`, body, onUpdate);
   return { title: data.judul, question: toMessage(data.pesan), answer: toMessage(data.jawaban) };
 }
 
@@ -363,6 +371,19 @@ export function verifyEmail(code: string): Promise<Account> {
 // Sends a new verification link; the backend answers the same way for unknown emails
 export async function resendVerification(email: string, remember: boolean): Promise<void> {
   await postAccount<unknown>("/akun/kirim-ulang", { email, ingat: remember });
+}
+
+// Asks for a link to choose a new password; the backend answers the same way for unknown emails
+export async function requestPasswordReset(email: string): Promise<void> {
+  await postAccount<unknown>("/akun/lupa-password", { email });
+}
+
+// Saves a new password with the code from the reset email, then logs in on this device.
+// The backend logs the account out of every other device
+export async function resetPassword(code: string, password: string, remember: boolean): Promise<Account> {
+  const data = await postAccount<RawSession>("/akun/atur-ulang", { token: code, password, ingat: remember });
+  saveToken(data.token, "account", remember);
+  return toAccount(data.pengguna);
 }
 
 // Admin only: saves one entry into the internal data used by the chatbot

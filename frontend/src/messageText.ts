@@ -1,4 +1,5 @@
 import type { Message } from "./api";
+import { plainMathText } from "./mathPlain";
 
 // Made once and reused, because building a date formatter for every message is slow
 const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
@@ -20,10 +21,11 @@ export function formatTime(iso: string): string {
   return `${day} ${time}`;
 }
 
-// Copies a whole message, including its references, so it can be pasted elsewhere
+// Copies a whole message, including its references, with formulas as readable text so it can be pasted elsewhere
 export async function copyMessage(message: Message): Promise<boolean> {
+  const body = plainMathText(message.text);
   const sources = message.sources.map((source, index) => `${index + 1}. ${source.title}${source.url ? ` - ${source.url}` : ""}`);
-  const text = sources.length > 0 ? `${message.text}\n\nSumber:\n${sources.join("\n")}` : message.text;
+  const text = sources.length > 0 ? `${body}\n\nSumber:\n${sources.join("\n")}` : body;
   try {
     await navigator.clipboard.writeText(text);
     return true;

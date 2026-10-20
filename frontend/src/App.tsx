@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { AccountMenu, AdminForm, AuthForm, Dialog, KnowledgeForm, type DialogName } from "./AccountMenu";
+import { AccountMenu, AdminForm, AuthForm, Dialog, ForgotForm, KnowledgeForm, ResetForm, type DialogName } from "./AccountMenu";
 import { FavoriteList } from "./FavoriteList";
 import { CopyIcon, MessageItem, StarIcon, TypingItem } from "./MessageItem";
 import { copyMessage } from "./messageText";
@@ -21,6 +21,7 @@ import {
   setFavorite,
   verifyEmail,
   type Account,
+  type AnswerMode,
   type AnswerUpdate,
   type Conversation,
   type FavoriteMessage,
@@ -29,14 +30,27 @@ import {
 
 const MOBILE_QUERY = "(max-width: 768px)";
 
-// The code from the link in the verification email, read once when the page opens and then removed from the address bar
-const VERIFY_CODE = new URLSearchParams(window.location.search).get("verifikasi");
-if (VERIFY_CODE !== null) {
+// Codes from the links in the verification and password reset emails, read once when the page opens
+// and then removed from the address bar
+const LINK_PARAMS = new URLSearchParams(window.location.search);
+const VERIFY_CODE = LINK_PARAMS.get("verifikasi");
+const RESET_CODE = LINK_PARAMS.get("atur-ulang");
+if (VERIFY_CODE !== null || RESET_CODE !== null) {
   window.history.replaceState(null, "", window.location.pathname);
 }
 const TOAST_MS = 2000;
 const HIGHLIGHT_MS = 4000;
 const INPUT_MAX_HEIGHT = 200;
+const MODE_KEY = "answerMode";
+
+// The last chosen answer mode, kept per browser; "deep" when nothing was saved or storage is blocked
+function readMode(): AnswerMode {
+  try {
+    return localStorage.getItem(MODE_KEY) === "fast" ? "fast" : "deep";
+  } catch {
+    return "deep";
+  }
+}
 
 type ConversationItemProps = {
   conversation: Conversation;
@@ -129,7 +143,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => !window.matchMedia(MOBILE_QUERY).matches);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [account, setAccount] = useState<Account | null>(null);
-  const [dialog, setDialog] = useState<DialogName | null>(null);
+  const [dialog, setDialog] = useState<DialogName | null>(RESET_CODE !== null ? "atur-ulang" : null);
   const [typingId, setTypingId] = useState<string | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
   const [waking, setWaking] = useState(false);
@@ -140,6 +154,7 @@ function App() {
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const [live, setLive] = useState({ status: "", text: "" });
+  const [mode, setMode] = useState<AnswerMode>(readMode);
   const messagesRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -383,6 +398,12 @@ function App() {
       setError("Gagal memuat percakapan.");
     }
   }
+  
+  // A saved new password logs in like a normal login
+  async function handlePasswordReset(current: Account) {
+    showToast("Password diganti, selamat datang kembali!");
+    await handleSignedIn(current);
+  }
 
   // Logs out of the account; the page continues as a new guest
   async function handleLogout() {
@@ -394,6 +415,15 @@ function App() {
       setAccount(await getAccount());
     } catch {
       setError("Gagal keluar dari akun.");
+    }
+  }
+
+  function changeMode(next: AnswerMode) {
+    setMode(next);
+    try {
+      localStorage.setItem(MODE_KEY, next);
+    } catch {
+      // the choice still applies until the page is reloaded
     }
   }
 
@@ -470,7 +500,7 @@ function App() {
       }
 
       const conversationId = id;
-      const result = await sendMessage(conversationId, text, onUpdate);
+      const result = await sendMessage(conversationId, text, mode, onUpdate);
       setMessages((current) => [
         ...current.filter((item) => item.id !== draftId),
         result.question,
@@ -646,6 +676,17 @@ function App() {
         )}
 
         <form className={`chat-form ${view === "favorites" ? "hidden" : ""}`} onSubmit={handleSubmit}>
+          <select
+            className="mode-select"
+            value={isGuest ? "fast" : mode}
+            disabled={isGuest || loading}
+            onChange={(event) => changeMode(event.target.value === "fast" ? "fast" : "deep")}
+            title={isGuest ? "Masuk untuk memakai mode Mendalam" : "Cepat: jawaban singkat. Mendalam: berpikir lebih teliti."}
+            aria-label="Mode jawaban"
+          >
+            <option value="fast">Cepat</option>
+            <option value="deep">Mendalam</option>
+          </select>
           <textarea
             ref={inputRef}
             rows={1}
@@ -669,7 +710,18 @@ function App() {
             mode={dialog}
             onDone={handleSignedIn}
             onSwitch={() => setDialog(dialog === "masuk" ? "daftar" : "masuk")}
+            onForgot={() => setDialog("lupa")}
           />
+        </Dialog>
+      )}
+      {dialog === "lupa" && (
+        <Dialog title="Lupa password" onClose={() => setDialog(null)}>
+          <ForgotForm onBack={() => setDialog("masuk")} />
+        </Dialog>
+      )}
+      {dialog === "atur-ulang" && RESET_CODE !== null && (
+        <Dialog title="Buat password baru" onClose={() => setDialog(null)}>
+          <ResetForm code={RESET_CODE} onDone={handlePasswordReset} onRequestNew={() => setDialog("lupa")} />
         </Dialog>
       )}
       {dialog === "pengetahuan" && account?.role === "admin" && (

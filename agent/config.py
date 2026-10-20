@@ -16,6 +16,7 @@ class Config:
     aws_secret_access_key: str
     aws_region: str
     llm_model: str
+    llm_model_cepat: str
     llm_model_tamu: str
     llm_model_cadangan: str
     api_url: str
@@ -27,6 +28,8 @@ class Config:
     tavily_api_key: str
     maks_langkah: int
     maks_baca_url: int
+    cepat_maks_langkah: int
+    cepat_maks_baca_url: int
     tamu_maks_langkah: int
     tamu_maks_baca_url: int
     verifikasi_jawaban: bool
@@ -34,6 +37,8 @@ class Config:
     tavily_kedalaman: str
     batas_waktu: int
     domain_diblokir: list
+    cache_cari_detik: int
+    cache_cari_maks: int
 
 
 def baca_env(path):
@@ -94,6 +99,7 @@ def muat():
         aws_secret_access_key=ambil("AWS_SECRET_ACCESS_KEY"),
         aws_region=ambil("AWS_REGION", "ap-southeast-3"),
         llm_model=ambil("LLM_MODEL"),
+        llm_model_cepat=ambil("LLM_MODEL_CEPAT"),
         llm_model_tamu=ambil("LLM_MODEL_TAMU"),
         llm_model_cadangan=ambil("LLM_MODEL_CADANGAN"),
         api_url=ambil("API_URL"),
@@ -105,6 +111,8 @@ def muat():
         tavily_api_key=ambil("TAVILY_API_KEY"),
         maks_langkah=maks_langkah,
         maks_baca_url=maks_baca_url,
+        cepat_maks_langkah=ambil_angka("CEPAT_MAKS_LANGKAH", 3),
+        cepat_maks_baca_url=ambil_angka("CEPAT_MAKS_BACA_URL", 1),
         tamu_maks_langkah=ambil_angka("TAMU_MAKS_LANGKAH", 2),
         tamu_maks_baca_url=ambil_angka("TAMU_MAKS_BACA_URL", 1),
         verifikasi_jawaban=verifikasi,
@@ -112,4 +120,7 @@ def muat():
         tavily_kedalaman="basic" if ambil("TAVILY_KEDALAMAN", "advanced").lower() == "basic" else "advanced",
         batas_waktu=ambil_angka("AGENT_BATAS_WAKTU_DETIK", 15),
         domain_diblokir=diblokir,
+        # CACHE_CARI=tidak mematikan cache hasil pencarian
+        cache_cari_detik=ambil_angka("CACHE_CARI_JAM", 24) * 3600 if ambil_ya("CACHE_CARI", True) else 0,
+        cache_cari_maks=ambil_angka("CACHE_CARI_MAKS", 500),
     )

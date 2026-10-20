@@ -83,7 +83,7 @@ def bersihkan_format(teks):
     teks = re.sub(r"^\s{0,3}#{1,6}\s+", "", teks, flags=re.MULTILINE)
     teks = re.sub(r"^(\s*)[*+]\s+", r"\1- ", teks, flags=re.MULTILINE)
     teks = re.sub(r"\*\*|`", "", teks)
-    teks = re.sub(r"(?<![\w*])\*([^*\n]+)\*(?![\w*])", r"\1", teks)
+    teks = re.sub(r"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])", r"\1", teks)
     teks = re.sub(r"\n{3,}", "\n\n", teks)
     return teks.strip()
 
@@ -104,6 +104,5 @@ def rapikan_sitasi(teks, semua, maks_sumber_luar):
         return f" [{dipakai.index(nomor) + 1}]"
 
     teks = POLA_SITASI.sub(ganti, teks).strip()
-    if not dipakai:
-        return teks, [s for s in semua if s["url"]][:maks_sumber_luar]
+    # jawaban tanpa nomor sumber (selera, opini santai, logika) tidak menampilkan daftar sumber walaupun sempat mencari
     return teks, [semua[nomor - 1] for nomor in dipakai]

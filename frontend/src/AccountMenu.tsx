@@ -1,10 +1,21 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { addKnowledge, ApiError, makeAdmin, resendVerification, signIn, type Account } from "./api";
+import {
+  addKnowledge,
+  ApiError,
+  makeAdmin,
+  requestPasswordReset,
+  resendVerification,
+  resetPassword,
+  signIn,
+  type Account,
+} from "./api";
 
-export type DialogName = "masuk" | "daftar" | "pengetahuan" | "admin";
+export type DialogName = "masuk" | "daftar" | "lupa" | "atur-ulang" | "pengetahuan" | "admin";
 
 // How long the resend button waits; the backend also ignores a resend within one minute
 const RESEND_WAIT_SECONDS = 60;
+// The backend sends at most one password reset email every two minutes
+const RESET_WAIT_SECONDS = 120;
 
 // Uses the server's message when there is one, otherwise a general message
 function errorText(error: unknown, fallback: string): string {
@@ -41,11 +52,12 @@ type AuthFormProps = {
   mode: "masuk" | "daftar";
   onDone: (account: Account) => void;
   onSwitch: () => void;
+  onForgot: () => void;
 };
 
 // Login or register form; the guest chats on this tab move into the account.
 // A new account has to open the link sent to its email first, so the form then shows where the link went
-export function AuthForm({ mode, onDone, onSwitch }: AuthFormProps) {
+export function AuthForm({ mode, onDone, onSwitch, onForgot }: AuthFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -140,6 +152,11 @@ export function AuthForm({ mode, onDone, onSwitch }: AuthFormProps) {
           required
         />
       </label>
+      {mode === "masuk" && (
+        <button type="button" className="link-button forgot-link" onClick={onForgot}>
+          Lupa password?
+        </button>
+      )}
       <label className="checkbox-row">
         <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
         Ingat saya
@@ -152,6 +169,148 @@ export function AuthForm({ mode, onDone, onSwitch }: AuthFormProps) {
         {mode === "masuk" ? "Belum punya akun?" : "Sudah punya akun?"}{" "}
         <button type="button" className="link-button" onClick={onSwitch}>
           {mode === "masuk" ? "Daftar" : "Masuk"}
+        </button>
+      </p>
+    </form>
+  );
+}
+
+// Counts down once per second; used to space out repeated emails
+function useCountdown(): [number, (seconds: number) => void] {
+  const [left, setLeft] = useState(0);
+  useEffect(() => {
+    if (left <= 0) {
+      return;
+    }
+    const timer = window.setTimeout(() => setLeft(left - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [left]);
+  return [left, setLeft];
+}
+
+// Sends a link for choosing a new password. The same message shows whether or not the email has an account,
+// so nobody can use this form to find out which emails are registered
+export function ForgotForm({ onBack }: { onBack: () => void }) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
+  const [wait, setWait] = useCountdown();
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await requestPasswordReset(email.trim());
+      setSent(true);
+      setWait(RESET_WAIT_SECONDS);
+    } catch (err) {
+      setError(errorText(err, "Tidak bisa terhubung ke server."));
+    }
+    setBusy(false);
+  }
+
+  return (
+    <form className="modal-form" onSubmit={submit}>
+      {sent ? (
+        <p className="form-note">
+          Jika <strong>{email.trim()}</strong> terdaftar, link untuk membuat password baru sudah dikirim. Link berlaku 1 jam.
+          Tidak ada di kotak masuk? Cek folder Spam.
+        </p>
+      ) : (
+        <>
+          <p className="form-note">Masukkan email akunmu. Kami akan mengirim link untuk membuat password baru.</p>
+          <label>
+            Email
+            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required autoFocus />
+          </label>
+        </>
+      )}
+      {error !== "" && <p className="form-error">{error}</p>}
+      <button type="submit" className="primary" disabled={busy || wait > 0}>
+        {!sent ? "Kirim link" : wait > 0 ? `Kirim ulang (${wait})` : "Kirim ulang"}
+      </button>
+      <p className="form-switch">
+        <button type="button" className="link-button" onClick={onBack}>
+          Kembali ke Masuk
+        </button>
+      </p>
+    </form>
+  );
+}
+
+type ResetFormProps = {
+  code: string;
+  onDone: (account: Account) => void;
+  onRequestNew: () => void;
+};
+
+// Chooses a new password with the code from the reset email; afterwards only this device stays logged in
+export function ResetForm({ code, onDone, onRequestNew }: ResetFormProps) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [remember, setRemember] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (password !== confirm) {
+      setError("Password dan ulangannya tidak sama.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      onDone(await resetPassword(code, password, remember));
+      return;
+    } catch (err) {
+      setError(errorText(err, "Tidak bisa terhubung ke server."));
+    }
+    setBusy(false);
+  }
+
+  return (
+    <form className="modal-form" onSubmit={submit}>
+      <p className="form-note">Buat password baru. Setelah disimpan, akun ini keluar dari perangkat lain.</p>
+      <label>
+        Password baru
+        <input
+          type="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          autoComplete="new-password"
+          minLength={8}
+          maxLength={72}
+          required
+          autoFocus
+        />
+      </label>
+      <label>
+        Ulangi password baru
+        <input
+          type="password"
+          value={confirm}
+          onChange={(event) => setConfirm(event.target.value)}
+          autoComplete="new-password"
+          minLength={8}
+          maxLength={72}
+          required  
+        />
+      </label>
+      <label className="checkbox-row">
+        <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
+        Ingat saya
+      </label>
+      {error !== "" && <p className="form-error">{error}</p>}
+      <button type="submit" className="primary" disabled={busy}>
+        Simpan password
+      </button>
+      <p className="form-switch">
+        Link tidak berlaku?{" "}
+        <button type="button" className="link-button" onClick={onRequestNew}>
+          Minta link baru
         </button>
       </p>
     </form>

@@ -33,5 +33,5 @@ func (s *ChatbotService) JawabTamu(ctx context.Context, pertanyaan string, riway
 		}
 		bersih = append(bersih, agen.Riwayat{Peran: r.Peran, Teks: potong(strings.TrimSpace(r.Teks), BatasTeksRiwayatTamu)})
 	}
-	return s.Jawab(ctx, pertanyaan, bersih, "", true, kabar)
+	return s.Jawab(ctx, pertanyaan, bersih, "", agen.ProfilTamu, kabar)
 }

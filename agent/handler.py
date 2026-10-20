@@ -9,8 +9,9 @@ from pengaman.aturan import GalatPengaman
 BATAS_BODY = 64_000
 
 
-def buat_penangan(agen, agen_tamu, api_key):
-    """Membuat kelas penangan HTTP yang sudah membawa agen (pengguna dan tamu) dan API key."""
+def buat_penangan(daftar_agen, api_key):
+    """Membuat kelas penangan HTTP yang sudah membawa agen per profil (mendalam, cepat, tamu) dan API key."""
+    agen = daftar_agen["mendalam"]
 
     class Penangan(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -40,7 +41,8 @@ def buat_penangan(agen, agen_tamu, api_key):
             except ValueError:
                 self.kirim_json(400, {"status": "gagal", "message": "body JSON tidak valid"})
                 return
-            pilihan = agen_tamu if data.get("tamu") is True else agen
+            # profil dipilih backend: "tamu", "cepat", atau "mendalam" (bawaan)
+            pilihan = daftar_agen.get(str(data.get("profil")), agen)
             if self.path == "/jawab-stream":
                 self.jawab_stream(pilihan, data)
                 return

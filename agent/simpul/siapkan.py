@@ -1,7 +1,9 @@
+import random
 from datetime import datetime, timedelta, timezone
 
 from ingatan import pilih_ingatan
 from pengaman.aturan import batas_sumber, butuh_cari, minta_internet, periksa_pertanyaan, permintaan_merusak
+from pengaman.aturan import batas_sumber, butuh_cari, minta_cari_ulang, minta_internet, periksa_pertanyaan, permintaan_merusak, tanya_selera
 
 MAKS_RIWAYAT = 10
 # 4 pesan terakhir dikirim hampir utuh agar jawaban sebelumnya (beserta daftar sumbernya) terbaca lengkap
@@ -10,6 +12,8 @@ MAKS_HURUF_TERBARU = 1000
 MAKS_HURUF_LAMA = 1000
 
 MAKS_KONTEKS = 10
+# undian disiapkan untuk 2 sampai MAKS_PILIHAN pilihan, karena kode tidak tahu berapa pilihan yang disebut pengguna
+MAKS_PILIHAN = 6
 
 ZONA_WIB = timezone(timedelta(hours=7))
 
@@ -24,19 +28,26 @@ def buat_siapkan(kotak_alat):
         if keadaan["ditolak"]:
             return keadaan
 
-        boleh_internet = minta_internet(pertanyaan) or not keadaan.get("konteks")
+        segarkan = minta_cari_ulang(pertanyaan)
+        selera = tanya_selera(pertanyaan)
+        boleh_internet = segarkan or minta_internet(pertanyaan) or not keadaan.get("konteks")
         minimal, maksimal = batas_sumber(pertanyaan)
+        pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal,
+                            pilih_ingatan(keadaan.get("ingatan"), pertanyaan, keadaan.get("riwayat")), selera)
         pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal, pilih_ingatan(keadaan.get("ingatan"), pertanyaan, keadaan.get("riwayat")))
 
-        keadaan["deklarasi"] = kotak_alat.deklarasi() if boleh_internet else None
-        # pertanyaan fakta wajib dicari dulu di putaran pertama, agar model tidak menjawab dari ingatannya sendiri
-        keadaan["wajib_cari"] = bool(keadaan["deklarasi"]) and kotak_alat.wajib_cari() and butuh_cari(pertanyaan)
+        keadaan["deklarasi"] = kotak_alat.deklarasi(boleh_internet)
+        # pertanyaan fakta wajib dicari dulu di putaran pertama, agar model tidak menjawab dari ingatannya sendiri;
+        # permintaan cari ulang selalu dicari, pertanyaan selera tidak perlu dicari
+        perlu_cari = segarkan or (butuh_cari(pertanyaan) and not selera)
+        keadaan["wajib_cari"] = boleh_internet and kotak_alat.wajib_cari(segarkan) and perlu_cari
         keadaan["isi"] = susun_isi(keadaan.get("riwayat"), pesan)
         keadaan["catatan"] = {
             "sumber": sumber_internal(keadaan.get("konteks")),
             "bukti": bukti_internal(keadaan.get("konteks")),
             "jumlah_baca": 0,
             "maks_sumber_luar": maksimal,
+            "segarkan": segarkan,
         }
         keadaan["putaran_llm"] = 0
         return keadaan
@@ -78,13 +89,19 @@ def bukti_internal(konteks):
         for i, item in enumerate((konteks or [])[:MAKS_KONTEKS], start=1)
     }
 
-def susun_pesan(pertanyaan, konteks, minimal, maksimal, ingatan=None):
+def undian_pilihan():
+    """Nomor pilihan yang diundi untuk tiap kemungkinan jumlah pilihan, agar jawaban selera tidak selalu sama."""
+    return "; ".join(f"{n} pilihan: nomor {random.randint(1, n)}" for n in range(2, MAKS_PILIHAN + 1))
+
+def susun_pesan(pertanyaan, konteks, minimal, maksimal, ingatan=None, selera=False):
     tanggal = f"Tanggal hari ini: {datetime.now(ZONA_WIB):%Y-%m-%d}"
     aturan_sumber = f"Sumber luar: paling banyak {maksimal}."
     if minimal:
         aturan_sumber = f"Sumber luar: minimal {minimal}, paling banyak {maksimal}."
 
     baris = [tanggal, aturan_sumber]
+    if selera:
+        baris.append(f"Undian pilihan: {undian_pilihan()}.")
     if ingatan:
         baris.append(f"Ingatan tentang pengguna:\n{ingatan}")
     if not konteks:

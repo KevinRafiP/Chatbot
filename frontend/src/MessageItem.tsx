@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState, type PointerEvent } from "react";
 import type { Message, Source } from "./api";
+import { MathText } from "./MathText";
 import { formatTime } from "./messageText";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
@@ -154,7 +155,7 @@ export function MessageItemView(props: MessageItemProps) {
       <div className="message-body">
         <div className="bubble-wrap">
           <div className={`bubble ${message.sender}`}>
-            {message.text.slice(0, length)}
+            {message.sender === "bot" ? <MathText text={message.text.slice(0, length)} /> : message.text.slice(0, length)}
             {!typing && message.sources.length > 0 && (
               <div className="sources">
                 <p className="sources-title">Sumber Referensi</p>
@@ -220,7 +221,9 @@ export function TypingItem({ status, text }: { status: string; text: string }) {
       <span className="bot-avatar" aria-hidden="true" />
       <div className="message-body">
         {text !== "" ? (
-          <div className="bubble bot streaming">{text}</div>
+          <div className="bubble bot streaming">
+            <MathText text={text} />
+          </div>
         ) : (
           <div className="bubble bot typing">{status || "Mengetik"}</div>
         )}

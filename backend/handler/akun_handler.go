@@ -88,7 +88,7 @@ func kirimSesi(w http.ResponseWriter, status int, pesan, token string, pengguna 
 func gagalAkun(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrEmailTidakValid), errors.Is(err, service.ErrPasswordTidakValid),
-		errors.Is(err, service.ErrTokenVerifikasiSalah):
+		errors.Is(err, service.ErrTokenVerifikasiSalah), errors.Is(err, service.ErrTokenAturUlangSalah):
 		writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: err.Error()})
 	case errors.Is(err, service.ErrEmailSudahAda):
 		writeJSON(w, http.StatusConflict, Response{Status: "gagal", Message: err.Error()})
@@ -98,8 +98,10 @@ func gagalAkun(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusNotFound, Response{Status: "gagal", Message: err.Error()})
 	case errors.Is(err, service.ErrEmailBelumDiverifikasi):
 		writeJSON(w, http.StatusForbidden, Response{Status: "gagal", Message: err.Error()})
-	case errors.Is(err, service.ErrGagalKirimEmail):
+	case errors.Is(err, service.ErrGagalKirimEmail), errors.Is(err, service.ErrGagalKirimAturUlang):
 		writeJSON(w, http.StatusInternalServerError, Response{Status: "gagal", Message: err.Error()})
+	case errors.Is(err, service.ErrEmailTidakAktif):
+		writeJSON(w, http.StatusServiceUnavailable, Response{Status: "gagal", Message: err.Error()})
 	default:
 		log.Println("error akun:", err)
 		writeJSON(w, http.StatusInternalServerError, Response{Status: "gagal", Message: "server sedang bermasalah"})

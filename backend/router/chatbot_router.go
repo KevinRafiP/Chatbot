@@ -75,6 +75,8 @@ func BuatChatbot(
 	mux.Handle("POST /akun/masuk", middleware.BatasiLaju(pembatasAkun, perIP, handler.Masuk(akunService)))
 	mux.Handle("POST /akun/verifikasi", middleware.BatasiLaju(pembatasAkun, perIP, handler.VerifikasiEmail(akunService)))
 	mux.Handle("POST /akun/kirim-ulang", middleware.BatasiLaju(pembatasAkun, perIP, handler.KirimUlangVerifikasi(akunService)))
+	mux.Handle("POST /akun/lupa-password", middleware.BatasiLaju(pembatasAkun, perIP, handler.LupaPassword(akunService)))
+	mux.Handle("POST /akun/atur-ulang", middleware.BatasiLaju(pembatasAkun, perIP, handler.AturUlangPassword(akunService)))
 
 	// tamu hanya bisa chat; percakapannya tidak disimpan, riwayatnya dikirim dari browser
 	mux.Handle("POST /tamu/pesan", wajib(
