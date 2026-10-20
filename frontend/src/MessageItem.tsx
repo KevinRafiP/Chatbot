@@ -98,9 +98,9 @@ export function MessageItemView(props: MessageItemProps) {
     return () => window.clearTimeout(timer);
   }, [length, typing, message.text.length]);
 
-  // A press is only counted for a finger, and is cancelled when the finger moves to scroll
+  // A selected message is left to the phone, so holding a word selects text with the phone's own copy menu
   function startPress(event: PointerEvent<HTMLDivElement>) {
-    if (event.pointerType !== "touch") {
+    if (event.pointerType !== "touch" || selected) {
       return;
     }
     cancelPress();
@@ -134,6 +134,10 @@ export function MessageItemView(props: MessageItemProps) {
       pressed.current = false;
       return;
     }
+    // a tap that ends selecting text keeps the message selected
+    if (selected && !document.getSelection()?.isCollapsed) {
+      return;
+    }
     props.onTap();
   }
 
@@ -148,7 +152,7 @@ export function MessageItemView(props: MessageItemProps) {
       onPointerCancel={cancelPress}
       onClick={tap}
       onContextMenu={(event) => {
-        if (window.matchMedia("(hover: none)").matches) event.preventDefault();
+        if (!selected && window.matchMedia("(hover: none)").matches) event.preventDefault();
       }}
     >
       {message.sender === "bot" && <span className="bot-avatar" aria-hidden="true" />}

@@ -609,6 +609,13 @@ button:disabled {
     -webkit-user-select: none;
     -webkit-touch-callout: none;
   }
+  
+    /* holding a word in a selected message opens the phone's own text selection and copy menu */
+  .message.selected .bubble {
+    user-select: text;
+    -webkit-user-select: text;
+    -webkit-touch-callout: default;
+  }
 
   .message-menu {
     display: none;
