@@ -108,7 +108,7 @@ func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID string, pe
 	}
 
 	ingatan, waktunya := s.ingatan.Ambil(penggunaID)
-	hasil, err := s.chatbot.Jawab(ctx, pertanyaan, riwayat, ingatan, kabar)
+	hasil, err := s.chatbot.Jawab(ctx, pertanyaan, riwayat, ingatan, false, kabar)
 	if err != nil {
 		return HasilPesan{}, err
 	}

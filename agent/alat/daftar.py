@@ -5,7 +5,7 @@ from alat.cari import cari
 from alat.tingkat import tingkat_sumber
 from pengaman.aturan import GalatPengaman, potong
 
-BATAS_BUKTI = 3000
+BATAS_BUKTI = 12000
 
 DEKLARASI_CARI = {
     "name": "cari_web",

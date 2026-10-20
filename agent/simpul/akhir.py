@@ -1,4 +1,7 @@
+import logging
 import re
+
+from llm.client import GalatLLM
 
 POLA_SITASI = re.compile(r"\s*\[(\d+)\]")
 
@@ -10,11 +13,49 @@ def jawab(keadaan):
     keadaan["hasil"] = hasil(keadaan, teks or "Maaf, saya belum bisa menjawab itu.")
     return keadaan
 
+JAWABAN_BATAS = "Maaf, saya belum menemukan jawabannya dalam batas pencarian. Coba pertanyaan yang lebih spesifik."
+PESAN_JAWAB_SEKARANG = (
+    "Batas pencarian sudah tercapai dan alat tidak bisa dipakai lagi. Jawab pertanyaan terakhir pengguna sekarang "
+    "hanya dari informasi di atas. Jika belum cukup, sebut singkat bagian yang tidak ditemukan, lalu beri penjelasan umum."
+)
 
-def batas(keadaan):
-    """Simpul akhir saat putaran LLM sudah mencapai batas."""
-    keadaan["hasil"] = hasil(keadaan, "Maaf, saya belum menemukan jawabannya dalam batas pencarian. Coba pertanyaan yang lebih spesifik.")
-    return keadaan
+
+def buat_batas(klien, instruksi):
+    """Simpul saat putaran LLM habis: model diminta menjawab sekali lagi tanpa alat dari semua yang sudah terkumpul."""
+
+    def batas(keadaan):
+        kabar = keadaan.get("kabar")
+        if kabar:
+            kabar("status", {"teks": "Menyusun jawaban"})
+        bahan = f"{gabung_percakapan(keadaan['isi'])}\n\n{PESAN_JAWAB_SEKARANG}"
+        saat_teks = (lambda potongan: kabar("teks", {"teks": potongan})) if kabar else None
+        try:
+            konten = klien.kirim(instruksi, [{"role": "user", "content": [{"text": bahan}]}], None, False, saat_teks)
+        except GalatLLM as galat:
+            logging.warning("jawaban di batas pencarian gagal: %s", galat)
+            konten = {}
+        if not "".join(b.get("text", "") for b in konten.get("content", [])).strip():
+            konten = {"role": "assistant", "content": [{"text": JAWABAN_BATAS}]}
+        keadaan["konten_terakhir"] = konten
+        return keadaan
+
+    return batas
+
+def gabung_percakapan(isi):
+    """Percakapan berisi alat dijadikan satu teks biasa, karena Bedrock menolak blok alat tanpa daftar alat."""
+    potongan = []
+    for pesan in isi:
+        blok = pesan.get("content", [])
+        if pesan.get("role") == "assistant":
+            if not any("toolUse" in b for b in blok):
+                potongan += [f"Asisten: {b['text']}" for b in blok if b.get("text")]
+            continue
+        for b in blok:
+            if b.get("text"):
+                potongan.append(b["text"])
+            for hasil_alat in b.get("toolResult", {}).get("content", []):
+                potongan.append(f"Hasil alat: {hasil_alat.get('text', '')}")
+    return "\n\n".join(potongan)
 
 def tolak(keadaan):
     """Simpul akhir untuk permintaan yang ditolak pengaman; LLM tidak dipanggil sama sekali."""

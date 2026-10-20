@@ -9,8 +9,8 @@ from pengaman.aturan import GalatPengaman
 BATAS_BODY = 64_000
 
 
-def buat_penangan(agen, api_key):
-    """Membuat kelas penangan HTTP yang sudah membawa agen dan API key."""
+def buat_penangan(agen, agen_tamu, api_key):
+    """Membuat kelas penangan HTTP yang sudah membawa agen (pengguna dan tamu) dan API key."""
 
     class Penangan(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -40,14 +40,15 @@ def buat_penangan(agen, api_key):
             except ValueError:
                 self.kirim_json(400, {"status": "gagal", "message": "body JSON tidak valid"})
                 return
+            pilihan = agen_tamu if data.get("tamu") is True else agen
             if self.path == "/jawab-stream":
-                self.jawab_stream(data)
+                self.jawab_stream(pilihan, data)
                 return
             try:
                 if self.path == "/ringkas":
                     hasil = {"ingatan": agen.ringkas(data.get("ingatan"), data.get("riwayat"))}
                 else:
-                    hasil = agen.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"))
+                    hasil = pilihan.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"))
             except GalatPengaman as galat:
                 self.kirim_json(400, {"status": "gagal", "message": str(galat)})
                 return
@@ -62,7 +63,7 @@ def buat_penangan(agen, api_key):
 
             self.kirim_json(200, {"status": "sukses", "message": "jawaban agent", "data": hasil})
 
-        def jawab_stream(self, data):
+        def jawab_stream(self, pilihan, data):
             """Mengirim jawaban sebagai Server-Sent Events: status langkah, potongan teks, lalu hasil akhir."""
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -73,7 +74,7 @@ def buat_penangan(agen, api_key):
                 self.wfile.write(f"event: {jenis}\ndata: {json.dumps(isi, ensure_ascii=False)}\n\n".encode("utf-8"))
 
             try:
-                hasil = agen.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"), kabar)
+                hasil = pilihan.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"), kabar)
                 kabar("selesai", hasil)
             except (BrokenPipeError, ConnectionResetError):
                 logging.info("backend menutup stream sebelum jawaban selesai")

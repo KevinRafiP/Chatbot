@@ -16,6 +16,8 @@ class Config:
     aws_secret_access_key: str
     aws_region: str
     llm_model: str
+    llm_model_tamu: str
+    llm_model_cadangan: str
     api_url: str
     api_key_llm: str
     api_model: str
@@ -25,6 +27,8 @@ class Config:
     tavily_api_key: str
     maks_langkah: int
     maks_baca_url: int
+    tamu_maks_langkah: int
+    tamu_maks_baca_url: int
     verifikasi_jawaban: bool
     wajib_cari: bool
     tavily_kedalaman: str
@@ -90,6 +94,8 @@ def muat():
         aws_secret_access_key=ambil("AWS_SECRET_ACCESS_KEY"),
         aws_region=ambil("AWS_REGION", "ap-southeast-3"),
         llm_model=ambil("LLM_MODEL"),
+        llm_model_tamu=ambil("LLM_MODEL_TAMU"),
+        llm_model_cadangan=ambil("LLM_MODEL_CADANGAN"),
         api_url=ambil("API_URL"),
         api_key_llm=ambil("API_KEY"),
         api_model=ambil("API_MODEL"),
@@ -99,6 +105,8 @@ def muat():
         tavily_api_key=ambil("TAVILY_API_KEY"),
         maks_langkah=maks_langkah,
         maks_baca_url=maks_baca_url,
+        tamu_maks_langkah=ambil_angka("TAMU_MAKS_LANGKAH", 2),
+        tamu_maks_baca_url=ambil_angka("TAMU_MAKS_BACA_URL", 1),
         verifikasi_jawaban=verifikasi,
         wajib_cari=wajib_cari,
         tavily_kedalaman="basic" if ambil("TAVILY_KEDALAMAN", "advanced").lower() == "basic" else "advanced",

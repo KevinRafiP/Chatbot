@@ -7,6 +7,7 @@ from llm.client import GalatLLM, buka, kirim_json
 from llm.tanda_tangan import tanda_tangani
 
 MAKS_TOKEN_JAWABAN = 8192
+BATAS_WAKTU_WAJIB_ALAT = 20
 
 
 class KlienAWS:
@@ -36,12 +37,17 @@ class KlienAWS:
         data_kirim = json.dumps(badan).encode("utf-8")
         header = tanda_tangani("POST", alamat, data_kirim, self.wilayah, "bedrock",
                                self.access_key, self.secret_key, {"Content-Type": "application/json"})
-        if saat_teks:
-            with buka(alamat, data_kirim, header, self.batas_waktu, "Bedrock") as respon:
-                pesan, alasan = rakit_pesan_stream(respon, saat_teks)
-        else:
-            data = kirim_json(alamat, data_kirim, header, self.batas_waktu, "Bedrock")
-            pesan, alasan = (data.get("output") or {}).get("message"), data.get("stopReason")
+        # memanggil alat biasanya hanya beberapa detik; model yang diam lebih lama diulang tanpa paksaan (kode 204)
+        batas_waktu = BATAS_WAKTU_WAJIB_ALAT if wajib_alat else self.batas_waktu
+        try:
+            if saat_teks:
+                with buka(alamat, data_kirim, header, batas_waktu, "Bedrock") as respon:
+                    pesan, alasan = rakit_pesan_stream(respon, saat_teks)
+            else:
+                data = kirim_json(alamat, data_kirim, header, batas_waktu, "Bedrock")
+                pesan, alasan = (data.get("output") or {}).get("message"), data.get("stopReason")
+        except TimeoutError:
+            raise GalatLLM(f"Bedrock diam lebih dari {batas_waktu} detik", 204)
 
         if not pesan or not pesan.get("content"):
             raise GalatLLM(f"Bedrock tidak memberi jawaban (alasan berhenti: {alasan})", 204)
@@ -72,6 +78,8 @@ def rakit_pesan_stream(respon, saat_teks):
                 panjang_pikir += len(delta["reasoningContent"].get("text", ""))
         elif jenis == "messageStop":
             alasan = data.get("stopReason")
+        elif jenis == "metadata":
+            logging.info("token Bedrock: %s", data.get("usage"))
 
     konten = []
     for nomor in sorted(blok):
@@ -84,8 +92,8 @@ def rakit_pesan_stream(respon, saat_teks):
             konten.append(isi_blok)
         elif isi_blok["text"].strip():
             konten.append(isi_blok)
-        if not konten:
-            logging.warning("stream Bedrock tanpa jawaban: alasan=%s, panjang pikiran=%d karakter", alasan, panjang_pikir)
+    if not konten:
+        logging.warning("stream Bedrock tanpa jawaban: alasan=%s, panjang pikiran=%d karakter", alasan, panjang_pikir)
     return {"role": "assistant", "content": konten}, alasan
 
 

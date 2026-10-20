@@ -6,7 +6,7 @@ from pengaman.aturan import batas_sumber, butuh_cari, minta_internet, periksa_pe
 MAKS_RIWAYAT = 10
 # 4 pesan terakhir dikirim hampir utuh agar jawaban sebelumnya (beserta daftar sumbernya) terbaca lengkap
 JUMLAH_PESAN_TERBARU = 4
-MAKS_HURUF_TERBARU = 5000
+MAKS_HURUF_TERBARU = 1000
 MAKS_HURUF_LAMA = 1000
 
 MAKS_KONTEKS = 10

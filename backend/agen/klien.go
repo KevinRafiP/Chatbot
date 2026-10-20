@@ -41,6 +41,7 @@ type permintaan struct {
 	Konteks    []Konteks `json:"konteks"`
 	Riwayat    []Riwayat `json:"riwayat"`
 	Ingatan    string    `json:"ingatan,omitempty"`
+	Tamu       bool      `json:"tamu,omitempty"`
 }
 
 type permintaanRingkas struct {
@@ -87,17 +88,18 @@ var jedaUlang = []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Sec
 // galatSementara marks failures that did not come from the agent itself (network error, or a non-JSON reply from Render)
 type galatSementara struct{ error }
 
-// Tanya mengirim pertanyaan, data dari database, riwayat percakapan, dan ingatan tentang pengguna ke layanan agent
-func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan string) (Jawaban, error) {
+// Tanya mengirim pertanyaan, data dari database, riwayat percakapan, dan ingatan tentang pengguna ke layanan agent;
+// tamu=true membuat agent memakai profil hemat (model tamu, langkah lebih sedikit, jawaban lebih singkat)
+func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan string, tamu bool) (Jawaban, error) {
 	var jawaban Jawaban
-	err := k.kirimUlang(ctx, "/jawab", permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan}, &jawaban)
+	err := k.kirimUlang(ctx, "/jawab", permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Tamu: tamu}, &jawaban)
 	return jawaban, err
 }
 
 // TanyaStream sama seperti Tanya, tetapi jawaban diterima sebagai Server-Sent Events;
 // setiap status dan potongan teks diteruskan ke kabar, lalu hasil akhirnya dikembalikan
-func (k *Klien) TanyaStream(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan string, kabar Kabar) (Jawaban, error) {
-	badan, err := json.Marshal(permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan})
+func (k *Klien) TanyaStream(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan string, tamu bool, kabar Kabar) (Jawaban, error) {
+	badan, err := json.Marshal(permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Tamu: tamu})
 	if err != nil {
 		return Jawaban{}, err
 	}
