@@ -1,7 +1,7 @@
 import logging
 import re
 
-POLA_SITASI = re.compile(r"\s*\[(\d+)\]")
+POLA_SITASI = re.compile(r"\s*\[(?:data internal|sumber|source)?\s*(\d+)\]", re.IGNORECASE)
 POLA_ANGKA = re.compile(r"\d+(?:[.,]\d+)*")
 POLA_NAMA = re.compile(r"\b[A-Z][\w-]{2,}")
 POLA_AWAL_BARIS = re.compile(r"^(\s*(?:-|\d+[.)])\s+)")

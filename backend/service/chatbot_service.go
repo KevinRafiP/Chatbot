@@ -17,18 +17,20 @@ type HasilChat struct {
 }
 
 type ChatbotService struct {
-	repo *repository.PengetahuanRepository
-	agen *agen.Klien
+	repo  *repository.PengetahuanRepository
+	agen  *agen.Klien
+	makna *EmbeddingService
 }
 
-func BaruChatbotService(repo *repository.PengetahuanRepository, klienAgen *agen.Klien) *ChatbotService {
-	return &ChatbotService{repo: repo, agen: klienAgen}
+// makna boleh nil; data internal lalu dicari dengan kata kunci saja
+func BaruChatbotService(repo *repository.PengetahuanRepository, klienAgen *agen.Klien, makna *EmbeddingService) *ChatbotService {
+	return &ChatbotService{repo: repo, agen: klienAgen, makna: makna}
 }
 
 // Jawab mencari data di database, lalu meminta agent menyusun jawaban; jika agent gagal, pakai jawaban database.
 // Jika kabar diisi, jawaban agent diterima sebagai stream dan setiap status atau potongan teks diteruskan ke kabar
 func (s *ChatbotService) Jawab(ctx context.Context, pertanyaan string, riwayat []agen.Riwayat, ingatan, profil string, kabar agen.Kabar) (HasilChat, error) {
-	daftar, err := s.cariData(pertanyaan)
+	daftar, err := s.cariData(ctx, pertanyaan)
 	if err != nil {
 		return HasilChat{}, err
 	}
@@ -43,7 +45,35 @@ func (s *ChatbotService) Jawab(ctx context.Context, pertanyaan string, riwayat [
 	return jawabDariDatabase(daftar), nil
 }
 
-func (s *ChatbotService) cariData(pertanyaan string) ([]model.Pengetahuan, error) {
+// cariData menggabungkan pencarian makna (embedding) dengan pencarian kata kunci; hasil makna didahulukan
+// dan data yang sama tidak diambil dua kali. Jika pencarian makna gagal, kata kunci tetap dipakai
+func (s *ChatbotService) cariData(ctx context.Context, pertanyaan string) ([]model.Pengetahuan, error) {
+	daftar, err := s.makna.Cari(ctx, pertanyaan, 3)
+	if err != nil {
+		log.Println("pencarian makna gagal, pakai kata kunci saja:", err)
+	}
+	kataKunci, err := s.cariKataKunci(pertanyaan)
+	if err != nil {
+		return nil, err
+	}
+
+	dipakai := map[int]bool{}
+	for _, p := range daftar {
+		dipakai[p.ID] = true
+	}
+	for _, p := range kataKunci {
+		if len(daftar) >= 4 {
+			break
+		}
+		if !dipakai[p.ID] {
+			dipakai[p.ID] = true
+			daftar = append(daftar, p)
+		}
+	}
+	return daftar, nil
+}
+
+func (s *ChatbotService) cariKataKunci(pertanyaan string) ([]model.Pengetahuan, error) {
 	daftarKata := PecahKata(pertanyaan)
 	if len(daftarKata) == 0 {
 		return []model.Pengetahuan{}, nil

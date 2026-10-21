@@ -2,7 +2,6 @@ import random
 from datetime import datetime, timedelta, timezone
 
 from ingatan import pilih_ingatan
-from pengaman.aturan import batas_sumber, butuh_cari, minta_internet, periksa_pertanyaan, permintaan_merusak
 from pengaman.aturan import batas_sumber, butuh_cari, minta_cari_ulang, minta_internet, periksa_pertanyaan, permintaan_merusak, tanya_selera
 
 MAKS_RIWAYAT = 10
@@ -30,17 +29,19 @@ def buat_siapkan(kotak_alat):
 
         segarkan = minta_cari_ulang(pertanyaan)
         selera = tanya_selera(pertanyaan)
-        boleh_internet = segarkan or minta_internet(pertanyaan) or not keadaan.get("konteks")
         minimal, maksimal = batas_sumber(pertanyaan)
         pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal,
                             pilih_ingatan(keadaan.get("ingatan"), pertanyaan, keadaan.get("riwayat")), selera)
-        pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal, pilih_ingatan(keadaan.get("ingatan"), pertanyaan, keadaan.get("riwayat")))
 
-        keadaan["deklarasi"] = kotak_alat.deklarasi(boleh_internet)
-        # pertanyaan fakta wajib dicari dulu di putaran pertama, agar model tidak menjawab dari ingatannya sendiri;
+        # alat internet selalu diberikan, karena data internal bisa cocok sebagian saja (misalnya hanya nama gamenya)
+        keadaan["deklarasi"] = kotak_alat.deklarasi()
+        # pertanyaan fakta wajib dicari dulu di putaran pertama jika tidak ada data internal yang cocok;
         # permintaan cari ulang selalu dicari, pertanyaan selera tidak perlu dicari
         perlu_cari = segarkan or (butuh_cari(pertanyaan) and not selera)
-        keadaan["wajib_cari"] = boleh_internet and kotak_alat.wajib_cari(segarkan) and perlu_cari
+        langsung_cari = segarkan or minta_internet(pertanyaan) or not keadaan.get("konteks")
+        keadaan["wajib_cari"] = langsung_cari and kotak_alat.wajib_cari(segarkan) and perlu_cari
+        # jika ada data internal, model yang memutuskan; jawaban "tidak ada informasi" tanpa mencari diulang di simpul pikir
+        keadaan["cari_cadangan"] = perlu_cari and not keadaan["wajib_cari"] and kotak_alat.wajib_cari(paksa=True)
         keadaan["isi"] = susun_isi(keadaan.get("riwayat"), pesan)
         keadaan["catatan"] = {
             "sumber": sumber_internal(keadaan.get("konteks")),

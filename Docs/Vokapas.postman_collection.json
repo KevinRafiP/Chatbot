@@ -1,0 +1,772 @@
+{
+  "info": {
+    "name": "Vokapas API",
+    "description": "Endpoint backend Go Vokapas. Isi variabel baseUrl, email, dan password di tab Variables. Token sesi tersimpan otomatis setelah Masuk tamu, Daftar, Masuk, Verifikasi, atau Atur ulang password. Semua respons berbentuk {status, message, data}.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "email",
+      "value": "contoh@email.com"
+    },
+    {
+      "key": "password",
+      "value": "password-anda"
+    },
+    {
+      "key": "tokenEmail",
+      "value": ""
+    },
+    {
+      "key": "percakapanId",
+      "value": ""
+    },
+    {
+      "key": "pesanId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Umum",
+      "item": [
+        {
+          "name": "Kesehatan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/kesehatan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "kesehatan"
+              ]
+            },
+            "description": "Cek server hidup. Tanpa token.",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sesi",
+      "item": [
+        {
+          "name": "Masuk tamu",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sesi/tamu",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sesi",
+                "tamu"
+              ]
+            },
+            "description": "Membuat sesi tamu dan menyimpan tokennya. Dibatasi per IP per jam.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.data && j.data.token) pm.collectionVariables.set(\"token\", j.data.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sesi saya",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sesi",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sesi"
+              ]
+            },
+            "description": "Data pengguna dari token yang dipakai."
+          }
+        },
+        {
+          "name": "Keluar",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sesi",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sesi"
+              ]
+            },
+            "description": "Menghapus sesi token ini."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Akun",
+      "item": [
+        {
+          "name": "Daftar",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/akun/daftar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "akun",
+                "daftar"
+              ]
+            },
+            "description": "201 dengan token jika email langsung aktif, atau 202 'cek email untuk verifikasi' jika verifikasi email menyala. Token tamu (jika ada) ikut dipakai.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"ingat\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.data && j.data.token) pm.collectionVariables.set(\"token\", j.data.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Masuk",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/akun/masuk",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "akun",
+                "masuk"
+              ]
+            },
+            "description": "Login dengan email dan password.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"ingat\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.data && j.data.token) pm.collectionVariables.set(\"token\", j.data.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verifikasi email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/akun/verifikasi",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "akun",
+                "verifikasi"
+              ]
+            },
+            "description": "Isi tokenEmail dari parameter link di email verifikasi.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{tokenEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.data && j.data.token) pm.collectionVariables.set(\"token\", j.data.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Kirim ulang verifikasi",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/akun/kirim-ulang",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "akun",
+                "kirim-ulang"
+              ]
+            },
+            "description": "Mengirim ulang email verifikasi.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"ingat\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Lupa password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/akun/lupa-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "akun",
+                "lupa-password"
+              ]
+            },
+            "description": "Selalu menjawab sukses walau email tidak terdaftar. Satu email per 2 menit. 503 jika email (Brevo) mati.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Atur ulang password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/akun/atur-ulang",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "akun",
+                "atur-ulang"
+              ]
+            },
+            "description": "Isi tokenEmail dari link ?atur-ulang=... di email. Link berlaku 1 jam dan sekali pakai; semua sesi lama keluar.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{tokenEmail}}\",\n  \"password\": \"{{password}}\",\n  \"ingat\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.data && j.data.token) pm.collectionVariables.set(\"token\", j.data.token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Tamu",
+      "item": [
+        {
+          "name": "Kirim pesan tamu",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tamu/pesan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tamu",
+                "pesan"
+              ]
+            },
+            "description": "Butuh token tamu (Masuk tamu). Riwayat dikirim dari browser, tidak disimpan. Tambah header Accept: text/event-stream untuk stream.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pertanyaan\": \"Apa itu Vokapas?\",\n  \"riwayat\": [\n    {\n      \"peran\": \"user\",\n      \"teks\": \"Halo\"\n    },\n    {\n      \"peran\": \"asisten\",\n      \"teks\": \"Halo, ada yang bisa saya bantu?\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Percakapan",
+      "item": [
+        {
+          "name": "Daftar percakapan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/percakapan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "percakapan"
+              ]
+            },
+            "description": "Khusus akun terdaftar."
+          }
+        },
+        {
+          "name": "Buat percakapan",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/percakapan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "percakapan"
+              ]
+            },
+            "description": "Menyimpan id ke percakapanId."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.data && j.data.id) pm.collectionVariables.set(\"percakapanId\", j.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ganti nama percakapan",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/percakapan/{{percakapanId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "percakapan",
+                "{{percakapanId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"judul\": \"Judul baru\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Daftar pesan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/percakapan/{{percakapanId}}/pesan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "percakapan",
+                "{{percakapanId}}",
+                "pesan"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Kirim pesan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/percakapan/{{percakapanId}}/pesan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "percakapan",
+                "{{percakapanId}}",
+                "pesan"
+              ]
+            },
+            "description": "mode: cepat atau mendalam. Menyimpan id jawaban ke pesanId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pertanyaan\": \"Siapa pembuat Vokapas?\",\n  \"mode\": \"cepat\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.data && j.data.jawaban) pm.collectionVariables.set(\"pesanId\", j.data.jawaban.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Kirim pesan (stream)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/percakapan/{{percakapanId}}/pesan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "percakapan",
+                "{{percakapanId}}",
+                "pesan"
+              ]
+            },
+            "description": "Jawaban dikirim sebagai Server-Sent Events: status, potongan teks, lalu hasil akhir.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pertanyaan\": \"Siapa pembuat Vokapas?\",\n  \"mode\": \"mendalam\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Hapus percakapan",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/percakapan/{{percakapanId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "percakapan",
+                "{{percakapanId}}"
+              ]
+            },
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "Pesan",
+      "item": [
+        {
+          "name": "Daftar favorit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pesan/favorit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pesan",
+                "favorit"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Tandai favorit",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/pesan/{{pesanId}}/favorit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pesan",
+                "{{pesanId}}",
+                "favorit"
+              ]
+            },
+            "description": "favorit false untuk melepas bintang.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"favorit\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Daftar pengetahuan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pengetahuan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pengetahuan"
+              ]
+            },
+            "description": "Khusus admin."
+          }
+        },
+        {
+          "name": "Tambah pengetahuan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/pengetahuan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "pengetahuan"
+              ]
+            },
+            "description": "Khusus admin.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"judul\": \"Judul data\",\n  \"isi\": \"Isi data internal\",\n  \"kata_kunci\": \"kata, kunci\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Jadikan admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/admin",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "admin"
+              ]
+            },
+            "description": "Khusus admin.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"email-lain@email.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -39,7 +39,9 @@ func main() {
 	} else {
 		log.Println("AGENT_URL kosong: chatbot menjawab dari database saja")
 	}
-	chatbotService := service.BaruChatbotService(pengetahuanRepo, klienAgen)
+	// pengaturan embedding (penyedia, model, kemiripan minimal) ada di agent/.env
+	embeddingService := service.BaruEmbeddingService(repository.BaruEmbeddingRepository(db), klienAgen)
+	chatbotService := service.BaruChatbotService(pengetahuanRepo, klienAgen, embeddingService)
 
 	sesiRepo := repository.BaruSesiRepository(db)
 	masaSesi := time.Duration(cfg.SesiHari) * 24 * time.Hour
@@ -70,6 +72,7 @@ func main() {
 	worker.JalankanSemua(context.Background(),
 		worker.BaruPengindeksKataKunci(pengetahuanRepo, intervalWorker),
 		worker.BaruPembersihSesi(sesiRepo, time.Hour),
+		worker.BaruPengindeksEmbedding(embeddingService, intervalWorker),
 	)
 
 	batas := router.Batas{

@@ -16,6 +16,7 @@ import (
 var jalurDiizinkan = map[string]bool{
 	"/v1/chat/completions": true,
 	"/v1/models":           true,
+	"/v1/embeddings":       true,
 }
 
 func main() {

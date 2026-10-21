@@ -3,6 +3,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 FOLDER_AGENT = Path(__file__).resolve().parent
+# model dan kemiripan minimal bawaan per EMBED_PROVIDER; angka kemiripan masih perkiraan, sesuaikan dari log backend
+MODEL_EMBED_BAWAAN = {"aws": "cohere.embed-multilingual-v3", "api": "gemini-embedding-2", "local": "bge-m3"}
+SKOR_EMBED_BAWAAN = {"aws": 0.35, "api": 0.55, "local": 0.45}
 
 
 @dataclass
@@ -39,6 +42,14 @@ class Config:
     domain_diblokir: list
     cache_cari_detik: int
     cache_cari_maks: int
+    embed_provider: str
+    embed_model: str
+    embed_region: str
+    embed_api_url: str
+    embed_api_key: str
+    embed_local_url: str
+    embed_local_api_key: str
+    embed_skor_minimal: float
 
 
 def baca_env(path):
@@ -64,6 +75,14 @@ def ambil_angka(kunci, bawaan):
         return bawaan
     return nilai if nilai > 0 else bawaan
 
+def ambil_desimal(kunci, bawaan):
+    """Angka pecahan 0 sampai 1, contoh 0.35; selain itu memakai bawaan."""
+    try:
+        nilai = float(os.environ.get(kunci, ""))
+    except ValueError:
+        return bawaan
+    return nilai if 0 <= nilai <= 1 else bawaan
+
 def ambil_ya(kunci, bawaan):
     nilai = os.environ.get(kunci, "").strip().lower()
     if not nilai:
@@ -77,6 +96,7 @@ def muat():
     diblokir = [d.strip().lower() for d in ambil("AGENT_DOMAIN_DIBLOKIR").split(",") if d.strip()]
     
     provider = ambil("LLM_PROVIDER", "aws").lower()
+    penyedia_embed = ambil("EMBED_PROVIDER").lower()
     maks_langkah = ambil_angka("AGENT_MAKS_LANGKAH", 6)
     maks_baca_url = ambil_angka("AGENT_MAKS_BACA_URL", 3)
     verifikasi = ambil_ya("AGENT_VERIFIKASI_JAWABAN", True)
@@ -123,4 +143,14 @@ def muat():
         # CACHE_CARI=tidak mematikan cache hasil pencarian
         cache_cari_detik=ambil_angka("CACHE_CARI_JAM", 24) * 3600 if ambil_ya("CACHE_CARI", True) else 0,
         cache_cari_maks=ambil_angka("CACHE_CARI_MAKS", 500),
+        # pencarian makna pengetahuan; EMBED_PROVIDER kosong = mati
+        embed_provider=penyedia_embed,
+        embed_model=ambil("EMBED_MODEL", MODEL_EMBED_BAWAAN.get(penyedia_embed, "")),
+        embed_region=ambil("EMBED_REGION", ambil("AWS_REGION", "ap-southeast-3")),
+        embed_api_url=ambil("EMBED_API_URL", "https://generativelanguage.googleapis.com/v1beta"),
+        embed_api_key=ambil("EMBED_API_KEY", ambil("API_KEY")),
+        # bawaannya ikut LOCAL_URL dan LOCAL_API_KEY, jadi gerbang local dan ngrok yang sama bisa dipakai
+        embed_local_url=ambil("EMBED_LOCAL_URL", ambil("LOCAL_URL", "http://127.0.0.1:11434/v1")),
+        embed_local_api_key=ambil("EMBED_LOCAL_API_KEY", ambil("LOCAL_API_KEY")),
+        embed_skor_minimal=ambil_desimal("EMBED_SKOR_MINIMAL", SKOR_EMBED_BAWAAN.get(penyedia_embed, 0.5)),
     )

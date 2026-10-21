@@ -7,6 +7,7 @@ from alat.daftar import KotakAlat
 from config import muat
 from handler import buat_penangan
 from llm.client import KlienCadangan, buat_klien
+from llm.embedding import buat_pembuat_embedding
 from prompt import INSTRUKSI_CEPAT, INSTRUKSI_MENDALAM, INSTRUKSI_SISTEM, INSTRUKSI_TAMU
 from service import Agen
 
@@ -41,7 +42,9 @@ def main():
         "tamu": Agen(klien_tamu, KotakAlat(cfg_tamu, cache), cfg.tamu_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_TAMU),
     }
 
-    server = ThreadingHTTPServer((cfg.host, cfg.port), buat_penangan(daftar_agen, cfg.api_key))
+    pembuat_embedding = buat_pembuat_embedding(cfg)
+
+    server = ThreadingHTTPServer((cfg.host, cfg.port), buat_penangan(daftar_agen, cfg.api_key, pembuat_embedding))
     logging.info("layanan agent jalan di http://%s:%d (%s, model mendalam %s, cepat %s, tamu %s, cadangan %s)", cfg.host, cfg.port,
                  cfg.llm_provider, nama_model, nama_cepat, nama_tamu, cfg.llm_model_cadangan or "-")
     server.serve_forever()

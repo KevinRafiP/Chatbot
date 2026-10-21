@@ -1,10 +1,16 @@
 import logging
+import re
 
 from llm.client import GalatLLM
 from prompt import INSTRUKSI_SISTEM
 
 # galat sementara setelah alat dipakai tidak menggagalkan agen; jawaban disusun di simpul batas dari data yang terkumpul
 KODE_SEMENTARA = {0, 204, 408, 429}
+# jawaban model yang menyatakan informasinya tidak ada, padahal belum mencari ke internet
+POLA_TIDAK_ADA_INFO = re.compile(
+    r"\b(tidak|belum)\s+(memiliki|punya|menemukan|ada|tersedia|tercatat|disebutkan|diketahui)\b.{0,40}?\b(informasi|info|data|catatan|keterangan|sumber)"
+    r"|\b(informasi|info|data|keterangan)\b.{0,60}?\b(tidak|belum)\s+(ada|tersedia|tercatat|ditemukan|disebutkan|diketahui)\b"
+    r"|\btidak\s+tercatat\b|\bsaya\s+(tidak|belum)\s+tahu\b|\b(don'?t|do not)\s+have\s+(any\s+)?information\b")
 
 
 def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM):
@@ -42,6 +48,14 @@ def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM):
             logging.warning("model gagal memakai alat, diulang tanpa alat: %s", galat)
             keadaan["deklarasi"] = None
             konten = klien.kirim(instruksi, keadaan["isi"], None, False, saat_teks)
+                
+        if keadaan.pop("cari_cadangan", False) and keadaan["deklarasi"] and tidak_ada_info(konten):
+            # data internal tidak menjawab dan model belum mencari, jadi jawabannya dibuang lalu diulang dengan wajib mencari
+            logging.info("jawaban menyatakan informasi tidak ada, diulang dengan wajib mencari")
+            if tertulis:
+                kabar("ulang", {})
+            keadaan["wajib_cari"] = True
+            return pikir(keadaan)
 
         keadaan["isi"].append(konten)
         keadaan["konten_terakhir"] = konten
@@ -53,3 +67,11 @@ def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM):
         return keadaan
 
     return pikir
+
+def tidak_ada_info(konten):
+    """True jika model menjawab tanpa memakai alat dan jawabannya menyatakan informasinya tidak ada."""
+    blok = konten.get("content", [])
+    if any("toolUse" in b for b in blok):
+        return False
+    teks = " ".join(b.get("text", "") for b in blok).lower()
+    return bool(POLA_TIDAK_ADA_INFO.search(teks))

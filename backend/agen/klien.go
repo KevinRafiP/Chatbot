@@ -56,6 +56,29 @@ type permintaanRingkas struct {
 	Riwayat []Riwayat `json:"riwayat"`
 }
 
+// Jenis teks untuk embedding: dokumen untuk data yang disimpan, kueri untuk pertanyaan pengguna
+const (
+	EmbedDokumen = "dokumen"
+	EmbedKueri   = "kueri"
+)
+
+type permintaanEmbed struct {
+	Teks  []string `json:"teks"`
+	Jenis string   `json:"jenis"`
+}
+
+type hasilEmbed struct {
+	Model  string      `json:"model"`
+	Vektor [][]float32 `json:"vektor"`
+}
+
+// InfoEmbed adalah pengaturan embedding yang sedang aktif di agent
+type InfoEmbed struct {
+	Aktif       bool    `json:"aktif"`
+	Model       string  `json:"model"`
+	SkorMinimal float64 `json:"skor_minimal"`
+}
+
 type hasilRingkas struct {
 	Ingatan string `json:"ingatan"`
 }
@@ -168,6 +191,25 @@ func (k *Klien) Ringkas(ctx context.Context, ingatan string, riwayat []Riwayat) 
 	var hasil hasilRingkas
 	err := k.kirimUlang(ctx, "/ringkas", permintaanRingkas{Ingatan: ingatan, Riwayat: riwayat}, &hasil)
 	return hasil.Ingatan, err
+}
+
+// Embed meminta agent mengubah setiap teks menjadi vektor makna; model yang dipakai ikut dikembalikan
+func (k *Klien) Embed(ctx context.Context, jenis string, teks []string) (string, [][]float32, error) {
+	var hasil hasilEmbed
+	if err := k.kirimUlang(ctx, "/embed", permintaanEmbed{Teks: teks, Jenis: jenis}, &hasil); err != nil {
+		return "", nil, err
+	}
+	if len(hasil.Vektor) != len(teks) {
+		return "", nil, fmt.Errorf("agent mengembalikan %d vektor untuk %d teks", len(hasil.Vektor), len(teks))
+	}
+	return hasil.Model, hasil.Vektor, nil
+}
+
+// InfoEmbedding menanyakan apakah embedding aktif di agent dan model mana yang dipakai
+func (k *Klien) InfoEmbedding(ctx context.Context) (InfoEmbed, error) {
+	var hasil InfoEmbed
+	err := k.kirimUlang(ctx, "/embed-info", struct{}{}, &hasil)
+	return hasil, err
 }
 
 // kirimUlang mengirim permintaan ke agent dan mengulang selama agent masih bangun dari tidur

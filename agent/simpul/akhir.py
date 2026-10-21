@@ -3,7 +3,7 @@ import re
 
 from llm.client import GalatLLM
 
-POLA_SITASI = re.compile(r"\s*\[(\d+)\]")
+POLA_SITASI = re.compile(r"\s*\[(?:data internal|sumber|source)?\s*(\d+)\]", re.IGNORECASE)
 
 
 def jawab(keadaan):
@@ -68,12 +68,23 @@ def tolak(keadaan):
 
 POLA_DAFTAR_SUMBER = re.compile(r"\n\s*(?:sumber(?: referensi)?|referensi|rujukan)\s*:.*\Z", re.IGNORECASE | re.DOTALL)
 
+ISTILAH = r"(?:data internal|catatan saya|ingatan saya)(?:\s+(?:yang\s+)?(?:tersedia|ada|saya miliki|saya punya|kami))?"
+# "Dari data internal yang tersedia, Kevin ..." di awal kalimat
+POLA_PEMBUKA_INTERNAL = re.compile(rf"(^|(?<=[.!?]\s)|(?<=\n))(?:dari|berdasarkan|menurut|sesuai(?: dengan)?|di|dalam)\s+{ISTILAH}\s*,\s*(\w)", re.IGNORECASE | re.MULTILINE)
+# "... tentang X dalam data internal yang tersedia." di akhir kalimat atau anak kalimat
+POLA_KETERANGAN_INTERNAL = re.compile(rf"\s+(?:dari|berdasarkan|menurut|di|dalam)\s+{ISTILAH}(?=[.,!?;:\n]|$)", re.IGNORECASE)
+
+def hapus_istilah_internal(teks):
+    """Membuang frasa yang menyebut data internal atau catatan, karena asal jawaban tidak boleh ditampilkan."""
+    teks = POLA_PEMBUKA_INTERNAL.sub(lambda c: c.group(1) + c.group(2).upper(), teks)
+    teks = POLA_KETERANGAN_INTERNAL.sub("", teks)
+    return re.sub(r"\b(d)ata internal\b", lambda c: f"{c.group(1)}ata yang saya punya", teks, flags=re.IGNORECASE)
 def hasil(keadaan, teks):
     catatan = keadaan["catatan"]
     semua = catatan["sumber"]
     if semua:
         teks = POLA_DAFTAR_SUMBER.sub("", teks).strip()
-    teks, sumber = rapikan_sitasi(bersihkan_format(teks), semua, catatan["maks_sumber_luar"])
+    teks, sumber = rapikan_sitasi(hapus_istilah_internal(bersihkan_format(teks)), semua, catatan["maks_sumber_luar"])
     return {"jawaban": teks, "sumber": sumber, "pakai_internet": any(s["url"] for s in semua)}
 
 
@@ -95,11 +106,10 @@ def rapikan_sitasi(teks, semua, maks_sumber_luar):
 
     def ganti(cocok):
         nomor = int(cocok.group(1))
-        if not 1 <= nomor <= len(semua):
+        if not 1 <= nomor <= len(semua) or not semua[nomor - 1]["url"]:
             return ""
         if nomor not in dipakai:
-            luar_terpakai = sum(1 for n in dipakai if semua[n - 1]["url"])
-            if semua[nomor - 1]["url"] and luar_terpakai >= maks_sumber_luar:
+            if len(dipakai) >= maks_sumber_luar:
                 return ""
             dipakai.append(nomor)
         return f" [{dipakai.index(nomor) + 1}]"

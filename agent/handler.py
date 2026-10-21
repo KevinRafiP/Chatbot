@@ -4,12 +4,13 @@ import logging
 from http.server import BaseHTTPRequestHandler
 
 from llm.client import GalatLLM
+from llm.embedding import MAKS_TEKS
 from pengaman.aturan import GalatPengaman
 
 BATAS_BODY = 64_000
 
 
-def buat_penangan(daftar_agen, api_key):
+def buat_penangan(daftar_agen, api_key, pembuat_embedding=None):
     """Membuat kelas penangan HTTP yang sudah membawa agen per profil (mendalam, cepat, tamu) dan API key."""
     agen = daftar_agen["mendalam"]
 
@@ -21,7 +22,7 @@ def buat_penangan(daftar_agen, api_key):
             self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
 
         def do_POST(self):
-            if self.path not in ("/jawab", "/jawab-stream", "/ringkas"):
+            if self.path not in ("/jawab", "/jawab-stream", "/ringkas", "/embed", "/embed-info"):
                 self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
                 return
 
@@ -40,6 +41,14 @@ def buat_penangan(daftar_agen, api_key):
                     raise ValueError
             except ValueError:
                 self.kirim_json(400, {"status": "gagal", "message": "body JSON tidak valid"})
+                return
+            if self.path == "/embed-info":
+                # backend menanyakan model yang aktif, karena semua pengaturan embedding ada di agent
+                info = pembuat_embedding.info() if pembuat_embedding else {"aktif": False, "model": "", "skor_minimal": 0}
+                self.kirim_json(200, {"status": "sukses", "message": "info embedding", "data": info})
+                return
+            if self.path == "/embed":
+                self.embed(data)
                 return
             # profil dipilih backend: "tamu", "cepat", atau "mendalam" (bawaan)
             pilihan = daftar_agen.get(str(data.get("profil")), agen)
@@ -64,6 +73,25 @@ def buat_penangan(daftar_agen, api_key):
                 return
 
             self.kirim_json(200, {"status": "sukses", "message": "jawaban agent", "data": hasil})
+                
+        def embed(self, data):
+            """Mengubah daftar teks menjadi vektor; body {"teks": [...], "jenis": "dokumen" atau "kueri"}."""
+            if pembuat_embedding is None:
+                self.kirim_json(503, {"status": "gagal", "message": "embedding tidak aktif: periksa EMBED_PROVIDER di agent"})
+                return
+            daftar_teks, jenis = data.get("teks"), data.get("jenis")
+            if (jenis not in ("dokumen", "kueri") or not isinstance(daftar_teks, list) or not 0 < len(daftar_teks) <= MAKS_TEKS
+                    or not all(isinstance(teks, str) and teks.strip() for teks in daftar_teks)):
+                self.kirim_json(400, {"status": "gagal", "message": f"body embedding tidak valid (maksimal {MAKS_TEKS} teks)"})
+                return
+            try:
+                daftar_vektor = pembuat_embedding.buat(daftar_teks, jenis)
+            except GalatLLM as galat:
+                logging.error("embedding gagal: %s", galat)
+                self.kirim_json(502, {"status": "gagal", "message": "layanan embedding sedang bermasalah"})
+                return
+            hasil = {"model": pembuat_embedding.model, "vektor": daftar_vektor}
+            self.kirim_json(200, {"status": "sukses", "message": "embedding", "data": hasil})
 
         def jawab_stream(self, pilihan, data):
             """Mengirim jawaban sebagai Server-Sent Events: status langkah, potongan teks, lalu hasil akhir."""
