@@ -2,7 +2,7 @@ import { formatValue, parseChart } from "./chartData";
 import { plainMathText } from "./mathPlain";
 
 const FENCE = /^\s*(`{3,}|~{3,})\s*([\w-]*)\s*$/;
-const TABLE_DIVIDER = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+const TABLE_DIVIDER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 
 // A chart becomes its title plus one "label: value" line per point, so the numbers survive a paste
 function plainChart(source: string): string {

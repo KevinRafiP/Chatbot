@@ -1,11 +1,15 @@
 import logging
 import re
+import time
 
 from llm.client import GalatLLM
 from prompt import INSTRUKSI_SISTEM
 
 # galat sementara setelah alat dipakai tidak menggagalkan agen; jawaban disusun di simpul batas dari data yang terkumpul
 KODE_SEMENTARA = {0, 204, 408, 429}
+# setelah model menolak "wajib memakai alat", paksaan itu tidak dicoba lagi selama sekian detik,
+# karena setiap penolakan membuang satu panggilan dan menunggu sampai batas diam
+JEDA_COBA_WAJIB_DETIK = 3600
 # jawaban model yang menyatakan informasinya tidak ada, padahal belum mencari ke internet
 POLA_TIDAK_ADA_INFO = re.compile(
     r"\b(tidak|belum)\s+(memiliki|punya|menemukan|ada|tersedia|tercatat|disebutkan|diketahui)\b.{0,40}?\b(informasi|info|data|catatan|keterangan|sumber)"
@@ -15,10 +19,13 @@ POLA_TIDAK_ADA_INFO = re.compile(
 
 def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM):
     """Simpul yang mengirim percakapan ke LLM dan mencatat permintaan alat (jika ada)."""
-
+    
+    ingat = {"tolak_wajib_sampai": 0.0}
     def pikir(keadaan):
-        wajib = bool(keadaan.get("wajib_cari")) and keadaan["putaran_llm"] == 0
+        bisa_wajib = time.monotonic() >= ingat["tolak_wajib_sampai"]
+        wajib = bool(keadaan.get("wajib_cari")) and keadaan["putaran_llm"] == 0 and bisa_wajib
         kabar = keadaan.get("kabar")
+        sistem = instruksi + keadaan.get("instruksi_tambahan", "")
         tertulis = []
 
         def saat_teks(potongan):
@@ -29,7 +36,7 @@ def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM):
 
         saat_teks = saat_teks if kabar else None
         try:
-            konten = klien.kirim(instruksi, keadaan["isi"], keadaan["deklarasi"], wajib, saat_teks)
+            konten = klien.kirim(sistem, keadaan["isi"], keadaan["deklarasi"], wajib, saat_teks)
         except GalatLLM as galat:
             if keadaan["putaran_llm"] > 0 and (galat.kode in KODE_SEMENTARA or galat.kode >= 500):
                 logging.warning("model gagal setelah memakai alat, jawaban disusun dari data yang terkumpul: %s", galat)
@@ -43,13 +50,14 @@ def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM):
             if wajib:
                 # sebagian model tidak mendukung pilihan "wajib memakai alat", jadi diulang dengan alat biasa
                 logging.warning("model menolak wajib memakai alat, diulang tanpa paksaan: %s", galat)
+                ingat["tolak_wajib_sampai"] = time.monotonic() + JEDA_COBA_WAJIB_DETIK
                 keadaan["wajib_cari"] = False
                 return pikir(keadaan)
             logging.warning("model gagal memakai alat, diulang tanpa alat: %s", galat)
             keadaan["deklarasi"] = None
-            konten = klien.kirim(instruksi, keadaan["isi"], None, False, saat_teks)
+            konten = klien.kirim(sistem, keadaan["isi"], None, False, saat_teks)
                 
-        if keadaan.pop("cari_cadangan", False) and keadaan["deklarasi"] and tidak_ada_info(konten):
+        if keadaan.pop("cari_cadangan", False) and bisa_wajib and keadaan["deklarasi"] and tidak_ada_info(konten):
             # data internal tidak menjawab dan model belum mencari, jadi jawabannya dibuang lalu diulang dengan wajib mencari
             logging.info("jawaban menyatakan informasi tidak ada, diulang dengan wajib mencari")
             if tertulis:

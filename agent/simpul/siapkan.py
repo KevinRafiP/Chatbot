@@ -2,6 +2,7 @@ import random
 from datetime import datetime, timedelta, timezone
 
 from ingatan import pilih_ingatan
+from prompt import instruksi_tambahan
 from pengaman.aturan import (batas_sumber, butuh_cari, minta_cari_ulang, minta_email, minta_internet, periksa_pertanyaan,
                              permintaan_merusak, tanya_selera)
 
@@ -17,7 +18,8 @@ MAKS_HURUF_LAMPIRAN = 30000
 MAKS_PILIHAN = 6
 
 ZONA_WIB = timezone(timedelta(hours=7))
-
+# pesan pengguna sebelumnya ikut dicocokkan, agar pertanyaan lanjutan seperti "kalau 20 tahun?" tetap mendapat alatnya
+JUMLAH_PESAN_PILIH_ALAT = 2
 
 def buat_siapkan(kotak_alat):
     """Simpul pertama: memeriksa pertanyaan dan menyusun pesan untuk LLM."""
@@ -39,7 +41,11 @@ def buat_siapkan(kotak_alat):
         # alat internet selalu diberikan, karena data internal bisa cocok sebagian saja (misalnya hanya nama gamenya);
         # kirim_email hanya diberikan jika pengguna memintanya dan akunnya bisa menerima email
         bisa_email = bool(keadaan.get("bisa_email")) and minta_email(pertanyaan)
-        keadaan["deklarasi"] = kotak_alat.deklarasi(email=bisa_email)
+        teks_pilih = teks_pilih_alat(pertanyaan, keadaan.get("riwayat"))
+        keadaan["deklarasi"] = kotak_alat.deklarasi(email=bisa_email, teks=teks_pilih)
+        # aturan grafik, rumus, selera, berkas, dan alat khusus hanya ditambahkan jika dibutuhkan pertanyaan ini
+        keadaan["instruksi_tambahan"] = instruksi_tambahan({d["name"] for d in keadaan["deklarasi"]}, teks_pilih, selera,
+                                                           bool(keadaan.get("lampiran")), not kotak_alat.cfg.alat.pilih_otomatis)
         # pertanyaan fakta wajib dicari dulu di putaran pertama jika tidak ada data internal yang cocok;
         # permintaan cari ulang selalu dicari, pertanyaan selera tidak perlu dicari
         perlu_cari = segarkan or (butuh_cari(pertanyaan) and not selera)
@@ -61,6 +67,10 @@ def buat_siapkan(kotak_alat):
 
     return siapkan
 
+def teks_pilih_alat(pertanyaan, riwayat):
+    """Pertanyaan dan beberapa pesan terakhir pengguna, dipakai untuk memilih alat khusus yang dikirim ke model."""
+    sebelumnya = [str(p.get("teks", "")) for p in (riwayat or []) if p.get("peran") != "asisten"]
+    return "\n".join(sebelumnya[-JUMLAH_PESAN_PILIH_ALAT:] + [pertanyaan])
 
 def susun_isi(riwayat, pesan_baru):
     """Menyusun riwayat dan pesan baru menjadi giliran user/assistant yang selalu bergantian, diawali user."""

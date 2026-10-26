@@ -1,4 +1,5 @@
 import logging
+import re
 
 from alat.acak import AlatAcak
 from alat.hiburan import AlatHiburan
@@ -134,6 +135,23 @@ KETERANGAN = {
 }
 MAKS_ISI_EMAIL = 20_000
 
+# kata yang membuat alat khusus ikut dikirim ke model; alat yang tidak ada di sini (wikipedia, cari_pengetahuan) selalu dikirim
+POLA_ALAT = {nama: re.compile(pola, re.IGNORECASE) for nama, pola in {
+    "waktu_tanggal": r"\b(jam|pukul|zona|wib|wita|wit|utc|gmt|tanggal|hari apa|hari ini|besok|kemarin|lusa|minggu depan|bulan depan|"
+                     r"tahun depan|berapa hari|selisih|umur|usia|lahir|libur|cuti bersama|kalender|weton|time|date|holiday|age)\b",
+    "konversi": r"\b(kurs|nilai tukar|mata uang|konversi|ubah ke|jadi berapa|dolar|dollar|euro|yen|ringgit|rupiah|won|yuan|baht|peso|"
+                r"usd|eur|jpy|sgd|myr|idr|gbp|aud|cny|krw|thb|sar|satuan|meter|km|cm|mm|mil|mile|inci|inch|kaki|feet|kilo|kg|gram|ons|pon|lb|"
+                r"liter|ml|galon|celsius|fahrenheit|kelvin|derajat|mph|knot|hektar|byte|kb|mb|gb|tb|kalori|joule|psi|currency|convert)\b",
+    "keuangan": r"\b(cicilan|kredit|kpr|pinjam\w*|utang|hutang|bunga|investasi|tabungan|nabung|menabung|deposito|majemuk|zakat|nisab|fitrah|"
+                r"pajak|pph|gaji|tenor|anuitas|angsuran|dp|loan|interest|mortgage|tax)\b",
+    "kalkulus": r"\b(turunan|integral|limit|derivatif|diferensial|persamaan|faktorkan|jabarkan|sederhanakan|selesaikan|solve|kuadrat|polinom\w*|"
+                r"aljabar|sin|cos|tan|log|ln|dx)\b|\^|[a-z]\s*=",
+    "acak": r"\b(acak|random|undi|undian|kocok|dadu|koin|lempar|pilihkan|pilih satu|kata sandi|sandi|password|shuffle)\b",
+    "info_lokasi": r"\b(cuaca|hujan|panas|suhu|prakiraan|ramalan|weather|salat|shalat|sholat|solat|imsak|subuh|zuhur|dzuhur|ashar|asar|magrib|"
+                   r"maghrib|isya|adzan|azan|gempa|bmkg|tsunami|jarak|rute|perjalanan|tempuh|provinsi|kabupaten|kota|kecamatan|kelurahan|desa|"
+                   r"wilayah|koordinat|lokasi|letak|peta)\b",
+    "info_hiburan": r"\b(anime|manga|myanimelist|mal|musim ini|season|game|gim|steam|gog|diskon|donghua|manhwa|light novel)\b",
+}.items()}
 
 class AlatTambahan:
     """Alat selain cari_web, baca_url, dan hitung; setiap alat bisa dimatikan lewat ALAT_MATI di .env."""
@@ -158,8 +176,17 @@ class AlatTambahan:
                 continue
             self.alat[nama] = alat
 
-    def deklarasi(self, email=False):
-        return [DEKLARASI[nama] for nama in self.alat if nama != "kirim_email" or email]
+    def deklarasi(self, email=False, teks=None):
+        """teks berisi pertanyaan dan pesan terakhir pengguna; None berarti semua alat dikirim."""
+        hasil = []
+        for nama in self.alat:
+            if nama == "kirim_email" and not email:
+                continue
+            pola = POLA_ALAT.get(nama)
+            if teks is not None and self.p.pilih_otomatis and pola and not pola.search(teks):
+                continue
+            hasil.append(DEKLARASI[nama])
+        return hasil
 
     def punya(self, nama):
         return nama in self.alat

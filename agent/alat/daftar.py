@@ -48,14 +48,14 @@ class KotakAlat:
         # alat tambahan juga boleh dipakai bersama agar cache kurs dan wilayahnya satu
         self.tambahan = tambahan or AlatTambahan(cfg.alat)
 
-    def deklarasi(self, internet=True, email=False):
+    def deklarasi(self, internet=True, email=False, teks=None):
         """Alat hitung dan alat tambahan selalu tersedia; kirim_email hanya jika pengguna meminta dan emailnya terverifikasi."""
         daftar = [DEKLARASI_HITUNG]
         if internet:
             daftar.insert(0, DEKLARASI_BACA)
             if self.cfg.tavily_api_key:
                 daftar.insert(0, DEKLARASI_CARI)
-        return daftar + self.tambahan.deklarasi(email)
+        return daftar + self.tambahan.deklarasi(email, teks)
 
     def keterangan(self, nama):
         return self.tambahan.keterangan(nama)

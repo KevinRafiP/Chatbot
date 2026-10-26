@@ -8,11 +8,11 @@ const HEADING = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
 const RULE = /^\s{0,3}([-*_])(\s*\1){2,}\s*$/;
 const LIST_ITEM = /^(\s*)([-*+]|\d{1,3}[.)])\s+(.*)$/;
 const QUOTE = /^\s{0,3}>\s?(.*)$/;
-const TABLE_DIVIDER = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+const TABLE_DIVIDER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 // Code spans and formulas are kept whole, so a "*" inside them is never read as bold or italic
 const PROTECTED = new RegExp(`\`([^\`\\n]+)\`|${FORMULA.source}`, "g");
 const INLINE =
-  /\*\*(?=\S)([\s\S]+?)(?<=\S)\*\*|~~(?=\S)([\s\S]+?)(?<=\S)~~|\*(?=[^\s*])([\s\S]+?)(?<=[^\s*])\*|(?<![\p{L}\p{N}_])_(?=[^\s_])([\s\S]+?)(?<=[^\s_])_(?![\p{L}\p{N}_])|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|�(\d+)/u;
+  /\*\*(?=\S)([\s\S]+?)(?<=\S)\*\*|~~(?=\S)([\s\S]+?)(?<=\S)~~|\*(?=[^\s*])([\s\S]+?)(?<=[^\s*])\*|(?<![\p{L}\p{N}_])_(?=[^\s_])([\s\S]+?)(?<=[^\s_])_(?![\p{L}\p{N}_])|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|@@atom(\d+)@@/u;
 
 type Atom = { kind: "code" | "math"; text: string };
 type ListLine = { indent: number; ordered: boolean; start: number; text: string };
@@ -22,7 +22,7 @@ function renderInline(text: string): ReactNode[] {
   const atoms: Atom[] = [];
   const marked = text.replace(PROTECTED, (match, code: string | undefined) => {
     atoms.push(code !== undefined ? { kind: "code", text: code } : { kind: "math", text: match });
-    return `�${atoms.length - 1}`;
+    return `@@atom${atoms.length - 1}@@`;
   });
   let key = 0;
 

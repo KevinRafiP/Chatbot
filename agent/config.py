@@ -30,6 +30,7 @@ class PengaturanAlat:
     backend_api_key: str
     kalkulus_batas_detik: int
     berkas_maks_huruf: int
+    pilih_otomatis: bool
 
 @dataclass
 class Config:
@@ -164,6 +165,8 @@ def muat():
         backend_api_key=ambil("BACKEND_API_KEY", ambil("AGENT_API_KEY")),
         kalkulus_batas_detik=ambil_angka("KALKULUS_BATAS_DETIK", 10),
         berkas_maks_huruf=ambil_angka("BERKAS_MAKS_HURUF", 20000),
+        # alat khusus (waktu, kurs, keuangan, dan lainnya) hanya dikirim ke model jika pertanyaannya cocok, agar token hemat
+        pilih_otomatis=ambil_ya("ALAT_SESUAI_PERTANYAAN", True),
     )  
 
     return Config(

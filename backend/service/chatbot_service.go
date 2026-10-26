@@ -22,6 +22,9 @@ type HasilChat struct {
 // ErrAgentMati dipakai fitur yang hanya bisa jalan lewat agent, misalnya membaca berkas
 var ErrAgentMati = errors.New("agent tidak aktif")
 
+// JawabanAgentGagal ditampilkan jika agent aktif tetapi gagal atau terlalu lama menjawab
+const JawabanAgentGagal = "Maaf, saya sedang kesulitan menyusun jawaban. Coba kirim ulang pertanyaannya sebentar lagi."
+
 type ChatbotService struct {
 	repo  *repository.PengetahuanRepository
 	agen  *agen.Klien
@@ -47,7 +50,8 @@ func (s *ChatbotService) Jawab(ctx context.Context, pertanyaan string, riwayat [
 		if err == nil {
 			return hasil, nil
 		}
-		log.Println("agent gagal, pakai jawaban database:", err)
+		log.Println("agent gagal:", err)
+		return HasilChat{Jawaban: JawabanAgentGagal, Sumber: []model.Sumber{}, Penjawab: "database"}, nil
 	}
 	return jawabDariDatabase(daftar), nil
 }

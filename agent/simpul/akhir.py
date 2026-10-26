@@ -30,7 +30,7 @@ def buat_batas(klien, instruksi):
         bahan = f"{gabung_percakapan(keadaan['isi'])}\n\n{PESAN_JAWAB_SEKARANG}"
         saat_teks = (lambda potongan: kabar("teks", {"teks": potongan})) if kabar else None
         try:
-            konten = klien.kirim(instruksi, [{"role": "user", "content": [{"text": bahan}]}], None, False, saat_teks)
+            konten = klien.kirim(instruksi + keadaan.get("instruksi_tambahan", ""), [{"role": "user", "content": [{"text": bahan}]}], None, False, saat_teks)
         except GalatLLM as galat:
             logging.warning("jawaban di batas pencarian gagal: %s", galat)
             konten = {}
