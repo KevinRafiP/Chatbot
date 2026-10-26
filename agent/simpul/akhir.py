@@ -85,18 +85,25 @@ def hasil(keadaan, teks):
     if semua:
         teks = POLA_DAFTAR_SUMBER.sub("", teks).strip()
     teks, sumber = rapikan_sitasi(hapus_istilah_internal(bersihkan_format(teks)), semua, catatan["maks_sumber_luar"])
-    return {"jawaban": teks, "sumber": sumber, "pakai_internet": any(s["url"] for s in semua)}
+    hasil_akhir = {"jawaban": teks, "sumber": sumber, "pakai_internet": any(s["url"] for s in semua)}
+    if catatan.get("email"):
+        hasil_akhir["email"] = catatan["email"]
+    return hasil_akhir
 
 
 def bersihkan_format(teks):
-    """Membuang tanda Markdown (bintang, pagar, backtick) dan catatan berpikir agar jawaban tampil sebagai teks biasa."""
+    """Membuang catatan berpikir dan merapikan Markdown: butir "*" jadi "-", judul paling besar ###.
+    Tebal, miring, tabel, dan blok grafik dibiarkan karena ditampilkan frontend."""
     teks = re.sub(r"<think>.*?</think>", "", teks, flags=re.DOTALL)
-    teks = re.sub(r"^\s{0,3}#{1,6}\s+", "", teks, flags=re.MULTILINE)
-    teks = re.sub(r"^(\s*)[*+]\s+", r"\1- ", teks, flags=re.MULTILINE)
-    teks = re.sub(r"\*\*|`", "", teks)
-    teks = re.sub(r"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])", r"\1", teks)
-    teks = re.sub(r"\n{3,}", "\n\n", teks)
-    return teks.strip()
+    hasil, di_kode = [], False
+    for baris in teks.split("\n"):
+        if baris.lstrip().startswith("```"):
+            di_kode = not di_kode
+        elif not di_kode:
+            baris = re.sub(r"^\s{0,3}#{1,6}\s+", "### ", baris)
+            baris = re.sub(r"^(\s*)[*+]\s+", r"\1- ", baris)
+        hasil.append(baris)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(hasil)).strip()
 
 
 def rapikan_sitasi(teks, semua, maks_sumber_luar):

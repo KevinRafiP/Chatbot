@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"chatbot/backend/model"
@@ -78,8 +79,8 @@ func (r *PercakapanRepository) GantiJudul(id, penggunaID, judul string) (model.P
 
 // DaftarPesan mengambil pesan sebuah percakapan dari yang paling lama; batas 0 berarti semua, selain itu hanya N terakhir
 func (r *PercakapanRepository) DaftarPesan(percakapanID string, batas int) ([]model.Pesan, error) {
-	rows, err := r.db.Query(`SELECT id, pengirim, isi, sumber, favorit, dibuat_pada FROM (
-			SELECT id, urutan, pengirim, isi, sumber, favorit, dibuat_pada FROM pesan
+	rows, err := r.db.Query(`SELECT id, pengirim, isi, sumber, favorit, lampiran_nama, dibuat_pada FROM (
+		SELECT id, urutan, pengirim, isi, sumber, favorit, lampiran_nama, dibuat_pada FROM pesan
 			WHERE percakapan_id = $1 ORDER BY urutan DESC LIMIT NULLIF($2, 0)
 		) AS terakhir ORDER BY urutan`, percakapanID, batas)
 	if err != nil {
@@ -91,7 +92,7 @@ func (r *PercakapanRepository) DaftarPesan(percakapanID string, batas int) ([]mo
 	for rows.Next() {
 		var p model.Pesan
 		var sumber string
-		if err := rows.Scan(&p.ID, &p.Pengirim, &p.Isi, &sumber, &p.Favorit, &p.DibuatPada); err != nil {
+		if err := rows.Scan(&p.ID, &p.Pengirim, &p.Isi, &sumber, &p.Favorit, &p.Lampiran, &p.DibuatPada); err != nil {
 			return nil, err
 		}
 		p.Sumber = pecahSumber(sumber)
@@ -102,6 +103,11 @@ func (r *PercakapanRepository) DaftarPesan(percakapanID string, batas int) ([]mo
 
 // SimpanPesan menyimpan satu pesan beserta sumbernya dan memperbarui waktu percakapannya
 func (r *PercakapanRepository) SimpanPesan(percakapanID string, pengirim, isi string, sumber []model.Sumber) (model.Pesan, error) {
+	return r.SimpanPesanLampiran(percakapanID, pengirim, isi, sumber, model.Lampiran{})
+}
+
+// SimpanPesanLampiran sama seperti SimpanPesan, ditambah berkas yang diunggah bersama pesan itu
+func (r *PercakapanRepository) SimpanPesanLampiran(percakapanID string, pengirim, isi string, sumber []model.Sumber, lampiran model.Lampiran) (model.Pesan, error) {
 	if sumber == nil {
 		sumber = []model.Sumber{}
 	}
@@ -110,14 +116,27 @@ func (r *PercakapanRepository) SimpanPesan(percakapanID string, pengirim, isi st
 		return model.Pesan{}, err
 	}
 
-	p := model.Pesan{Pengirim: pengirim, Isi: isi, Sumber: sumber}
-	err = r.db.QueryRow(`INSERT INTO pesan (percakapan_id, pengirim, isi, sumber) VALUES ($1, $2, $3, $4)
-		RETURNING id, dibuat_pada`, percakapanID, pengirim, isi, string(teksSumber)).Scan(&p.ID, &p.DibuatPada)
+	p := model.Pesan{Pengirim: pengirim, Isi: isi, Sumber: sumber, Lampiran: lampiran.Nama}
+	err = r.db.QueryRow(`INSERT INTO pesan (percakapan_id, pengirim, isi, sumber, lampiran_nama, lampiran_teks) VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, dibuat_pada`, percakapanID, pengirim, isi, string(teksSumber), lampiran.Nama, lampiran.Teks).Scan(&p.ID, &p.DibuatPada)
 	if err != nil {
 		return model.Pesan{}, err
 	}
 	_, err = r.db.Exec(`UPDATE percakapan SET diperbarui_pada = NOW() WHERE id = $1`, percakapanID)
 	return p, err
+}
+
+// LampiranTerakhir mengambil berkas terbaru di antara batas pesan terakhir sebuah percakapan;
+// kosong bila tidak ada, agar berkas lama tidak terus ikut ke pertanyaan yang sudah jauh
+func (r *PercakapanRepository) LampiranTerakhir(percakapanID string, batas int) (model.Lampiran, error) {
+	var l model.Lampiran
+	err := r.db.QueryRow(`SELECT lampiran_nama, lampiran_teks FROM (
+			SELECT lampiran_nama, lampiran_teks, urutan FROM pesan WHERE percakapan_id = $1 ORDER BY urutan DESC LIMIT $2
+		) AS terakhir WHERE lampiran_nama <> '' ORDER BY urutan DESC LIMIT 1`, percakapanID, batas).Scan(&l.Nama, &l.Teks)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Lampiran{}, nil
+	}
+	return l, err
 }
 
 // UbahFavorit menandai atau melepas bintang sebuah pesan, hanya bila percakapannya milik pengguna itu

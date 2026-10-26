@@ -51,10 +51,12 @@ class Agen:
             return "batas"
         return "aksi"
 
-    def jawab(self, pertanyaan, konteks=None, riwayat=None, ingatan=None, kabar=None):
-        """kabar(jenis, isi) dipanggil setiap ada langkah atau potongan teks baru; kosong berarti tanpa stream."""
+    def jawab(self, pertanyaan, konteks=None, riwayat=None, ingatan=None, kabar=None, lampiran=None, bisa_email=False):
+        """kabar(jenis, isi) dipanggil setiap ada langkah atau potongan teks baru; kosong berarti tanpa stream.
+        lampiran {"nama", "teks"} adalah berkas dari pengguna; bisa_email True jika akun pengguna bisa menerima email."""
         keadaan = self.graf.jalankan({
             "pertanyaan": pertanyaan, "konteks": konteks, "riwayat": riwayat, "ingatan": ingatan, "kabar": kabar,
+            "lampiran": lampiran if isinstance(lampiran, dict) else None, "bisa_email": bisa_email is True,
         })
         return keadaan["hasil"]
 

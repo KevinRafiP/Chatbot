@@ -41,6 +41,9 @@ type Config struct {
 	EmailPengirim       string
 	NamaPengirim        string
 	FrontendURL         string
+	BerkasMaksMB        int
+	BatasBerkasPerJam   int
+	EmailJawabanPerHari int
 }
 
 func Muat() Config {
@@ -78,6 +81,9 @@ func Muat() Config {
 		EmailPengirim:       ambil("EMAIL_PENGIRIM", ""),
 		NamaPengirim:        ambil("NAMA_PENGIRIM", "Vokapas"),
 		FrontendURL:         ambil("FRONTEND_URL", ""),
+		BerkasMaksMB:        ambilAngkaBolehNol("BERKAS_MAKS_MB", 5),
+		BatasBerkasPerJam:   ambilAngka("BATAS_BERKAS_PER_JAM", 20),
+		EmailJawabanPerHari: ambilAngkaBolehNol("EMAIL_JAWABAN_PER_HARI", 5),
 	}
 }
 
@@ -100,6 +106,15 @@ func ambil(kunci, bawaan string) string {
 func ambilAngka(kunci string, bawaan int) int {
 	nilai, err := strconv.Atoi(os.Getenv(kunci))
 	if err != nil || nilai <= 0 {
+		return bawaan
+	}
+	return nilai
+}
+
+// ambilAngkaBolehNol sama seperti ambilAngka, tetapi 0 dipakai apa adanya untuk mematikan fitur
+func ambilAngkaBolehNol(kunci string, bawaan int) int {
+	nilai, err := strconv.Atoi(os.Getenv(kunci))
+	if err != nil || nilai < 0 {
 		return bawaan
 	}
 	return nilai

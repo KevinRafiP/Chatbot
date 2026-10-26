@@ -10,6 +10,12 @@
   --danger: #fca5a5;
   --text: #ffffff;
   --muted: #a3a3a3;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-other: #7d8a91;
 }
 
 * {
@@ -382,7 +388,7 @@ button:disabled {
 }
 
 /* Blinking bar at the end of an answer that is still arriving */
-.bubble.streaming::after {
+.bubble.streaming .markdown > :last-child::after {
   content: "\258D";
   margin-left: 2px;
   color: var(--muted);
@@ -408,6 +414,11 @@ button:disabled {
 
 .message.bot {
   align-self: flex-start;
+}
+
+/* answers with a chart or table may use the full width */
+.message.bot:has(.chart, .md-table) {
+  max-width: 100%;
 }
 
 .bot-avatar {
@@ -630,6 +641,316 @@ button:disabled {
     background: rgba(91, 33, 182, 0.35);
     box-shadow: 0 0 0 6px rgba(91, 33, 182, 0.35);
   }
+}
+
+/* Answers written in Markdown */
+.markdown {
+  white-space: normal;
+}
+
+.markdown > * {
+  margin: 0;
+}
+
+.markdown > * + * {
+  margin-top: 10px;
+}
+
+.md-paragraph {
+  white-space: pre-wrap;
+}
+
+.md-heading {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.markdown h4.md-heading {
+  font-size: 14px;
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 22px;
+}
+
+.markdown li + li {
+  margin-top: 4px;
+}
+
+.markdown li > ul,
+.markdown li > ol {
+  margin-top: 4px;
+}
+
+.markdown blockquote {
+  padding-left: 12px;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+
+.markdown hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.markdown a {
+  color: var(--accent-soft);
+}
+
+.markdown code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--panel);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.md-code {
+  overflow-x: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+  white-space: pre;
+}
+
+.md-code code {
+  padding: 0;
+  background: none;
+}
+
+.md-table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.md-table table {
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.md-table th,
+.md-table td {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  overflow-wrap: normal;
+  text-align: left;
+  vertical-align: top;
+}
+
+.md-table th {
+  background: var(--panel);
+  font-weight: 600;
+}
+
+/* Charts from ```chart blocks */
+.chart {
+  width: 560px;
+  max-width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.chart figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.chart-toggle {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.chart-toggle:hover {
+  background: var(--surface-hover);
+}
+
+.chart-area {
+  position: relative;
+}
+
+.chart-area svg {
+  display: block;
+  touch-action: pan-y;
+}
+
+.chart-axis {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.chart-grid {
+  stroke: var(--line);
+  stroke-opacity: 0.45;
+}
+
+.chart-baseline {
+  stroke: var(--muted);
+}
+
+.chart-crosshair {
+  stroke: var(--muted);
+  stroke-dasharray: 3 3;
+}
+
+.chart-dot {
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+
+.chart-slice {
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.chart-legend.vertical {
+  flex-direction: column;
+  justify-content: center;
+  margin: 0;
+}
+
+.chart-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-legend span {
+  color: var(--muted);
+}
+
+.chart-legend i,
+.chart-tooltip i {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.chart-pie {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.chart-tooltip {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-hover);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.chart-tooltip span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-loading {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* A file sent with a question */
+.message-attachment {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.attachment-bar {
+  padding: 8px 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.attachment-bar + .chat-form {
+  border-top: 0;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 13px;
+}
+
+.attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-chip button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.attachment-chip button:hover {
+  background: var(--surface-hover);
+}
+
+.chat-form .attach-button {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.chat-form .attach-button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
 }
 
 .sources {
@@ -903,8 +1224,27 @@ button:disabled {
     grid-template-columns: 1fr auto;
   }
 
+  .chat-form {
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .chat-form .attach-button {
+    grid-row: 1;
+    grid-column: 1;
+    padding: 4px 8px;
+  }
+
+  .chat-form textarea {
+    grid-column: 1 / 3;
+  }
+
+  .chart {
+    padding: 8px;
+  }
+
   .chat-form .mode-select {
-    grid-column: 1 / -1;
+        grid-row: 1;
+    grid-column: 2 / -1;
     justify-self: start;
     padding: 4px 8px;
     font-size: 12px;

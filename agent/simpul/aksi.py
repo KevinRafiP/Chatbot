@@ -17,7 +17,7 @@ def buat_aksi(kotak_alat, maks_langkah):
         for p in keadaan["panggilan"]:
             logging.info("agen memanggil alat %s", p.get("name"))
             if keadaan.get("kabar"):
-                keadaan["kabar"]("status", {"teks": keterangan_alat(p)})
+                keadaan["kabar"]("status", {"teks": keterangan_alat(p, kotak_alat)})
             hasil = kotak_alat.jalankan(p.get("name", ""), p.get("input") or {}, keadaan["catatan"])
             balasan.append({
                 "toolResult": {
@@ -34,7 +34,7 @@ def buat_aksi(kotak_alat, maks_langkah):
 
     return aksi
 
-def keterangan_alat(panggilan):
+def keterangan_alat(panggilan, kotak_alat=None):
     """Kalimat singkat untuk pengguna tentang alat yang sedang dijalankan."""
     masukan = panggilan.get("input") or {}
     if panggilan.get("name") == "cari_web":
@@ -43,4 +43,8 @@ def keterangan_alat(panggilan):
         return f"Membaca: {urllib.parse.urlsplit(str(masukan.get('url', ''))).netloc}"
     if panggilan.get("name") == "hitung":
         return f"Menghitung: {str(masukan.get('ekspresi', ''))[:80]}"
-    return "Menjalankan alat"
+    if panggilan.get("name") == "cari_pengetahuan":
+        return f"Mencari data: {str(masukan.get('kueri', ''))[:80]}"
+    if panggilan.get("name") == "wikipedia":
+        return f"Membaca Wikipedia: {str(masukan.get('topik', ''))[:80]}"
+    return kotak_alat.keterangan(panggilan.get("name")) if kotak_alat else "Menjalankan alat"

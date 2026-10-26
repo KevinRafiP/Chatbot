@@ -11,7 +11,10 @@ export type Message = {
   sources: Source[];
   sentAt: string;
   favorite: boolean;
+  attachment: string;
 };
+// Text read from an uploaded file; it is sent along with the next question
+export type Attachment = { name: string; text: string; truncated: boolean; pages: number | null };
 export type FavoriteMessage = Message & { conversationId: string; conversationTitle: string };
 export type SendResult = { title: string; question: Message; answer: Message };
 export type Role = "tamu" | "user" | "admin";
@@ -32,6 +35,7 @@ type RawMessage = {
   isi: string;
   sumber: RawSource[] | null;
   favorit: boolean;
+  lampiran?: string;
   dibuat_pada: string;
 };
 type RawFavorite = RawMessage & { percakapan_id: string; judul_percakapan: string };
@@ -40,6 +44,7 @@ type RawAccount = { id: string; nama: string; jenis: Role; email?: string };
 type RawSession = { token: string; pengguna: RawAccount };
 type RawSignIn = RawSession | { perlu_verifikasi: true; email: string };
 type RawAnswer = { jawaban: string; sumber: RawSource[] | null };
+type RawFile = { nama: string; teks: string; terpotong: boolean; halaman: number | null };
 
 // Render free puts the backend to sleep; these are the waits before each new try while it wakes up (about 2.5 minutes in total)
 const RETRY_DELAYS_MS = [5000, 10000, 15000, 20000, 30000, 30000, 40000];
@@ -255,7 +260,12 @@ function toMessage(raw: RawMessage): Message {
     sources: (raw.sumber ?? []).map((source) => ({ title: source.judul, url: source.url })),
     sentAt: raw.dibuat_pada,
     favorite: raw.favorit,
+    attachment: raw.lampiran ?? "",
   };
+}
+
+function attachmentBody(attachment: Attachment | null) {
+  return attachment === null ? undefined : { nama: attachment.name, teks: attachment.text };
 }
 
 // Lists the conversations of this account, newest first
@@ -290,17 +300,23 @@ export async function sendMessage(
   conversationId: string,
   text: string,
   mode: AnswerMode,
+  attachment: Attachment | null,
   onUpdate: (update: AnswerUpdate) => void,
 ): Promise<SendResult> {
-  const body = { pertanyaan: text, mode: mode === "fast" ? "cepat" : "mendalam" };
+  const body = { pertanyaan: text, mode: mode === "fast" ? "cepat" : "mendalam", lampiran: attachmentBody(attachment) };
   const data = await streamRequest<RawSendResult>(`/percakapan/${conversationId}/pesan`, body, onUpdate);
   return { title: data.judul, question: toMessage(data.pesan), answer: toMessage(data.jawaban) };
 }
 
-// Guest chats are not saved, so the messages on screen are sent along as history
-export async function sendGuestMessage(text: string, history: Message[], onUpdate: (update: AnswerUpdate) => void): Promise<Message> {
+// Guest chats are not saved, so the messages on screen are sent along as history, and the file of this chat with every question
+export async function sendGuestMessage(
+  text: string,
+  history: Message[],
+  attachment: Attachment | null,
+  onUpdate: (update: AnswerUpdate) => void,
+): Promise<Message> {
   const riwayat = history.map((item) => ({ peran: item.sender === "user" ? "user" : "asisten", teks: item.text }));
-  const data = await streamRequest<RawAnswer>("/tamu/pesan", { pertanyaan: text, riwayat }, onUpdate);
+  const data = await streamRequest<RawAnswer>("/tamu/pesan", { pertanyaan: text, riwayat, lampiran: attachmentBody(attachment) }, onUpdate);
   return {
     id: `guest-${Date.now()}`,
     sender: "bot",
@@ -308,7 +324,33 @@ export async function sendGuestMessage(text: string, history: Message[], onUpdat
     sources: (data.sumber ?? []).map((source) => ({ title: source.judul, url: source.url })),
     sentAt: new Date().toISOString(),
     favorite: false,
+    attachment: "",
   };
+}
+
+// Sends a file to be read; the server keeps nothing and returns its text.
+// 404 means the server has file upload turned off
+export async function uploadFile(file: File, retry = true): Promise<Attachment> {
+  const currentToken = await ensureToken();
+  const form = new FormData();
+  form.append("berkas", file);
+  const response = await fetchWithRetry(`${API_URL}/berkas`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${currentToken}` },
+    body: form,
+  });
+  if (response.status === 401 && retry) {
+    saveToken(null);
+    return uploadFile(file, false);
+  }
+  if (response.status === 404) {
+    throw new ApiError(404, "Unggah berkas belum aktif di server.");
+  }
+  const result: ApiResponse<RawFile> = await response.json();
+  if (!response.ok) {
+    throw new ApiError(response.status, result.message);
+  }
+  return { name: result.data.nama, text: result.data.teks, truncated: result.data.terpotong, pages: result.data.halaman };
 }
 
 // Stars or unstars a saved message of this account

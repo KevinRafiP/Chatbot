@@ -1,16 +1,22 @@
+import base64
+import binascii
 import hmac
 import json
 import logging
 from http.server import BaseHTTPRequestHandler
 
+from alat.berkas import baca_berkas
+from alat.jaringan import GalatAlat
 from llm.client import GalatLLM
 from llm.embedding import MAKS_TEKS
 from pengaman.aturan import GalatPengaman
 
-BATAS_BODY = 64_000
+BATAS_BODY = 256_000
+# berkas dikirim sebagai base64, jadi ukurannya sekitar 4/3 dari berkas aslinya
+BATAS_BODY_BERKAS = 8_000_000
 
 
-def buat_penangan(daftar_agen, api_key, pembuat_embedding=None):
+def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berkas=20000):
     """Membuat kelas penangan HTTP yang sudah membawa agen per profil (mendalam, cepat, tamu) dan API key."""
     agen = daftar_agen["mendalam"]
 
@@ -22,7 +28,7 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None):
             self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
 
         def do_POST(self):
-            if self.path not in ("/jawab", "/jawab-stream", "/ringkas", "/embed", "/embed-info"):
+            if self.path not in ("/jawab", "/jawab-stream", "/ringkas", "/embed", "/embed-info", "/baca-berkas"):
                 self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
                 return
 
@@ -31,7 +37,7 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None):
                 return
 
             panjang = int(self.headers.get("Content-Length") or 0)
-            if panjang <= 0 or panjang > BATAS_BODY:
+            if panjang <= 0 or panjang > (BATAS_BODY_BERKAS if self.path == "/baca-berkas" else BATAS_BODY):
                 self.kirim_json(400, {"status": "gagal", "message": "ukuran body tidak valid"})
                 return
 
@@ -50,6 +56,9 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None):
             if self.path == "/embed":
                 self.embed(data)
                 return
+            if self.path == "/baca-berkas":
+                self.baca_berkas(data)
+                return
             # profil dipilih backend: "tamu", "cepat", atau "mendalam" (bawaan)
             pilihan = daftar_agen.get(str(data.get("profil")), agen)
             if self.path == "/jawab-stream":
@@ -59,7 +68,8 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None):
                 if self.path == "/ringkas":
                     hasil = {"ingatan": agen.ringkas(data.get("ingatan"), data.get("riwayat"))}
                 else:
-                    hasil = pilihan.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"))
+                    hasil = pilihan.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"),
+                                          lampiran=data.get("lampiran"), bisa_email=data.get("bisa_email"))
             except GalatPengaman as galat:
                 self.kirim_json(400, {"status": "gagal", "message": str(galat)})
                 return
@@ -92,6 +102,23 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None):
                 return
             hasil = {"model": pembuat_embedding.model, "vektor": daftar_vektor}
             self.kirim_json(200, {"status": "sukses", "message": "embedding", "data": hasil})
+        
+        def baca_berkas(self, data):
+            """Mengambil teks dari berkas unggahan; body {"nama": "laporan.pdf", "isi": "base64"}."""
+            try:
+                isi = base64.b64decode(str(data.get("isi", "")), validate=True)
+                hasil = baca_berkas(data.get("nama"), isi, maks_huruf_berkas)
+            except (binascii.Error, ValueError):
+                self.kirim_json(400, {"status": "gagal", "message": "isi berkas tidak valid"})
+                return
+            except GalatAlat as galat:
+                self.kirim_json(400, {"status": "gagal", "message": str(galat)})
+                return
+            except Exception:
+                logging.exception("gagal membaca berkas")
+                self.kirim_json(400, {"status": "gagal", "message": "berkas tidak bisa dibaca"})
+                return
+            self.kirim_json(200, {"status": "sukses", "message": "isi berkas", "data": hasil})
 
         def jawab_stream(self, pilihan, data):
             """Mengirim jawaban sebagai Server-Sent Events: status langkah, potongan teks, lalu hasil akhir."""
@@ -104,7 +131,8 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None):
                 self.wfile.write(f"event: {jenis}\ndata: {json.dumps(isi, ensure_ascii=False)}\n\n".encode("utf-8"))
 
             try:
-                hasil = pilihan.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"), kabar)
+                hasil = pilihan.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"), kabar,
+                                      data.get("lampiran"), data.get("bisa_email"))
                 kabar("selesai", hasil)
             except (BrokenPipeError, ConnectionResetError):
                 logging.info("backend menutup stream sebelum jawaban selesai")

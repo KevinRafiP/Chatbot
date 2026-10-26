@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState, type PointerEvent } from "react";
 import type { Message, Source } from "./api";
-import { MathText } from "./MathText";
+import { Markdown } from "./Markdown";
 import { formatTime } from "./messageText";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
@@ -17,6 +17,22 @@ function ChevronIcon() {
   return (
     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
       <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// A paperclip, the usual sign for an attached file
+export function PaperclipIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+      <path
+        d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.5 3.5 0 0 1 5 5l-8.6 8.6a2 2 0 0 1-2.8-2.8l7.9-7.9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -159,7 +175,13 @@ export function MessageItemView(props: MessageItemProps) {
       <div className="message-body">
         <div className="bubble-wrap">
           <div className={`bubble ${message.sender}`}>
-            {message.sender === "bot" ? <MathText text={message.text.slice(0, length)} /> : message.text.slice(0, length)}
+            {message.attachment !== "" && (
+              <span className="message-attachment">
+                <PaperclipIcon size={14} />
+                {message.attachment}
+              </span>
+            )}
+            {message.sender === "bot" ? <Markdown text={message.text.slice(0, length)} /> : message.text.slice(0, length)}
             {!typing && message.sources.length > 0 && (
               <div className="sources">
                 <p className="sources-title">Sumber Referensi</p>
@@ -226,7 +248,7 @@ export function TypingItem({ status, text }: { status: string; text: string }) {
       <div className="message-body">
         {text !== "" ? (
           <div className="bubble bot streaming">
-            <MathText text={text} />
+            <Markdown text={text} />
           </div>
         ) : (
           <div className="bubble bot typing">{status || "Mengetik"}</div>

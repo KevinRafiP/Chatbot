@@ -18,6 +18,8 @@ type Batas struct {
 	PesanGlobalMenit int           // pesan dari semua pengguna per menit, agar LLM tidak kebanjiran
 	PesanTamu        int           // pesan per tamu selama masa sesinya
 	MasaTamu         time.Duration // lama sesi tamu, dipakai sebagai jendela batas pesan tamu
+	BerkasPerJam     int           // unggah berkas per pengguna per jam
+	BerkasMaks       int64         // ukuran berkas maksimal dalam byte; 0 = unggah berkas mati
 }
 
 // BuatChatbot mendaftarkan semua endpoint layanan chatbot
@@ -29,6 +31,7 @@ func BuatChatbot(
 	akunService *service.AkunService,
 	ingestionService *service.IngestionService,
 	corsOrigin []string,
+	kunciAgent string,
 	batas Batas,
 ) http.Handler {
 	mux := http.NewServeMux()
@@ -51,6 +54,7 @@ func BuatChatbot(
 	pembatasPesan := middleware.BaruPembatas(batas.PesanPerMenit, time.Minute)
 	pembatasGlobal := middleware.BaruPembatas(batas.PesanGlobalMenit, time.Minute)
 	pembatasPesanTamu := middleware.BaruPembatas(batas.PesanTamu, batas.MasaTamu)
+	pembatasBerkas := middleware.BaruPembatas(batas.BerkasPerJam, time.Hour)
 
 	// semua memakai satu kunci yang sama, jadi batasnya berlaku untuk seluruh pengunjung
 	semua := func(r *http.Request) string {
@@ -99,5 +103,17 @@ func BuatChatbot(
 		akun(middleware.BatasiLaju(pembatasPesan, perPengguna,
 			middleware.BatasiLaju(pembatasGlobal, semua, handler.KirimPesan(percakapanService)))))
 
-	return middleware.HeaderKeamanan(middleware.CORS(corsOrigin, middleware.BatasBody(256<<10, mux)))
+	// dipanggil alat cari_pengetahuan di agent; tanpa AGENT_API_KEY jalurnya tidak dibuka
+	if kunciAgent != "" {
+		mux.Handle("POST /internal/pengetahuan/cari", middleware.WajibAPIKey(kunciAgent, handler.CariPengetahuanInternal(chatbotService)))
+	}
+
+	// semua endpoint dibatasi 256 KB, kecuali unggah berkas yang punya batas sendiri
+	akar := http.NewServeMux()
+	akar.Handle("/", middleware.BatasBody(256<<10, mux))
+	if batas.BerkasMaks > 0 {
+		akar.Handle("POST /berkas", middleware.BatasBody(batas.BerkasMaks+64<<10, wajib(
+			middleware.BatasiLaju(pembatasBerkas, perPengguna, handler.BacaBerkas(chatbotService, batas.BerkasMaks)))))
+	}
+	return middleware.HeaderKeamanan(middleware.CORS(corsOrigin, akar))
 }

@@ -66,7 +66,11 @@ func main() {
 		pengirimEmail, alamatFrontend)
 	ingestionService := service.BaruIngestionService(pengetahuanRepo)
 	ingatanService := service.BaruIngatanService(repository.BaruIngatanRepository(db), klienAgen)
-	percakapanService := service.BaruPercakapanService(repository.BaruPercakapanRepository(db), chatbotService, ingatanService)
+	emailJawaban := service.BaruEmailJawabanService(pengirimEmail, cfg.EmailJawabanPerHari)
+	if emailJawaban != nil {
+		log.Println("kirim jawaban ke email aktif, maksimal per hari:", cfg.EmailJawabanPerHari)
+	}
+	percakapanService := service.BaruPercakapanService(repository.BaruPercakapanRepository(db), chatbotService, ingatanService, emailJawaban)
 
 	intervalWorker := time.Duration(cfg.WorkerIntervalMenit) * time.Minute
 	worker.JalankanSemua(context.Background(),
@@ -82,9 +86,11 @@ func main() {
 		PesanGlobalMenit: cfg.BatasPesanGlobal,
 		PesanTamu:        cfg.BatasPesanTamu,
 		MasaTamu:         masaTamu,
+		BerkasPerJam:     cfg.BatasBerkasPerJam,
+		BerkasMaks:       int64(cfg.BerkasMaksMB) << 20,
 	}
 	mux := router.BuatChatbot(pengetahuanRepo, chatbotService, sesiService, percakapanService,
-		akunService, ingestionService, cfg.CORSOrigin, batas)
+		akunService, ingestionService, cfg.CORSOrigin, cfg.AgentAPIKey, batas)
 
 	// batas waktu membaca request mencegah koneksi lambat (slowloris) menahan server terlalu lama;
 	// WriteTimeout tidak dipasang karena jawaban agent bisa butuh lebih dari satu menit

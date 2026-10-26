@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"chatbot/backend/agen"
@@ -36,10 +37,12 @@ type PercakapanService struct {
 	repo    *repository.PercakapanRepository
 	chatbot *ChatbotService
 	ingatan *IngatanService
+	email   *EmailJawabanService
 }
 
-func BaruPercakapanService(repo *repository.PercakapanRepository, chatbot *ChatbotService, ingatan *IngatanService) *PercakapanService {
-	return &PercakapanService{repo: repo, chatbot: chatbot, ingatan: ingatan}
+// email boleh nil; jawaban lalu tidak bisa dikirim ke email
+func BaruPercakapanService(repo *repository.PercakapanRepository, chatbot *ChatbotService, ingatan *IngatanService, email *EmailJawabanService) *PercakapanService {
+	return &PercakapanService{repo: repo, chatbot: chatbot, ingatan: ingatan, email: email}
 }
 
 func (s *PercakapanService) Daftar(penggunaID string) ([]model.Percakapan, error) {
@@ -91,8 +94,10 @@ func profilPengguna(mode string) string {
 }
 
 // Kirim menyimpan pesan pengguna, meminta jawaban dengan riwayat percakapan, lalu menyimpan jawabannya.
-// mode adalah pilihan pengguna ("cepat" atau "mendalam"); kabar boleh nil, jika diisi status dan potongan teks diteruskan
-func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID string, pertanyaan, mode string, kabar agen.Kabar) (HasilPesan, error) {
+// mode adalah pilihan pengguna ("cepat" atau "mendalam"); kabar boleh nil, jika diisi status dan potongan teks diteruskan.
+// lampiran boleh nil; bila kosong, berkas terakhir di percakapan ini tetap dipakai untuk pertanyaan lanjutan
+func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model.Pengguna, pertanyaan, mode string, lampiran *model.Lampiran, kabar agen.Kabar) (HasilPesan, error) {
+	penggunaID := pengguna.ID
 	pertanyaan = strings.TrimSpace(pertanyaan)
 	if pertanyaan == "" || len(pertanyaan) > BatasPertanyaan {
 		return HasilPesan{}, ErrDataTidakValid
@@ -110,17 +115,34 @@ func (s *PercakapanService) Kirim(ctx context.Context, id, penggunaID string, pe
 		riwayat = append(riwayat, agen.Riwayat{Peran: p.Pengirim, Teks: p.Isi + teksSumber(p.Sumber)})
 	}
 
-	pesan, err := s.repo.SimpanPesan(id, "user", pertanyaan, nil)
+	baru := model.Lampiran{}
+	if l := bersihkanLampiran(lampiran); l != nil {
+		baru = *l
+	}
+	berkas := baru
+	if baru.Teks == "" {
+		if berkas, err = s.repo.LampiranTerakhir(id, BatasRiwayat); err != nil {
+			return HasilPesan{}, err
+		}
+	}
+
+	pesan, err := s.repo.SimpanPesanLampiran(id, "user", pertanyaan, nil, baru)
 	if err != nil {
 		return HasilPesan{}, err
 	}
 
 	ingatan, waktunya := s.ingatan.Ambil(penggunaID)
-	hasil, err := s.chatbot.Jawab(ctx, pertanyaan, riwayat, ingatan, profilPengguna(mode), kabar)
+	tambahan := agen.Tambahan{Lampiran: lampiranAgen(&berkas), BisaEmail: s.email.Bisa(pengguna)}
+	hasil, err := s.chatbot.Jawab(ctx, pertanyaan, riwayat, ingatan, profilPengguna(mode), tambahan, kabar)
 	if err != nil {
 		return HasilPesan{}, err
 	}
-
+	if hasil.Email != nil && tambahan.BisaEmail {
+		if err := s.email.Kirim(pengguna, hasil.Email); err != nil {
+			log.Println("gagal mengirim jawaban ke email:", err)
+			hasil.Jawaban += "\n\n*Email belum terkirim: " + alasanEmail(err) + ".*"
+		}
+	}
 	jawaban, err := s.repo.SimpanPesan(id, "asisten", hasil.Jawaban, hasil.Sumber)
 	if err != nil {
 		return HasilPesan{}, err
@@ -167,6 +189,14 @@ func (s *PercakapanService) pastikanMilik(id, penggunaID string) error {
 		return ErrPercakapanTidakAda
 	}
 	return nil
+}
+
+// alasanEmail mengubah galat pengiriman menjadi kalimat yang aman ditampilkan ke pengguna
+func alasanEmail(err error) string {
+	if errors.Is(err, ErrJatahEmailHabis) {
+		return "jatah kirim email hari ini sudah habis"
+	}
+	return "layanan email sedang bermasalah, coba lagi nanti"
 }
 
 // teksSumber menyusun daftar sumber bernomor untuk ditempelkan ke riwayat, agar AI bisa menjawab saat ditanya sumbernya

@@ -4,6 +4,7 @@ import sys
 from http.server import ThreadingHTTPServer
 from alat.cache_cari import CacheCari
 from alat.daftar import KotakAlat
+from alat.tambahan import AlatTambahan
 from config import muat
 from handler import buat_penangan
 from llm.client import KlienCadangan, buat_klien
@@ -36,15 +37,17 @@ def main():
     cfg_tamu = dataclasses.replace(cfg, tavily_kedalaman="basic", maks_baca_url=cfg.tamu_maks_baca_url)
     # satu cache dipakai bersama semua profil agar kueri yang sama tidak memakai kredit Tavily dua kali
     cache = CacheCari(cfg.cache_cari_detik, cfg.cache_cari_maks)
+    tambahan = AlatTambahan(cfg.alat)
+    logging.info("alat tambahan aktif: %s", ", ".join(tambahan.alat) or "-")
     daftar_agen = {
-        "mendalam": Agen(klien, KotakAlat(cfg, cache), cfg.maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_MENDALAM),
-        "cepat": Agen(klien_cepat, KotakAlat(cfg_cepat, cache), cfg.cepat_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_CEPAT),
-        "tamu": Agen(klien_tamu, KotakAlat(cfg_tamu, cache), cfg.tamu_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_TAMU),
+        "mendalam": Agen(klien, KotakAlat(cfg, cache, tambahan), cfg.maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_MENDALAM),
+        "cepat": Agen(klien_cepat, KotakAlat(cfg_cepat, cache, tambahan), cfg.cepat_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_CEPAT),
+        "tamu": Agen(klien_tamu, KotakAlat(cfg_tamu, cache, tambahan), cfg.tamu_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_TAMU),
     }
 
     pembuat_embedding = buat_pembuat_embedding(cfg)
 
-    server = ThreadingHTTPServer((cfg.host, cfg.port), buat_penangan(daftar_agen, cfg.api_key, pembuat_embedding))
+    server = ThreadingHTTPServer((cfg.host, cfg.port), buat_penangan(daftar_agen, cfg.api_key, pembuat_embedding, cfg.alat.berkas_maks_huruf))
     logging.info("layanan agent jalan di http://%s:%d (%s, model mendalam %s, cepat %s, tamu %s, cadangan %s)", cfg.host, cfg.port,
                  cfg.llm_provider, nama_model, nama_cepat, nama_tamu, cfg.llm_model_cadangan or "-")
     server.serve_forever()

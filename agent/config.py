@@ -7,6 +7,29 @@ FOLDER_AGENT = Path(__file__).resolve().parent
 MODEL_EMBED_BAWAAN = {"aws": "cohere.embed-multilingual-v3", "api": "gemini-embedding-2", "local": "bge-m3"}
 SKOR_EMBED_BAWAAN = {"aws": 0.35, "api": 0.55, "local": 0.45}
 
+@dataclass
+class PengaturanAlat:
+    mati: set
+    agen_pengguna: str
+    batas_waktu: int
+    geokode_url: str
+    libur_url: str
+    kurs_provider: str
+    kurs_url: str
+    kurs_cache_detik: int
+    cuaca_url: str
+    salat_url: str
+    salat_metode: int
+    gempa_url: str
+    rute_url: str
+    wilayah_url: str
+    game_url: str
+    anime_url: str
+    wikipedia_bahasa: str
+    backend_url: str
+    backend_api_key: str
+    kalkulus_batas_detik: int
+    berkas_maks_huruf: int
 
 @dataclass
 class Config:
@@ -50,6 +73,7 @@ class Config:
     embed_local_url: str
     embed_local_api_key: str
     embed_skor_minimal: float
+    alat: PengaturanAlat
 
 
 def baca_env(path):
@@ -83,6 +107,11 @@ def ambil_desimal(kunci, bawaan):
         return bawaan
     return nilai if 0 <= nilai <= 1 else bawaan
 
+def ambil_url(kunci, bawaan):
+    """Alamat API dengan bawaan; diisi "mati" untuk mematikan fitur yang memakai alamat itu."""
+    nilai = ambil(kunci, bawaan).strip()
+    return "" if nilai.lower() in ("mati", "tidak", "off", "0") else nilai.rstrip("/")
+
 def ambil_ya(kunci, bawaan):
     nilai = os.environ.get(kunci, "").strip().lower()
     if not nilai:
@@ -108,6 +137,34 @@ def muat():
         # verifikasi menambah satu panggilan LLM, jadi di model lokal bawaannya mati
         verifikasi = ambil_ya("LOCAL_VERIFIKASI_JAWABAN", False)
         wajib_cari = ambil_ya("LOCAL_WAJIB_CARI", False)
+
+    kurs_provider = "exchangerate" if ambil("KURS_PROVIDER", "frankfurter").lower() == "exchangerate" else "frankfurter"
+    alat = PengaturanAlat(
+        # nama alat dipisah koma, contoh ALAT_MATI=info_hiburan,kalkulus
+        mati={n.strip().lower() for n in ambil("ALAT_MATI").split(",") if n.strip()},
+        agen_pengguna=ambil("ALAT_USER_AGENT", "Vokapas/1.0 (chatbot)"),
+        batas_waktu=ambil_angka("AGENT_BATAS_WAKTU_DETIK", 15),
+        geokode_url=ambil_url("GEOKODE_API_URL", "https://geocoding-api.open-meteo.com/v1"),
+        libur_url=ambil_url("LIBUR_API_URL", "https://date.nager.at/api/v3"),
+        kurs_provider=kurs_provider,
+        kurs_url=ambil_url("KURS_API_URL", "https://open.er-api.com/v6" if kurs_provider == "exchangerate" else "https://api.frankfurter.dev/v1"),
+        kurs_cache_detik=ambil_angka("KURS_CACHE_MENIT", 60) * 60,
+        cuaca_url=ambil_url("CUACA_API_URL", "https://api.open-meteo.com/v1"),
+        salat_url=ambil_url("SALAT_API_URL", "https://api.aladhan.com/v1"),
+        # 20 = Kementerian Agama RI di Aladhan
+        salat_metode=ambil_angka("SALAT_METODE", 20),
+        gempa_url=ambil_url("GEMPA_API_URL", "https://data.bmkg.go.id/DataMKG/TEWS"),
+        rute_url=ambil_url("RUTE_API_URL", "https://router.project-osrm.org"),
+        wilayah_url=ambil_url("WILAYAH_API_URL", "https://wilayah.id/api"),
+        game_url=ambil_url("GAME_API_URL", "https://www.cheapshark.com/api/1.0"),
+        anime_url=ambil_url("ANIME_API_URL", "https://api.jikan.moe/v4"),
+        wikipedia_bahasa="" if ambil("WIKIPEDIA_BAHASA", "id").lower() in ("mati", "tidak") else ambil("WIKIPEDIA_BAHASA", "id").lower(),
+        # backend di container yang sama; kosong = alat cari_pengetahuan mati
+        backend_url=ambil_url("BACKEND_URL", ""),
+        backend_api_key=ambil("BACKEND_API_KEY", ambil("AGENT_API_KEY")),
+        kalkulus_batas_detik=ambil_angka("KALKULUS_BATAS_DETIK", 10),
+        berkas_maks_huruf=ambil_angka("BERKAS_MAKS_HURUF", 20000),
+    )  
 
     return Config(
         host=ambil("AGENT_HOST", "127.0.0.1"),
@@ -153,4 +210,5 @@ def muat():
         embed_local_url=ambil("EMBED_LOCAL_URL", ambil("LOCAL_URL", "http://127.0.0.1:11434/v1")),
         embed_local_api_key=ambil("EMBED_LOCAL_API_KEY", ambil("LOCAL_API_KEY")),
         embed_skor_minimal=ambil_desimal("EMBED_SKOR_MINIMAL", SKOR_EMBED_BAWAAN.get(penyedia_embed, 0.5)),
+        alat=alat,
     )

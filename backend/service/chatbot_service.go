@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log"
+	"strings"
 
 	"chatbot/backend/agen"
 	"chatbot/backend/model"
@@ -14,7 +16,11 @@ type HasilChat struct {
 	Sumber        []model.Sumber `json:"sumber"`
 	PakaiInternet bool           `json:"pakai_internet"`
 	Penjawab      string         `json:"penjawab"`
+	Email         *agen.Email    `json:"-"`
 }
+
+// ErrAgentMati dipakai fitur yang hanya bisa jalan lewat agent, misalnya membaca berkas
+var ErrAgentMati = errors.New("agent tidak aktif")
 
 type ChatbotService struct {
 	repo  *repository.PengetahuanRepository
@@ -29,20 +35,42 @@ func BaruChatbotService(repo *repository.PengetahuanRepository, klienAgen *agen.
 
 // Jawab mencari data di database, lalu meminta agent menyusun jawaban; jika agent gagal, pakai jawaban database.
 // Jika kabar diisi, jawaban agent diterima sebagai stream dan setiap status atau potongan teks diteruskan ke kabar
-func (s *ChatbotService) Jawab(ctx context.Context, pertanyaan string, riwayat []agen.Riwayat, ingatan, profil string, kabar agen.Kabar) (HasilChat, error) {
+// tambahan berisi lampiran berkas dan izin mengirim email; boleh kosong
+func (s *ChatbotService) Jawab(ctx context.Context, pertanyaan string, riwayat []agen.Riwayat, ingatan, profil string, tambahan agen.Tambahan, kabar agen.Kabar) (HasilChat, error) {
 	daftar, err := s.cariData(ctx, pertanyaan)
 	if err != nil {
 		return HasilChat{}, err
 	}
 
 	if s.agen != nil {
-		hasil, err := s.tanyaAgen(ctx, pertanyaan, daftar, riwayat, ingatan, profil, kabar)
+		hasil, err := s.tanyaAgen(ctx, pertanyaan, daftar, riwayat, ingatan, profil, tambahan, kabar)
 		if err == nil {
 			return hasil, nil
 		}
 		log.Println("agent gagal, pakai jawaban database:", err)
 	}
 	return jawabDariDatabase(daftar), nil
+}
+
+// CariPengetahuan dipakai alat cari_pengetahuan di agent untuk mencari ulang data dengan kata kunci lain
+func (s *ChatbotService) CariPengetahuan(ctx context.Context, kueri string) ([]agen.Konteks, error) {
+	daftar, err := s.cariData(ctx, potong(strings.TrimSpace(kueri), 300))
+	if err != nil {
+		return nil, err
+	}
+	hasil := []agen.Konteks{}
+	for _, p := range daftar {
+		hasil = append(hasil, agen.Konteks{Judul: p.Judul, Isi: p.Isi})
+	}
+	return hasil, nil
+}
+
+// BacaBerkas meneruskan berkas unggahan ke agent untuk diambil teksnya
+func (s *ChatbotService) BacaBerkas(ctx context.Context, nama string, isi []byte) (agen.Berkas, error) {
+	if s.agen == nil {
+		return agen.Berkas{}, ErrAgentMati
+	}
+	return s.agen.BacaBerkas(ctx, nama, isi)
 }
 
 // cariData menggabungkan pencarian makna (embedding) dengan pencarian kata kunci; hasil makna didahulukan
@@ -86,7 +114,7 @@ func (s *ChatbotService) cariKataKunci(pertanyaan string) ([]model.Pengetahuan, 
 	return s.repo.Cari(daftarKata, skorMinimal, 3)
 }
 
-func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, daftar []model.Pengetahuan, riwayat []agen.Riwayat, ingatan, profil string, kabar agen.Kabar) (HasilChat, error) {
+func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, daftar []model.Pengetahuan, riwayat []agen.Riwayat, ingatan, profil string, tambahan agen.Tambahan, kabar agen.Kabar) (HasilChat, error) {
 	konteks := []agen.Konteks{}
 	for _, p := range daftar {
 		konteks = append(konteks, agen.Konteks{Judul: p.Judul, Isi: p.Isi})
@@ -95,9 +123,9 @@ func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, dafta
 	var jawaban agen.Jawaban
 	var err error
 	if kabar != nil {
-		jawaban, err = s.agen.TanyaStream(ctx, pertanyaan, konteks, riwayat, ingatan, profil, kabar)
+		jawaban, err = s.agen.TanyaStream(ctx, pertanyaan, konteks, riwayat, ingatan, profil, tambahan, kabar)
 	} else {
-		jawaban, err = s.agen.Tanya(ctx, pertanyaan, konteks, riwayat, ingatan, profil)
+		jawaban, err = s.agen.Tanya(ctx, pertanyaan, konteks, riwayat, ingatan, profil, tambahan)
 	}
 	if err != nil {
 		return HasilChat{}, err
@@ -113,6 +141,7 @@ func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, dafta
 		Sumber:        sumber,
 		PakaiInternet: jawaban.PakaiInternet,
 		Penjawab:      "agent",
+		Email:         jawaban.Email,
 	}, nil
 }
 

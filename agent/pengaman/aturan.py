@@ -49,6 +49,8 @@ POLA_SELERA = [re.compile(pola) for pola in (
     r"\b(do|would)\s+you\s+(rather|prefer|like|choose|pick)\b|\byour\s+(favou?rite|pick|preference)\b",
 )]
 
+POLA_MINTA_EMAIL = re.compile(r"\b(kirim\w*|send|email\w*)\b.{0,80}\b(e-?mail|surel|inbox)\b|\b(ke|di|lewat|via)\s+(e-?mail|surel)\b")
+
 POLA_KATA_SUMBER = re.compile(r"\b(sumber|referensi|rujukan|link|tautan)")
 POLA_MINIMAL = re.compile(r"\b(?:minimal|minimum|min|paling sedikit|setidaknya|sedikitnya)\.?\s*(\d{1,2})\b")
 POLA_MAKSIMAL = re.compile(r"\b(?:maksimal|maksimum|maks|max|paling banyak)\.?\s*(\d{1,2})\b")
@@ -106,6 +108,11 @@ def minta_internet(teks):
         return True
     return any(kata in kecil for kata in KATA_MINTA_INTERNET)
 
+def minta_email(teks):
+    """True jika pengguna meminta sesuatu dikirim ke email, misalnya "kirim ke email saya"."""
+    kecil = " ".join(teks.lower().split())
+    return bool(POLA_MINTA_EMAIL.search(kecil))
+    
 def butuh_cari(teks):
     """True jika pertanyaan sebaiknya dicek ke internet dulu sebelum dijawab, agar fakta tidak diambil dari ingatan model."""
     kecil = " ".join(teks.lower().split())

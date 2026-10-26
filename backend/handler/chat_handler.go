@@ -7,24 +7,30 @@ import (
 	"net/http"
 
 	"chatbot/backend/agen"
+	"chatbot/backend/model"
 	"chatbot/backend/service"
 )
 
+// batasBodyChat cukup untuk pertanyaan, riwayat tamu, dan teks lampiran
+const batasBodyChat = 200 << 10
+
 type PermintaanChat struct {
-	Pertanyaan string `json:"pertanyaan"`
-	Mode       string `json:"mode"`
+	Pertanyaan string          `json:"pertanyaan"`
+	Mode       string          `json:"mode"`
+	Lampiran   *model.Lampiran `json:"lampiran"`
 }
 
 type PermintaanTamu struct {
 	Pertanyaan string                `json:"pertanyaan"`
 	Riwayat    []service.RiwayatTamu `json:"riwayat"`
+	Lampiran   *model.Lampiran       `json:"lampiran"`
 }
 
-// ChatTamu: POST /tamu/pesan dengan body {"pertanyaan": "...", "riwayat": [{"peran": "user", "teks": "..."}]}
+// ChatTamu: POST /tamu/pesan dengan body {"pertanyaan": "...", "riwayat": [{"peran": "user", "teks": "..."}], "lampiran": {"nama": "...", "teks": "..."}}
 func ChatTamu(chatbot *service.ChatbotService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var permintaan PermintaanTamu
-		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+		r.Body = http.MaxBytesReader(w, r.Body, batasBodyChat)
 		if err := json.NewDecoder(r.Body).Decode(&permintaan); err != nil {
 			writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "body JSON tidak valid"})
 			return
@@ -37,7 +43,7 @@ func ChatTamu(chatbot *service.ChatbotService) http.HandlerFunc {
 			kabar = sse.kabar
 		}
 
-		hasil, err := chatbot.JawabTamu(r.Context(), permintaan.Pertanyaan, permintaan.Riwayat, kabar)
+		hasil, err := chatbot.JawabTamu(r.Context(), permintaan.Pertanyaan, permintaan.Riwayat, permintaan.Lampiran, kabar)
 		if sse != nil && sse.mulai {
 			if err != nil {
 				log.Println("error chatbot tamu (stream):", err)

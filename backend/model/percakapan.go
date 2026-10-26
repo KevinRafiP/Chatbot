@@ -27,7 +27,14 @@ type Pesan struct {
 	Isi        string    `json:"isi"`
 	Sumber     []Sumber  `json:"sumber"`
 	Favorit    bool      `json:"favorit"`
+	Lampiran   string    `json:"lampiran,omitempty"`
 	DibuatPada time.Time `json:"dibuat_pada"`
+}
+
+// Lampiran adalah berkas yang diunggah bersama pesan; Teks hanya disimpan di backend, browser cukup melihat namanya
+type Lampiran struct {
+	Nama string `json:"nama"`
+	Teks string `json:"teks"`
 }
 
 // PesanFavorit adalah pesan berbintang beserta percakapan asalnya, untuk daftar pesan berbintang

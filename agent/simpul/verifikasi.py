@@ -31,14 +31,23 @@ def verifikasi(keadaan):
     }
 
     baris_baru, jumlah, dibuang = [], 0, []
+    di_kode = False
     for baris in draf.split("\n"):
+        # blok kode dan grafik (```) dibiarkan utuh, karena membuang sebagian barisnya membuat grafik rusak
+        if baris.lstrip().startswith("```"):
+            di_kode = not di_kode
+            baris_baru.append(baris)
+            continue
+        if di_kode:
+            baris_baru.append(baris)
+            continue
         awal = POLA_AWAL_BARIS.match(baris)
         pembuka = awal.group(1) if awal else ""
         kalimat_baru = []
         for kalimat in pecah_kalimat(baris[len(pembuka):]):
             jumlah += 1
             angka, nama = fakta(kalimat)
-            if angka - angka_rujukan:
+            if any(not ada_di_rujukan(a, angka_rujukan) for a in angka):
                 dibuang.append(kalimat)
                 continue
             kalimat_baru.append(periksa_sitasi(kalimat, angka | nama, isi_sumber))
@@ -108,6 +117,11 @@ def periksa_sitasi(kalimat, kunci, isi_sumber):
 
     return POLA_SITASI.sub(ganti, kalimat).strip()
 
+def ada_di_rujukan(angka, angka_rujukan):
+    """Angka dianggap ada jika sama persis, atau jika itu bentuk bulat dari angka sumber (16.250 dari 16250,1234)."""
+    if angka in angka_rujukan:
+        return True
+    return len(angka) >= 3 and any(a.startswith(angka) and len(a) > len(angka) for a in angka_rujukan)
 
 def rapikan_angka(teks):
     """1.000, 1,000, dan 1000 dianggap sama, begitu juga 08.00 dan 08:00."""

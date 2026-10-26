@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +30,34 @@ type Jawaban struct {
 	Jawaban       string   `json:"jawaban"`
 	Sumber        []Sumber `json:"sumber"`
 	PakaiInternet bool     `json:"pakai_internet"`
+	Email         *Email   `json:"email,omitempty"`
+}
+
+// Email adalah isi email yang diminta pengguna lewat alat kirim_email; dikirim backend setelah jawaban selesai
+type Email struct {
+	Subjek string `json:"subjek"`
+	Isi    string `json:"isi"`
+}
+
+// Lampiran adalah teks dari berkas yang diunggah pengguna
+type Lampiran struct {
+	Nama string `json:"nama"`
+	Teks string `json:"teks"`
+}
+
+// Tambahan berisi data pilihan untuk satu pertanyaan: lampiran berkas dan izin mengirim email
+type Tambahan struct {
+	Lampiran  *Lampiran
+	BisaEmail bool
+}
+
+// Berkas adalah hasil membaca berkas unggahan di agent
+type Berkas struct {
+	Nama        string `json:"nama"`
+	Teks        string `json:"teks"`
+	JumlahHuruf int    `json:"jumlah_huruf"`
+	Terpotong   bool   `json:"terpotong"`
+	Halaman     *int   `json:"halaman"`
 }
 
 type Riwayat struct {
@@ -42,6 +71,13 @@ type permintaan struct {
 	Riwayat    []Riwayat `json:"riwayat"`
 	Ingatan    string    `json:"ingatan,omitempty"`
 	Profil     string    `json:"profil"`
+	Lampiran   *Lampiran `json:"lampiran,omitempty"`
+	BisaEmail  bool      `json:"bisa_email,omitempty"`
+}
+
+type permintaanBerkas struct {
+	Nama string `json:"nama"`
+	Isi  string `json:"isi"`
 }
 
 // Profil agent: tamu paling hemat, cepat untuk jawaban singkat, mendalam untuk pemikiran yang lebih kompleks
@@ -115,21 +151,33 @@ func BaruKlien(alamat, apiKey string) *Klien {
 // jedaUlang is the wait before each retry while a sleeping Render service wakes up
 var jedaUlang = []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second}
 
+// GalatDitolak adalah penolakan dari agent; Pesan aman ditampilkan ke pengguna bila Status 400
+type GalatDitolak struct {
+	Status int
+	Pesan  string
+}
+
+func (g GalatDitolak) Error() string {
+	return fmt.Sprintf("agent menolak (status %d): %s", g.Status, g.Pesan)
+}
+
 // galatSementara marks failures that did not come from the agent itself (network error, or a non-JSON reply from Render)
 type galatSementara struct{ error }
 
 // Tanya mengirim pertanyaan, data dari database, riwayat percakapan, dan ingatan tentang pengguna ke layanan agent;
 // profil menentukan kemampuan agent: ProfilTamu, ProfilCepat, atau ProfilMendalam
-func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan, profil string) (Jawaban, error) {
+func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan, profil string, tambahan Tambahan) (Jawaban, error) {
 	var jawaban Jawaban
-	err := k.kirimUlang(ctx, "/jawab", permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Profil: profil}, &jawaban)
+	err := k.kirimUlang(ctx, "/jawab", permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Profil: profil,
+		Lampiran: tambahan.Lampiran, BisaEmail: tambahan.BisaEmail}, &jawaban)
 	return jawaban, err
 }
 
 // TanyaStream sama seperti Tanya, tetapi jawaban diterima sebagai Server-Sent Events;
 // setiap status dan potongan teks diteruskan ke kabar, lalu hasil akhirnya dikembalikan
-func (k *Klien) TanyaStream(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan, profil string, kabar Kabar) (Jawaban, error) {
-	badan, err := json.Marshal(permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Profil: profil})
+func (k *Klien) TanyaStream(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan, profil string, tambahan Tambahan, kabar Kabar) (Jawaban, error) {
+	badan, err := json.Marshal(permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Profil: profil,
+		Lampiran: tambahan.Lampiran, BisaEmail: tambahan.BisaEmail})
 	if err != nil {
 		return Jawaban{}, err
 	}
@@ -212,6 +260,13 @@ func (k *Klien) InfoEmbedding(ctx context.Context) (InfoEmbed, error) {
 	return hasil, err
 }
 
+// BacaBerkas meminta agent mengambil teks dari berkas unggahan (PDF, DOCX, atau teks biasa)
+func (k *Klien) BacaBerkas(ctx context.Context, nama string, isi []byte) (Berkas, error) {
+	var hasil Berkas
+	err := k.kirimUlang(ctx, "/baca-berkas", permintaanBerkas{Nama: nama, Isi: base64.StdEncoding.EncodeToString(isi)}, &hasil)
+	return hasil, err
+}
+
 // kirimUlang mengirim permintaan ke agent dan mengulang selama agent masih bangun dari tidur
 func (k *Klien) kirimUlang(ctx context.Context, jalur string, isi any, tujuan any) error {
 	badan, err := json.Marshal(isi)
@@ -262,7 +317,7 @@ func (k *Klien) kirim(ctx context.Context, jalur string, badan []byte, tujuan an
 		return galatSementara{fmt.Errorf("balasan agent bukan JSON (status %d): %.200s", resp.StatusCode, isi)}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("agent menolak (status %d): %s", resp.StatusCode, hasil.Message)
+		return GalatDitolak{Status: resp.StatusCode, Pesan: hasil.Message}
 	}
 	return json.Unmarshal(hasil.Data, tujuan)
 }

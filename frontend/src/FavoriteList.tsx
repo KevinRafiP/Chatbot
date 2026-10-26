@@ -1,5 +1,6 @@
 import type { FavoriteMessage } from "./api";
 import { StarIcon } from "./MessageItem";
+import { plainMarkdown } from "./markdownPlain";
 import { formatTime } from "./messageText";
 
 type FavoriteListProps = {
@@ -36,7 +37,7 @@ export function FavoriteList({ items, error, onOpen }: FavoriteListProps) {
               </span>
               <span className="favorite-time">{formatTime(item.sentAt)}</span>
             </span>
-            <span className="favorite-text">{item.text}</span>
+            <span className="favorite-text">{plainMarkdown(item.text)}</span>
             <span className="favorite-star">
               <StarIcon filled size={12} />
             </span>

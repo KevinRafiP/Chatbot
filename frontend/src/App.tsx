@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AccountMenu, AdminForm, AuthForm, Dialog, ForgotForm, KnowledgeForm, ResetForm, type DialogName } from "./AccountMenu";
 import { FavoriteList } from "./FavoriteList";
-import { CopyIcon, MessageItem, StarIcon, TypingItem } from "./MessageItem";
+import { CopyIcon, MessageItem, PaperclipIcon, StarIcon, TypingItem } from "./MessageItem";
 import { copyMessage } from "./messageText";
 import { ScrollHandle } from "./ScrollHandle";
 import {
@@ -19,10 +19,12 @@ import {
   sendGuestMessage,
   sendMessage,
   setFavorite,
+  uploadFile,
   verifyEmail,
   type Account,
   type AnswerMode,
   type AnswerUpdate,
+  type Attachment,
   type Conversation,
   type FavoriteMessage,
   type Message,
@@ -42,6 +44,10 @@ const TOAST_MS = 2000;
 const HIGHLIGHT_MS = 4000;
 const INPUT_MAX_HEIGHT = 200;
 const MODE_KEY = "answerMode";
+// must match BERKAS_MAKS_MB on the backend
+const MAX_FILE_MB = Number(import.meta.env.VITE_MAX_FILE_MB ?? 5);
+const FILE_TYPES = ".pdf,.docx,.txt,.md,.csv,.json,.log,.html,.htm,.xml,.py,.go,.js,.ts,.sql";
+const FILE_ONLY_QUESTION = "Tolong ringkas isi berkas ini.";
 
 // The last chosen answer mode, kept per browser; "deep" when nothing was saved or storage is blocked
 function readMode(): AnswerMode {
@@ -155,9 +161,13 @@ function App() {
   const [toast, setToast] = useState("");
   const [live, setLive] = useState({ status: "", text: "" });
   const [mode, setMode] = useState<AnswerMode>(readMode);
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [guestFile, setGuestFile] = useState<Attachment | null>(null);
   const messagesRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const jumpToRef = useRef<string | null>(null);
   const toastTimer = useRef(0);
   const highlightTimer = useRef(0);
@@ -262,6 +272,7 @@ function App() {
   async function openConversation(id: string) {
     setActiveId(id);
     setMessages([]);
+    setAttachment(null);
     setTypingId(null);
     setSelectedId(null);
     setView("chat");
@@ -279,6 +290,8 @@ function App() {
   function startNew() {
     setActiveId(null);
     setMessages([]);
+    setAttachment(null);
+    setGuestFile(null);
     setTypingId(null);
     setSelectedId(null);
     setView("chat");
@@ -427,9 +440,38 @@ function App() {
     }
   }
 
+  // Reads the chosen file on the server; its text waits here until the next question is sent
+  async function chooseFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+    if (file.size > MAX_FILE_MB * 1024 * 1024) {
+      setError(`Berkas terlalu besar, maksimal ${MAX_FILE_MB} MB.`);
+      return;
+    }
+    setError("");
+    setUploading(true);
+    try {
+      const result = await uploadFile(file);
+      setAttachment(result);
+      if (result.truncated) {
+        showToast("Berkas panjang, hanya bagian awalnya yang dibaca");
+      }
+      inputRef.current?.focus();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Berkas gagal diunggah. Coba lagi.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   // A guest chat lives only in this page: it is sent with its history and never saved
   async function sendAsGuest(text: string, draftId: string, onUpdate: (update: AnswerUpdate) => void): Promise<Message> {
-    const answer = await sendGuestMessage(text, messages, onUpdate);
+    const file = attachment ?? guestFile;
+    const answer = await sendGuestMessage(text, messages, file, onUpdate);
+    setGuestFile(file);
     setMessages((current) => [
       ...current.map((item) => (item.id === draftId ? { ...item, id: `question-${draftId}` } : item)),
       answer,
@@ -462,16 +504,22 @@ function App() {
   // Sends the question, waits for the answer, then shows both as saved by the server
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const text = input.trim();
-    if (text === "" || loading) {
+    const text = input.trim() || (attachment !== null ? FILE_ONLY_QUESTION : "");
+    if (text === "" || loading || uploading) {
       return;
     }
 
     const draftId = `draft-${Date.now()}`;
-    setMessages((current) => [
-      ...current,
-      { id: draftId, sender: "user", text, sources: [], sentAt: new Date().toISOString(), favorite: false },
-    ]);
+    const draft: Message = {
+      id: draftId,
+      sender: "user",
+      text,
+      sources: [],
+      sentAt: new Date().toISOString(),
+      favorite: false,
+      attachment: attachment?.name ?? "",
+    };
+    setMessages((current) => [...current, draft]);
     setInput("");
     setError("");
     setLive({ status: "", text: "" });
@@ -487,6 +535,7 @@ function App() {
     try {
       if (isGuest) {
         const answer = await sendAsGuest(text, draftId, onUpdate);
+        setAttachment(null);
         setTypingId(streamed ? null : answer.id);
         return;
       }
@@ -500,7 +549,8 @@ function App() {
       }
 
       const conversationId = id;
-      const result = await sendMessage(conversationId, text, mode, onUpdate);
+      const result = await sendMessage(conversationId, text, mode, attachment, onUpdate);
+      setAttachment(null);
       setMessages((current) => [
         ...current.filter((item) => item.id !== draftId),
         result.question,
@@ -514,7 +564,7 @@ function App() {
       }
     } catch (err) {
       setMessages((current) => current.filter((item) => item.id !== draftId));
-      setInput(text);
+      setInput(text === FILE_ONLY_QUESTION && input.trim() === "" ? "" : text);
       if (err instanceof ApiError && err.status === 403 && isGuest) {
         setError(err.message);
         openDialog("masuk");
@@ -675,7 +725,32 @@ function App() {
           </div>
         )}
 
+        {view === "chat" && (attachment !== null || uploading) && (
+          <div className="attachment-bar">
+            <span className="attachment-chip">
+              <PaperclipIcon size={14} />
+              <span className="attachment-name">{uploading ? "Membaca berkas..." : attachment?.name}</span>
+              {attachment !== null && (
+                <button type="button" onClick={() => setAttachment(null)} aria-label="Hapus berkas" disabled={loading}>
+                  ×
+                </button>
+              )}
+            </span>
+          </div>
+        )}
+
         <form className={`chat-form ${view === "favorites" ? "hidden" : ""}`} onSubmit={handleSubmit}>
+          <input ref={fileRef} type="file" accept={FILE_TYPES} onChange={chooseFile} hidden />
+          <button
+            type="button"
+            className="attach-button"
+            onClick={() => fileRef.current?.click()}
+            disabled={loading || uploading}
+            title={`Lampirkan berkas PDF, Word, atau teks (maksimal ${MAX_FILE_MB} MB)`}
+            aria-label="Lampirkan berkas"
+          >
+            <PaperclipIcon />
+          </button>
           <select
             className="mode-select"
             value={isGuest ? "fast" : mode}
@@ -698,7 +773,7 @@ function App() {
             placeholder="Tulis pertanyaan..."
             maxLength={2000}
           />
-          <button type="submit" disabled={input.trim() === "" || loading}>
+          <button type="submit" disabled={(input.trim() === "" && attachment === null) || loading || uploading}>
             Kirim
           </button>
         </form>
