@@ -28,7 +28,7 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berka
             self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
 
         def do_POST(self):
-            if self.path not in ("/jawab", "/jawab-stream", "/ringkas", "/embed", "/embed-info", "/baca-berkas"):
+            if self.path not in ("/jawab", "/jawab-stream", "/ringkas", "/ringkas-percakapan", "/embed", "/embed-info", "/baca-berkas"):
                 self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
                 return
 
@@ -67,9 +67,12 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berka
             try:
                 if self.path == "/ringkas":
                     hasil = {"ingatan": agen.ringkas(data.get("ingatan"), data.get("riwayat"))}
+                elif self.path == "/ringkas-percakapan":
+                    hasil = agen.ringkas_percakapan(data.get("ringkasan"), data.get("riwayat"))
                 else:
                     hasil = pilihan.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"),
-                                          lampiran=data.get("lampiran"), bisa_email=data.get("bisa_email"))
+                                          lampiran=data.get("lampiran"), bisa_email=data.get("bisa_email"),
+                                          ringkasan=data.get("ringkasan"))
             except GalatPengaman as galat:
                 self.kirim_json(400, {"status": "gagal", "message": str(galat)})
                 return
@@ -132,7 +135,7 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berka
 
             try:
                 hasil = pilihan.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"), kabar,
-                                      data.get("lampiran"), data.get("bisa_email"))
+                                      data.get("lampiran"), data.get("bisa_email"), data.get("ringkasan"))
                 kabar("selesai", hasil)
             except (BrokenPipeError, ConnectionResetError):
                 logging.info("backend menutup stream sebelum jawaban selesai")

@@ -25,6 +25,36 @@ export type Account = { id: string; name: string; email: string; role: Role };
 export type AnswerUpdate = { kind: "status"; text: string } | { kind: "text"; text: string } | { kind: "reset" };
 // "fast" answers quickly with fewer searches, "deep" thinks longer and may read more sources
 export type AnswerMode = "fast" | "deep";
+// Speed and token use of many answers; profile is empty for the total of all answers
+export type PerformanceStats = {
+  profile: string;
+  count: number;
+  failed: number;
+  avgMs: number;
+  p90Ms: number;
+  avgTokens: number;
+  tokensIn: number;
+  tokensOut: number;
+};
+// One answer or conversation summary; the question and answer text are never stored
+export type PerformanceEntry = {
+  profile: string;
+  ok: boolean;
+  error: string;
+  durationMs: number;
+  tokensIn: number;
+  tokensOut: number;
+  modelCalls: number;
+  tools: string[];
+  createdAt: string;
+};
+export type PerformanceReport = {
+  days: number;
+  total: PerformanceStats;
+  byProfile: PerformanceStats[];
+  tools: { name: string; count: number }[];
+  recent: PerformanceEntry[];
+};
 
 type ApiResponse<T> = { status: string; message: string; data: T };
 type RawConversation = { id: string; judul: string };
@@ -45,6 +75,34 @@ type RawSession = { token: string; pengguna: RawAccount };
 type RawSignIn = RawSession | { perlu_verifikasi: true; email: string };
 type RawAnswer = { jawaban: string; sumber: RawSource[] | null };
 type RawFile = { nama: string; teks: string; terpotong: boolean; halaman: number | null };
+type RawStats = {
+  profil: string;
+  jumlah: number;
+  gagal: number;
+  rata_lama_ms: number;
+  p90_lama_ms: number;
+  rata_token: number;
+  token_masuk: number;
+  token_keluar: number;
+};
+type RawPerformanceEntry = {
+  profil: string;
+  berhasil: boolean;
+  galat?: string;
+  lama_ms: number;
+  token_masuk: number;
+  token_keluar: number;
+  panggilan_llm: number;
+  alat: string[] | null;
+  dibuat_pada: string;
+};
+type RawPerformance = {
+  hari: number;
+  semua: RawStats;
+  per_profil: RawStats[];
+  alat: { nama: string; jumlah: number }[];
+  terbaru: RawPerformanceEntry[];
+};
 
 // Render free puts the backend to sleep; these are the waits before each new try while it wakes up (about 2.5 minutes in total)
 const RETRY_DELAYS_MS = [5000, 10000, 15000, 20000, 30000, 30000, 40000];
@@ -436,6 +494,41 @@ export async function addKnowledge(title: string, content: string, keywords: str
 // Admin only: turns a registered account into an admin
 export async function makeAdmin(email: string): Promise<void> {
   await request<unknown>("POST", "/admin/admin", { email });
+}
+
+// Admin only: answer speed, token use, and tool use over the last 1, 7, or 30 days
+export async function getPerformance(days: number): Promise<PerformanceReport> {
+  const data = await request<RawPerformance>("GET", `/admin/kinerja?hari=${days}`);
+  return {
+    days: data.hari,
+    total: toStats(data.semua),
+    byProfile: data.per_profil.map(toStats),
+    tools: data.alat.map((tool) => ({ name: tool.nama, count: tool.jumlah })),
+    recent: data.terbaru.map((entry) => ({
+      profile: entry.profil,
+      ok: entry.berhasil,
+      error: entry.galat ?? "",
+      durationMs: entry.lama_ms,
+      tokensIn: entry.token_masuk,
+      tokensOut: entry.token_keluar,
+      modelCalls: entry.panggilan_llm,
+      tools: entry.alat ?? [],
+      createdAt: entry.dibuat_pada,
+    })),
+  };
+}
+
+function toStats(raw: RawStats): PerformanceStats {
+  return {
+    profile: raw.profil,
+    count: raw.jumlah,
+    failed: raw.gagal,
+    avgMs: raw.rata_lama_ms,
+    p90Ms: raw.p90_lama_ms,
+    avgTokens: raw.rata_token,
+    tokensIn: raw.token_masuk,
+    tokensOut: raw.token_keluar,
+  };
 }
 
 // Deletes this device's login session from the backend and from the device

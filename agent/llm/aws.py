@@ -3,6 +3,7 @@ import logging
 import struct
 import urllib.parse
 
+from llm import pemakaian
 from llm.client import GalatLLM, buka, kirim_json
 from llm.tanda_tangan import tanda_tangani
 
@@ -49,6 +50,7 @@ class KlienAWS:
             else:
                 data = kirim_json(alamat, data_kirim, header, batas_waktu, "Bedrock")
                 pesan, alasan = (data.get("output") or {}).get("message"), data.get("stopReason")
+                catat_token(data.get("usage"))
         except TimeoutError:
             if alasan == "max_tokens":
                 # token habis untuk berpikir sebelum menulis jawaban; mengulang tanpa alat hanya membuang token lagi
@@ -68,6 +70,12 @@ class KlienAWS:
                 if saat_teks:
                     saat_teks(CATATAN_TERPOTONG)
         return pesan
+
+def catat_token(usage):
+    """Bedrock melaporkan token sebagai inputTokens dan outputTokens; tanpa usage tetap dihitung satu panggilan."""
+    usage = usage if isinstance(usage, dict) else {}
+    pemakaian.catat(usage.get("inputTokens"), usage.get("outputTokens"))
+
 
 def rakit_pesan_stream(respon, saat_teks):
     """Menyusun kembali pesan utuh (teks dan toolUse) dari event ConverseStream, sambil meneruskan teksnya."""
@@ -96,6 +104,7 @@ def rakit_pesan_stream(respon, saat_teks):
             alasan = data.get("stopReason")
         elif jenis == "metadata":
             logging.info("token Bedrock: %s", data.get("usage"))
+            catat_token(data.get("usage"))
 
     konten = []
     for nomor in sorted(blok):

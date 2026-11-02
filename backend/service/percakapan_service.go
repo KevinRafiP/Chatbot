@@ -34,15 +34,16 @@ type HasilPesan struct {
 }
 
 type PercakapanService struct {
-	repo    *repository.PercakapanRepository
-	chatbot *ChatbotService
-	ingatan *IngatanService
-	email   *EmailJawabanService
+	repo      *repository.PercakapanRepository
+	chatbot   *ChatbotService
+	ingatan   *IngatanService
+	email     *EmailJawabanService
+	ringkasan *RingkasanService
 }
 
-// email boleh nil; jawaban lalu tidak bisa dikirim ke email
-func BaruPercakapanService(repo *repository.PercakapanRepository, chatbot *ChatbotService, ingatan *IngatanService, email *EmailJawabanService) *PercakapanService {
-	return &PercakapanService{repo: repo, chatbot: chatbot, ingatan: ingatan, email: email}
+// email boleh nil; jawaban lalu tidak bisa dikirim ke email. ringkasan boleh nil; pesan lama lalu tidak diringkas
+func BaruPercakapanService(repo *repository.PercakapanRepository, chatbot *ChatbotService, ingatan *IngatanService, email *EmailJawabanService, ringkasan *RingkasanService) *PercakapanService {
+	return &PercakapanService{repo: repo, chatbot: chatbot, ingatan: ingatan, email: email, ringkasan: ringkasan}
 }
 
 func (s *PercakapanService) Daftar(penggunaID string) ([]model.Percakapan, error) {
@@ -106,7 +107,9 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 		return HasilPesan{}, err
 	}
 
-	lama, err := s.repo.DaftarPesan(id, BatasRiwayat)
+	// pesan yang sudah diringkas tidak dikirim utuh lagi; ringkasannya ikut dikirim ke agent
+	ringkasan, sampai := s.ringkasan.Ambil(id)
+	lama, err := s.repo.DaftarPesanSetelah(id, sampai, BatasRiwayat)
 	if err != nil {
 		return HasilPesan{}, err
 	}
@@ -132,7 +135,7 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 	}
 
 	ingatan, waktunya := s.ingatan.Ambil(penggunaID)
-	tambahan := agen.Tambahan{Lampiran: lampiranAgen(&berkas), BisaEmail: s.email.Bisa(pengguna)}
+	tambahan := agen.Tambahan{Lampiran: lampiranAgen(&berkas), BisaEmail: s.email.Bisa(pengguna), Ringkasan: ringkasan}
 	hasil, err := s.chatbot.Jawab(ctx, pertanyaan, riwayat, ingatan, profilPengguna(mode), tambahan, kabar)
 	if err != nil {
 		return HasilPesan{}, err
@@ -152,9 +155,10 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 		terbaru := append(riwayat, agen.Riwayat{Peran: "user", Teks: pertanyaan}, agen.Riwayat{Peran: "asisten", Teks: hasil.Jawaban})
 		s.ingatan.PerbaruiNanti(penggunaID, ingatan, terbaru)
 	}
+	s.ringkasan.PerbaruiNanti(id, len(lama)+2)
 
 	judul := ""
-	if len(lama) == 0 {
+	if sampai == 0 && len(lama) == 0 {
 		judul = potong(pertanyaan, BatasJudul)
 		if err := s.repo.UbahJudul(id, judul); err != nil {
 			return HasilPesan{}, err

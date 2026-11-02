@@ -41,7 +41,8 @@ func main() {
 	}
 	// pengaturan embedding (penyedia, model, kemiripan minimal) ada di agent/.env
 	embeddingService := service.BaruEmbeddingService(repository.BaruEmbeddingRepository(db), klienAgen)
-	chatbotService := service.BaruChatbotService(pengetahuanRepo, klienAgen, embeddingService)
+	kinerjaService := service.BaruKinerjaService(repository.BaruKinerjaRepository(db), cfg.KinerjaSimpanHari)
+	chatbotService := service.BaruChatbotService(pengetahuanRepo, klienAgen, embeddingService, kinerjaService)
 
 	sesiRepo := repository.BaruSesiRepository(db)
 	masaSesi := time.Duration(cfg.SesiHari) * 24 * time.Hour
@@ -70,7 +71,9 @@ func main() {
 	if emailJawaban != nil {
 		log.Println("kirim jawaban ke email aktif, maksimal per hari:", cfg.EmailJawabanPerHari)
 	}
-	percakapanService := service.BaruPercakapanService(repository.BaruPercakapanRepository(db), chatbotService, ingatanService, emailJawaban)
+	percakapanRepo := repository.BaruPercakapanRepository(db)
+	ringkasanService := service.BaruRingkasanService(percakapanRepo, klienAgen, kinerjaService, cfg.RingkasanSetelah, cfg.RingkasanSisa)
+	percakapanService := service.BaruPercakapanService(percakapanRepo, chatbotService, ingatanService, emailJawaban, ringkasanService)
 
 	intervalWorker := time.Duration(cfg.WorkerIntervalMenit) * time.Minute
 	worker.JalankanSemua(context.Background(),
@@ -90,7 +93,7 @@ func main() {
 		BerkasMaks:       int64(cfg.BerkasMaksMB) << 20,
 	}
 	mux := router.BuatChatbot(pengetahuanRepo, chatbotService, sesiService, percakapanService,
-		akunService, ingestionService, cfg.CORSOrigin, cfg.AgentAPIKey, batas)
+		akunService, ingestionService, kinerjaService, cfg.CORSOrigin, cfg.AgentAPIKey, batas)
 
 	// batas waktu membaca request mencegah koneksi lambat (slowloris) menahan server terlalu lama;
 	// WriteTimeout tidak dipasang karena jawaban agent bisa butuh lebih dari satu menit

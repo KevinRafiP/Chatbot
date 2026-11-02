@@ -1196,6 +1196,183 @@ button:disabled {
   line-height: 1.5;
 }
 
+/* the performance report has tables, so its box is wider */
+.modal.wide {
+  max-width: 760px;
+}
+
+.performance {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.period-picker {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.period-picker button {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.period-picker button.active {
+  background: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.performance-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  transition: opacity 0.15s ease;
+}
+
+.performance-body.loading {
+  opacity: 0.5;
+}
+
+.performance h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.stat-tile {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.stat-tile span,
+.stat-tile small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.stat-tile strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.stat-skeleton {
+  height: 68px;
+  border-radius: 10px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.performance table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.performance th,
+.performance td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* numbers line up on the right so their digits stay in columns */
+.performance .num {
+  text-align: right;
+}
+
+.performance th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.performance td.tools {
+  min-width: 140px;
+  color: var(--muted);
+  white-space: normal;
+}
+
+.performance .status-failed {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.tool-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tool-bars li {
+  display: grid;
+  grid-template-columns: minmax(90px, 35%) 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.tool-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-track {
+  height: 8px;
+}
+
+.bar-track .bar {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+}
+
+.tool-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.performance-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+
 .modal-form .checkbox-row {
   flex-direction: row;
   align-items: center;

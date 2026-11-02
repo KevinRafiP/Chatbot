@@ -31,6 +31,15 @@ type Jawaban struct {
 	Sumber        []Sumber `json:"sumber"`
 	PakaiInternet bool     `json:"pakai_internet"`
 	Email         *Email   `json:"email,omitempty"`
+	Kinerja       Kinerja  `json:"kinerja"`
+}
+
+// Kinerja adalah pemakaian satu panggilan agent: token model, berapa kali model dipanggil, dan alat yang dipakai
+type Kinerja struct {
+	TokenMasuk   int      `json:"token_masuk"`
+	TokenKeluar  int      `json:"token_keluar"`
+	PanggilanLLM int      `json:"panggilan_llm"`
+	Alat         []string `json:"alat"`
 }
 
 // Email adalah isi email yang diminta pengguna lewat alat kirim_email; dikirim backend setelah jawaban selesai
@@ -45,10 +54,11 @@ type Lampiran struct {
 	Teks string `json:"teks"`
 }
 
-// Tambahan berisi data pilihan untuk satu pertanyaan: lampiran berkas dan izin mengirim email
+// Tambahan berisi data pilihan untuk satu pertanyaan: lampiran berkas, izin mengirim email, dan ringkasan pesan lama
 type Tambahan struct {
 	Lampiran  *Lampiran
 	BisaEmail bool
+	Ringkasan string
 }
 
 // Berkas adalah hasil membaca berkas unggahan di agent
@@ -73,6 +83,7 @@ type permintaan struct {
 	Profil     string    `json:"profil"`
 	Lampiran   *Lampiran `json:"lampiran,omitempty"`
 	BisaEmail  bool      `json:"bisa_email,omitempty"`
+	Ringkasan  string    `json:"ringkasan,omitempty"`
 }
 
 type permintaanBerkas struct {
@@ -117,6 +128,16 @@ type InfoEmbed struct {
 
 type hasilRingkas struct {
 	Ingatan string `json:"ingatan"`
+}
+
+type permintaanRingkasPercakapan struct {
+	Ringkasan string    `json:"ringkasan"`
+	Riwayat   []Riwayat `json:"riwayat"`
+}
+
+type hasilRingkasPercakapan struct {
+	Ringkasan string  `json:"ringkasan"`
+	Kinerja   Kinerja `json:"kinerja"`
 }
 
 type balasan struct {
@@ -169,7 +190,7 @@ type galatSementara struct{ error }
 func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan, profil string, tambahan Tambahan) (Jawaban, error) {
 	var jawaban Jawaban
 	err := k.kirimUlang(ctx, "/jawab", permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Profil: profil,
-		Lampiran: tambahan.Lampiran, BisaEmail: tambahan.BisaEmail}, &jawaban)
+		Lampiran: tambahan.Lampiran, BisaEmail: tambahan.BisaEmail, Ringkasan: tambahan.Ringkasan}, &jawaban)
 	return jawaban, err
 }
 
@@ -177,7 +198,7 @@ func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks,
 // setiap status dan potongan teks diteruskan ke kabar, lalu hasil akhirnya dikembalikan
 func (k *Klien) TanyaStream(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan, profil string, tambahan Tambahan, kabar Kabar) (Jawaban, error) {
 	badan, err := json.Marshal(permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Profil: profil,
-		Lampiran: tambahan.Lampiran, BisaEmail: tambahan.BisaEmail})
+		Lampiran: tambahan.Lampiran, BisaEmail: tambahan.BisaEmail, Ringkasan: tambahan.Ringkasan})
 	if err != nil {
 		return Jawaban{}, err
 	}
@@ -239,6 +260,13 @@ func (k *Klien) Ringkas(ctx context.Context, ingatan string, riwayat []Riwayat) 
 	var hasil hasilRingkas
 	err := k.kirimUlang(ctx, "/ringkas", permintaanRingkas{Ingatan: ingatan, Riwayat: riwayat}, &hasil)
 	return hasil.Ingatan, err
+}
+
+// RingkasPercakapan meminta agent menggabungkan ringkasan lama dengan pesan berikutnya dari satu percakapan
+func (k *Klien) RingkasPercakapan(ctx context.Context, ringkasan string, riwayat []Riwayat) (string, Kinerja, error) {
+	var hasil hasilRingkasPercakapan
+	err := k.kirimUlang(ctx, "/ringkas-percakapan", permintaanRingkasPercakapan{Ringkasan: ringkasan, Riwayat: riwayat}, &hasil)
+	return hasil.Ringkasan, hasil.Kinerja, err
 }
 
 // Embed meminta agent mengubah setiap teks menjadi vektor makna; model yang dipakai ikut dikembalikan

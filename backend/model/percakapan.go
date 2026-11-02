@@ -23,6 +23,7 @@ type Sumber struct {
 
 type Pesan struct {
 	ID         string    `json:"id"`
+	Urutan     int64     `json:"-"`
 	Pengirim   string    `json:"pengirim"`
 	Isi        string    `json:"isi"`
 	Sumber     []Sumber  `json:"sumber"`

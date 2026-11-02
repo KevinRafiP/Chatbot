@@ -16,6 +16,7 @@ def buat_aksi(kotak_alat, maks_langkah):
         balasan = []
         for p in keadaan["panggilan"]:
             logging.info("agen memanggil alat %s", p.get("name"))
+            keadaan.setdefault("alat_dipakai", []).append(str(p.get("name", "")))
             if keadaan.get("kabar"):
                 keadaan["kabar"]("status", {"teks": keterangan_alat(p, kotak_alat)})
             hasil = kotak_alat.jalankan(p.get("name", ""), p.get("input") or {}, keadaan["catatan"])

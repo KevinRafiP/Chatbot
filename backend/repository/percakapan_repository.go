@@ -79,10 +79,15 @@ func (r *PercakapanRepository) GantiJudul(id, penggunaID, judul string) (model.P
 
 // DaftarPesan mengambil pesan sebuah percakapan dari yang paling lama; batas 0 berarti semua, selain itu hanya N terakhir
 func (r *PercakapanRepository) DaftarPesan(percakapanID string, batas int) ([]model.Pesan, error) {
-	rows, err := r.db.Query(`SELECT id, pengirim, isi, sumber, favorit, lampiran_nama, dibuat_pada FROM (
+	return r.DaftarPesanSetelah(percakapanID, 0, batas)
+}
+
+// DaftarPesanSetelah sama seperti DaftarPesan, tetapi hanya pesan sesudah urutan tertentu (yang belum diringkas)
+func (r *PercakapanRepository) DaftarPesanSetelah(percakapanID string, setelah int64, batas int) ([]model.Pesan, error) {
+	rows, err := r.db.Query(`SELECT id, urutan, pengirim, isi, sumber, favorit, lampiran_nama, dibuat_pada FROM (
 		SELECT id, urutan, pengirim, isi, sumber, favorit, lampiran_nama, dibuat_pada FROM pesan
-			WHERE percakapan_id = $1 ORDER BY urutan DESC LIMIT NULLIF($2, 0)
-		) AS terakhir ORDER BY urutan`, percakapanID, batas)
+			WHERE percakapan_id = $1 AND urutan > $3 ORDER BY urutan DESC LIMIT NULLIF($2, 0)
+		) AS terakhir ORDER BY urutan`, percakapanID, batas, setelah)
 	if err != nil {
 		return nil, err
 	}
@@ -92,13 +97,28 @@ func (r *PercakapanRepository) DaftarPesan(percakapanID string, batas int) ([]mo
 	for rows.Next() {
 		var p model.Pesan
 		var sumber string
-		if err := rows.Scan(&p.ID, &p.Pengirim, &p.Isi, &sumber, &p.Favorit, &p.Lampiran, &p.DibuatPada); err != nil {
+		if err := rows.Scan(&p.ID, &p.Urutan, &p.Pengirim, &p.Isi, &sumber, &p.Favorit, &p.Lampiran, &p.DibuatPada); err != nil {
 			return nil, err
 		}
 		p.Sumber = pecahSumber(sumber)
 		daftar = append(daftar, p)
 	}
 	return daftar, rows.Err()
+}
+
+// Ringkasan mengambil ringkasan percakapan dan urutan pesan terakhir yang sudah masuk ringkasan
+func (r *PercakapanRepository) Ringkasan(id string) (string, int64, error) {
+	var ringkasan string
+	var sampai int64
+	err := r.db.QueryRow(`SELECT ringkasan, ringkasan_sampai FROM percakapan WHERE id = $1`, id).Scan(&ringkasan, &sampai)
+	return ringkasan, sampai, err
+}
+
+// SimpanRingkasan menyimpan ringkasan baru hanya bila belum ada proses lain yang menyimpan lebih dulu
+func (r *PercakapanRepository) SimpanRingkasan(id, ringkasan string, sampaiBaru, sampaiLama int64) error {
+	_, err := r.db.Exec(`UPDATE percakapan SET ringkasan = $2, ringkasan_sampai = $3 WHERE id = $1 AND ringkasan_sampai = $4`,
+		id, ringkasan, sampaiBaru, sampaiLama)
+	return err
 }
 
 // SimpanPesan menyimpan satu pesan beserta sumbernya dan memperbarui waktu percakapannya

@@ -1,5 +1,6 @@
 import json
 
+from llm import pemakaian
 from llm.client import GalatLLM, buka, kirim_json
 
 
@@ -31,22 +32,28 @@ class KlienAPI:
             badan["stream"] = True
             with buka(alamat, json.dumps(badan).encode("utf-8"), header, self.batas_waktu, "Layanan LLM") as respon:
                 balasan, alasan = rakit_pesan_stream(respon, saat_teks)
-            pemakaian = None
+            pakai = None
         else:
             data = kirim_json(alamat, json.dumps(badan).encode("utf-8"), header, self.batas_waktu, "Layanan LLM")
             pilihan = data.get("choices") or []
             if not pilihan or not pilihan[0].get("message"):
                 raise GalatLLM("Layanan LLM tidak memberi jawaban")
-            balasan, alasan, pemakaian = pilihan[0]["message"], pilihan[0].get("finish_reason"), data.get("usage")
+            balasan, alasan, pakai = pilihan[0]["message"], pilihan[0].get("finish_reason"), data.get("usage")
+            catat_token(pakai)
         try:
             return dari_format_api(balasan)
         except GalatLLM as galat:
             # info tambahan untuk melacak balasan kosong, misalnya prompt terpotong karena konteks model penuh
-            raise GalatLLM(f"{galat} (finish_reason={alasan}, usage={pemakaian})", galat.kode)
+            raise GalatLLM(f"{galat} (finish_reason={alasan}, usage={pakai})", galat.kode)
+
+def catat_token(usage):
+    """Format OpenAI melaporkan token sebagai prompt_tokens dan completion_tokens; tanpa usage tetap dihitung satu panggilan."""
+    usage = usage if isinstance(usage, dict) else {}
+    pemakaian.catat(usage.get("prompt_tokens"), usage.get("completion_tokens"))
 
 def rakit_pesan_stream(respon, saat_teks):
     """Menyusun kembali pesan utuh dari baris "data: {...}" stream format OpenAI, sambil meneruskan teksnya."""
-    teks, panggilan, alasan = "", {}, None
+    teks, panggilan, alasan, pakai = "", {}, None, None
     for baris in respon:
         baris = baris.decode("utf-8", "replace").strip()
         if not baris.startswith("data:"):
@@ -60,6 +67,8 @@ def rakit_pesan_stream(respon, saat_teks):
             continue
         if data.get("error"):
             raise GalatLLM(f"Layanan LLM menghentikan stream: {str(data['error'])[:300]}")
+        # hanya sebagian layanan yang mengirim jumlah token di akhir stream
+        pakai = data.get("usage") or pakai
 
         for pilihan in data.get("choices") or []:
             delta = pilihan.get("delta") or {}
@@ -75,6 +84,7 @@ def rakit_pesan_stream(respon, saat_teks):
                 tujuan["function"]["name"] += fungsi.get("name") or ""
                 tujuan["function"]["arguments"] += fungsi.get("arguments") or ""
             alasan = pilihan.get("finish_reason") or alasan
+    catat_token(pakai)
 
     pesan = {"role": "assistant", "content": teks or None}
     if panggilan:

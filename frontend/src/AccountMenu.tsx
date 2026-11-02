@@ -10,7 +10,7 @@ import {
   type Account,
 } from "./api";
 
-export type DialogName = "masuk" | "daftar" | "lupa" | "atur-ulang" | "pengetahuan" | "admin";
+export type DialogName = "masuk" | "daftar" | "lupa" | "atur-ulang" | "pengetahuan" | "admin" | "kinerja";
 
 // How long the resend button waits; the backend also ignores a resend within one minute
 const RESEND_WAIT_SECONDS = 60;
@@ -23,8 +23,11 @@ function errorText(error: unknown, fallback: string): string {
   return fromServer && error.message !== "" ? error.message : fallback;
 }
 
-// A centered box over the page; closes on Escape, the × button, or a click on the dark area
-export function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+type DialogProps = { title: string; onClose: () => void; children: ReactNode; wide?: boolean };
+
+// A centered box over the page; closes on Escape, the × button, or a click on the dark area.
+// wide is for content with tables, such as the performance report
+export function Dialog({ title, onClose, children, wide = false }: DialogProps) {
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") onClose();
@@ -35,7 +38,7 @@ export function Dialog({ title, onClose, children }: { title: string; onClose: (
 
   return (
     <div className="modal-backdrop" onPointerDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div className={`modal ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-header">
           <h2>{title}</h2>
           <button className="icon-button" onClick={onClose} aria-label="Tutup">
@@ -444,6 +447,10 @@ export function AccountMenu({ account, open, onToggle, onChoose, onFavorites, on
               <button role="menuitem" onClick={() => onChoose("admin")}>
                 Tambah admin
               </button>
+              <button role="menuitem" onClick={() => onChoose("kinerja")}>
+                Kinerja jawaban
+              </button>
+
             </>
           )}
           {!guest && (

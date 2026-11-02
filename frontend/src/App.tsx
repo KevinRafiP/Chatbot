@@ -14,6 +14,7 @@ import { IMAGE_NAME, isImage, prepareImage } from "./imageUpload";
 import { CopyIcon, MessageItem, PaperclipIcon, StarIcon, TypingItem } from "./MessageItem";
 import { copyMessage } from "./messageText";
 import { htmlToMarkdown } from "./pasteFormat";
+import { PerformancePanel } from "./Performance";
 import { ScrollHandle } from "./ScrollHandle";
 import { ChatSkeleton, ListSkeleton } from "./Skeleton";
 import { withTransition } from "./viewTransition";
@@ -930,6 +931,11 @@ function App() {
       {dialog === "admin" && account?.role === "admin" && (
         <Dialog title="Tambah admin" onClose={() => setDialog(null)}>
           <AdminForm />
+        </Dialog>
+      )}
+      {dialog === "kinerja" && account?.role === "admin" && (
+        <Dialog title="Kinerja jawaban" onClose={() => setDialog(null)} wide>
+          <PerformancePanel />
         </Dialog>
       )}
     </div>

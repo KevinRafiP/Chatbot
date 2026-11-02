@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"strings"
+	"time"
 
 	"chatbot/backend/agen"
 	"chatbot/backend/model"
@@ -26,27 +27,30 @@ var ErrAgentMati = errors.New("agent tidak aktif")
 const JawabanAgentGagal = "Maaf, saya sedang kesulitan menyusun jawaban. Coba kirim ulang pertanyaannya sebentar lagi."
 
 type ChatbotService struct {
-	repo  *repository.PengetahuanRepository
-	agen  *agen.Klien
-	makna *EmbeddingService
+	repo    *repository.PengetahuanRepository
+	agen    *agen.Klien
+	makna   *EmbeddingService
+	kinerja *KinerjaService
 }
 
-// makna boleh nil; data internal lalu dicari dengan kata kunci saja
-func BaruChatbotService(repo *repository.PengetahuanRepository, klienAgen *agen.Klien, makna *EmbeddingService) *ChatbotService {
-	return &ChatbotService{repo: repo, agen: klienAgen, makna: makna}
+// makna boleh nil; data internal lalu dicari dengan kata kunci saja. kinerja boleh nil; jawaban lalu tidak dicatat
+func BaruChatbotService(repo *repository.PengetahuanRepository, klienAgen *agen.Klien, makna *EmbeddingService, kinerja *KinerjaService) *ChatbotService {
+	return &ChatbotService{repo: repo, agen: klienAgen, makna: makna, kinerja: kinerja}
 }
 
 // Jawab mencari data di database, lalu meminta agent menyusun jawaban; jika agent gagal, pakai jawaban database.
 // Jika kabar diisi, jawaban agent diterima sebagai stream dan setiap status atau potongan teks diteruskan ke kabar
 // tambahan berisi lampiran berkas dan izin mengirim email; boleh kosong
 func (s *ChatbotService) Jawab(ctx context.Context, pertanyaan string, riwayat []agen.Riwayat, ingatan, profil string, tambahan agen.Tambahan, kabar agen.Kabar) (HasilChat, error) {
+	mulai := time.Now()
 	daftar, err := s.cariData(ctx, pertanyaan)
 	if err != nil {
 		return HasilChat{}, err
 	}
 
 	if s.agen != nil {
-		hasil, err := s.tanyaAgen(ctx, pertanyaan, daftar, riwayat, ingatan, profil, tambahan, kabar)
+		hasil, pakai, err := s.tanyaAgen(ctx, pertanyaan, daftar, riwayat, ingatan, profil, tambahan, kabar)
+		s.kinerja.CatatPanggilan(ctx, profil, mulai, pakai, hasil.Jawaban, err)
 		if err == nil {
 			return hasil, nil
 		}
@@ -118,7 +122,7 @@ func (s *ChatbotService) cariKataKunci(pertanyaan string) ([]model.Pengetahuan, 
 	return s.repo.Cari(daftarKata, skorMinimal, 3)
 }
 
-func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, daftar []model.Pengetahuan, riwayat []agen.Riwayat, ingatan, profil string, tambahan agen.Tambahan, kabar agen.Kabar) (HasilChat, error) {
+func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, daftar []model.Pengetahuan, riwayat []agen.Riwayat, ingatan, profil string, tambahan agen.Tambahan, kabar agen.Kabar) (HasilChat, agen.Kinerja, error) {
 	konteks := []agen.Konteks{}
 	for _, p := range daftar {
 		konteks = append(konteks, agen.Konteks{Judul: p.Judul, Isi: p.Isi})
@@ -132,7 +136,7 @@ func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, dafta
 		jawaban, err = s.agen.Tanya(ctx, pertanyaan, konteks, riwayat, ingatan, profil, tambahan)
 	}
 	if err != nil {
-		return HasilChat{}, err
+		return HasilChat{}, agen.Kinerja{}, err
 	}
 
 	sumber := []model.Sumber{}
@@ -146,7 +150,7 @@ func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, dafta
 		PakaiInternet: jawaban.PakaiInternet,
 		Penjawab:      "agent",
 		Email:         jawaban.Email,
-	}, nil
+	}, jawaban.Kinerja, nil
 }
 
 func jawabDariDatabase(daftar []model.Pengetahuan) HasilChat {

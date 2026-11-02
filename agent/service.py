@@ -1,5 +1,7 @@
 from graf import SELESAI, Graf
 from ingatan import ringkas
+from llm import pemakaian
+from ringkasan import BATAS_RINGKASAN, ringkas_percakapan
 from simpul.aksi import buat_aksi
 from prompt import INSTRUKSI_SISTEM
 from simpul.akhir import buat_batas, jawab, tolak
@@ -51,15 +53,26 @@ class Agen:
             return "batas"
         return "aksi"
 
-    def jawab(self, pertanyaan, konteks=None, riwayat=None, ingatan=None, kabar=None, lampiran=None, bisa_email=False):
+    def jawab(self, pertanyaan, konteks=None, riwayat=None, ingatan=None, kabar=None, lampiran=None, bisa_email=False,
+              ringkasan=None):
         """kabar(jenis, isi) dipanggil setiap ada langkah atau potongan teks baru; kosong berarti tanpa stream.
-        lampiran {"nama", "teks"} adalah berkas dari pengguna; bisa_email True jika akun pengguna bisa menerima email."""
+        lampiran {"nama", "teks"} adalah berkas dari pengguna; bisa_email True jika akun pengguna bisa menerima email.
+        ringkasan adalah ringkasan pesan lama percakapan ini yang tidak lagi dikirim utuh di riwayat."""
+        pemakaian.mulai()
         keadaan = self.graf.jalankan({
             "pertanyaan": pertanyaan, "konteks": konteks, "riwayat": riwayat, "ingatan": ingatan, "kabar": kabar,
             "lampiran": lampiran if isinstance(lampiran, dict) else None, "bisa_email": bisa_email is True,
+            "ringkasan": str(ringkasan)[:BATAS_RINGKASAN] if isinstance(ringkasan, str) else "",
         })
-        return keadaan["hasil"]
+        # token, jumlah panggilan model, dan alat yang dipakai dikirim ke backend untuk halaman kinerja admin
+        return {**keadaan["hasil"], "kinerja": {**pemakaian.ambil(), "alat": keadaan.get("alat_dipakai", [])}}
 
     def ringkas(self, ingatan_lama, riwayat):
         """Memperbarui ingatan jangka panjang pengguna dari percakapan terbaru."""
         return ringkas(self.klien, ingatan_lama, riwayat)
+
+    def ringkas_percakapan(self, ringkasan_lama, riwayat):
+        """Meringkas pesan lama satu percakapan; pemakaian tokennya ikut dilaporkan."""
+        pemakaian.mulai()
+        teks = ringkas_percakapan(self.klien, ringkasan_lama, riwayat)
+        return {"ringkasan": teks, "kinerja": {**pemakaian.ambil(), "alat": []}}

@@ -44,6 +44,9 @@ type Config struct {
 	BerkasMaksMB        int
 	BatasBerkasPerJam   int
 	EmailJawabanPerHari int
+	KinerjaSimpanHari   int
+	RingkasanSetelah    int
+	RingkasanSisa       int
 }
 
 func Muat() Config {
@@ -84,6 +87,9 @@ func Muat() Config {
 		BerkasMaksMB:        ambilAngkaBolehNol("BERKAS_MAKS_MB", 5),
 		BatasBerkasPerJam:   ambilAngka("BATAS_BERKAS_PER_JAM", 20),
 		EmailJawabanPerHari: ambilAngkaBolehNol("EMAIL_JAWABAN_PER_HARI", 5),
+		KinerjaSimpanHari:   ambilAngkaBolehNol("KINERJA_SIMPAN_HARI", 30),
+		RingkasanSetelah:    ambilAngkaBolehNol("RINGKASAN_SETELAH_PESAN", 20),
+		RingkasanSisa:       ambilAngkaBolehNol("RINGKASAN_SISA_PESAN", 10),
 	}
 }
 
