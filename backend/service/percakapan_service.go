@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	BatasRiwayat     = 10
+	BatasRiwayat     = 20
 	BatasPertanyaan  = 2000
 	BatasJudul       = 40
 	BatasJudulManual = 100

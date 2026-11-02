@@ -66,6 +66,7 @@ export function MathText({ text }: { text: string }) {
         key={match.index}
         className={display !== undefined ? "math-block" : "math-inline"}
         data-plain={latexToPlain(source)}
+        data-tex={source.trim()}
         dangerouslySetInnerHTML={{ __html: formulaHtml(katex, source, display !== undefined) }}
       />,
     );

@@ -77,12 +77,17 @@ DEKLARASI = {
         ("jenis",)),
     "kalkulus": deklarasi(
         "kalkulus",
-        "Matematika simbolik: turunan, integral (tak tentu atau tentu), limit, menyelesaikan persamaan, faktorkan, jabarkan, "
-        "sederhanakan. Tulis ekspresi seperti x^2 + 3*x, sin(x)/x, x^2 - 4 = 0.",
-        {"operasi": teks("Operasi", ("turunan", "integral", "limit", "selesaikan", "faktorkan", "jabarkan", "sederhanakan")),
-         "ekspresi": teks("Ekspresi atau persamaan"), "variabel": teks("Variabel, bawaan x"),
-         "orde": angka("turunan ke berapa"), "batas_bawah": teks("integral tentu"), "batas_atas": teks("integral tentu"),
-         "menuju": teks("limit: nilai yang didekati, boleh oo untuk tak hingga"), "arah": teks("limit", ("kiri", "kanan"))},
+        "Matematika simbolik: turunan (juga parsial), integral, limit, persamaan dan sistem persamaan, faktorkan, jabarkan, "
+        "sederhanakan, jumlah deret, deret Taylor, persamaan diferensial biasa, dan matriks (determinan, invers, eigen, rref, "
+        "transpos, rank). Contoh ekspresi: x^2 + 3*x, sin(x)/x, x + y = 3; x - y = 1, 1/n^2, y'' + 3*y' + 2*y = 0, [[1,2],[3,4]].",
+        {"operasi": teks("Operasi", ("turunan", "integral", "limit", "selesaikan", "faktorkan", "jabarkan", "sederhanakan",
+                                     "deret", "taylor", "diferensial", "determinan", "invers", "eigen", "rref", "transpos", "rank")),
+         "ekspresi": teks("Ekspresi, persamaan, sistem persamaan dipisah titik koma, atau matriks [[...],[...]]"),
+         "variabel": teks("Variabel, bawaan x; turunan parsial campuran atau sistem persamaan: x,y"),
+         "orde": angka("turunan ke berapa, atau orde deret Taylor (bawaan 5)"),
+         "batas_bawah": teks("integral tentu, atau awal deret (bawaan 1)"), "batas_atas": teks("integral tentu, atau akhir deret (bawaan oo)"),
+         "menuju": teks("limit: nilai yang didekati, boleh oo; taylor: titik pusat (bawaan 0)"), "arah": teks("limit", ("kiri", "kanan")),
+         "kondisi": teks("diferensial: syarat awal dipisah titik koma, contoh y(0)=1; y'(0)=0")},
         ("operasi", "ekspresi")),
     "acak": deklarasi(
         "acak",
@@ -145,7 +150,8 @@ POLA_ALAT = {nama: re.compile(pola, re.IGNORECASE) for nama, pola in {
     "keuangan": r"\b(cicilan|kredit|kpr|pinjam\w*|utang|hutang|bunga|investasi|tabungan|nabung|menabung|deposito|majemuk|zakat|nisab|fitrah|"
                 r"pajak|pph|gaji|tenor|anuitas|angsuran|dp|loan|interest|mortgage|tax)\b",
     "kalkulus": r"\b(turunan|integral|limit|derivatif|diferensial|persamaan|faktorkan|jabarkan|sederhanakan|selesaikan|solve|kuadrat|polinom\w*|"
-                r"aljabar|sin|cos|tan|log|ln|dx)\b|\^|[a-z]\s*=",
+                r"aljabar|sin|cos|tan|log|ln|dx|dy|matriks|matrix|determinan|invers|eigen\w*|vektor|rank|eselon|deret|barisan|sigma|"
+                r"taylor|maclaurin|konvergen|divergen|sistem|spl|parsial|gradien|ode|pdb|kalkulus|calculus)\b|\^|[a-z]\s*=|\\(frac|int|sum|lim|sqrt)",
     "acak": r"\b(acak|random|undi|undian|kocok|dadu|koin|lempar|pilihkan|pilih satu|kata sandi|sandi|password|shuffle)\b",
     "info_lokasi": r"\b(cuaca|hujan|panas|suhu|prakiraan|ramalan|weather|salat|shalat|sholat|solat|imsak|subuh|zuhur|dzuhur|ashar|asar|magrib|"
                    r"maghrib|isya|adzan|azan|gempa|bmkg|tsunami|jarak|rute|perjalanan|tempuh|provinsi|kabupaten|kota|kecamatan|kelurahan|desa|"

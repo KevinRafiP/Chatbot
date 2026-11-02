@@ -134,7 +134,7 @@ type Klien struct {
 
 // BatasWaktuStream adalah waktu paling lama satu jawaban stream; client stream tidak memakai Timeout
 // karena Timeout ikut memotong body yang masih mengalir
-const BatasWaktuStream = 3 * time.Minute
+const BatasWaktuStream = 5 * time.Minute
 
 // Kabar menerima kabar dari agent selama jawaban dibuat: jenis "status", "teks", atau "ulang"
 type Kabar func(jenis string, data json.RawMessage)
@@ -143,7 +143,7 @@ func BaruKlien(alamat, apiKey string) *Klien {
 	return &Klien{
 		alamat: strings.TrimRight(alamat, "/"),
 		apiKey: apiKey,
-		http:   &http.Client{Timeout: 90 * time.Second},
+		http:   &http.Client{Timeout: 3 * time.Minute},
 		stream: &http.Client{},
 	}
 }
@@ -260,7 +260,7 @@ func (k *Klien) InfoEmbedding(ctx context.Context) (InfoEmbed, error) {
 	return hasil, err
 }
 
-// BacaBerkas meminta agent mengambil teks dari berkas unggahan (PDF, DOCX, atau teks biasa)
+// BacaBerkas meminta agent mengambil teks dari berkas unggahan (PDF, DOCX, teks biasa, atau foto)
 func (k *Klien) BacaBerkas(ctx context.Context, nama string, isi []byte) (Berkas, error) {
 	var hasil Berkas
 	err := k.kirimUlang(ctx, "/baca-berkas", permintaanBerkas{Nama: nama, Isi: base64.StdEncoding.EncodeToString(isi)}, &hasil)

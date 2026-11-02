@@ -66,7 +66,9 @@ def tolak(keadaan):
     }
     return keadaan
 
-POLA_DAFTAR_SUMBER = re.compile(r"\n\s*(?:sumber(?: referensi)?|referensi|rujukan)\s*:.*\Z", re.IGNORECASE | re.DOTALL)
+# daftar sumber buatan model di akhir jawaban, juga yang ditulis tebal, sebagai judul, atau diawali garis pemisah
+POLA_DAFTAR_SUMBER = re.compile(r"\n\s*(?:[-*_]{3,}\s*\n\s*)?(?:#{1,6}\s*)?[*_]{0,2}(?:sumber(?: referensi)?|referensi|rujukan)\s*(?::[*_]{0,2}|[*_]{0,2}:).*\Z",
+                                re.IGNORECASE | re.DOTALL)
 
 ISTILAH = r"(?:data internal|catatan saya|ingatan saya)(?:\s+(?:yang\s+)?(?:tersedia|ada|saya miliki|saya punya|kami))?"
 # "Dari data internal yang tersedia, Kevin ..." di awal kalimat

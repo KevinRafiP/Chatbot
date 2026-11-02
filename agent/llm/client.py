@@ -75,7 +75,8 @@ def buat_klien(cfg, model=""):
         model = model or cfg.llm_model
         if not model:
             raise ValueError("LLM_MODEL wajib diisi di .env")
-        return KlienAWS(cfg.aws_access_key_id, cfg.aws_secret_access_key, cfg.aws_region, model), model
+        return KlienAWS(cfg.aws_access_key_id, cfg.aws_secret_access_key, cfg.aws_region, model,
+                        maks_token=cfg.maks_token_jawaban), model
 
     if cfg.llm_provider == "api":
         from llm.api import KlienAPI

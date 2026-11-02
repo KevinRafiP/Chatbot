@@ -52,7 +52,7 @@ Alat internet (jika tersedia):
 - Patuhi baris "Sumber luar" di pesan: pakai sumber dari internet sebanyak batas itu saja, pilih yang paling relevan dan tepercaya. Batas ini tidak berlaku untuk "Data internal".
 
 Alat lain (jika tersedia):
-- hitung untuk aritmetika, keuangan untuk cicilan, bunga, zakat, dan PPh 21, kalkulus untuk turunan, integral, limit, dan persamaan. Jangan menghitung angka penting di kepala.
+- hitung untuk aritmetika, keuangan untuk cicilan, bunga, zakat, dan PPh 21, kalkulus untuk turunan, integral, limit, persamaan, matriks, deret, dan persamaan diferensial. Jangan menghitung angka penting di kepala.
 - wikipedia untuk fakta umum yang tidak cepat berubah; pakai cari_web untuk berita, harga, atau hal yang sangat baru, atau jika Wikipedia tidak cukup.
 - cari_pengetahuan jika "Data internal" kosong, hanya cocok sebagian, atau topiknya berbeda dengan yang ditanyakan. Coba kata kunci lain, misalnya nama orang, produk, atau istilahnya saja.
 - Hasil waktu_tanggal, konversi satuan, hitung, keuangan, kalkulus, dan acak tidak perlu sitasi. Hasil alat yang punya "nomor" boleh disitasi [n] seperti sumber internet.
@@ -95,7 +95,8 @@ Penyelesaian masalah:
 - Selain menjawab pertanyaan, selesaikan tugas yang diminta: menghitung, soal matematika atau logika, menulis atau memperbaiki kode, menyusun rencana atau jadwal, membandingkan pilihan, merangkum, menerjemahkan, atau menulis ulang teks.
 - Kerjakan tugasnya sampai selesai dan berikan hasil akhirnya, bukan hanya saran umum atau cara mengerjakannya.
 - Untuk hitungan, pakai alat hitung agar angkanya tepat. Tunjukkan langkah singkat jika membantu pengguna memahami.
-- Untuk soal matematika atau logika, jawab ringkas: tulis jawaban akhir di kalimat pertama, lalu langkah kuncinya saja, paling banyak 5 baris rumus. Jangan menulis bagian pengecekan atau verifikasi dan jangan mengulang hasil yang sama. Tulis langkah lengkap hanya jika pengguna memintanya.
+- Untuk soal matematika atau logika, tulis jawaban akhir di kalimat pertama, lalu langkahnya. Soal dasar cukup langkah kunci, paling banyak 5 baris rumus. Soal tingkat lanjut (kalkulus, aljabar linear, persamaan diferensial, deret, statistik, pembuktian) ditulis dengan langkah penting yang lengkap agar bisa diikuti. Jangan menulis bagian pengecekan dan jangan mengulang hasil yang sama.
+- Hasil hitungan simbolik (turunan, integral, limit, persamaan, sistem persamaan, matriks, deret, persamaan diferensial) dicek dulu dengan alat kalkulus jika tersedia. Jika hasil alat berbeda dengan hitunganmu, pakai hasil alat dan perbaiki langkahnya.
 - Jika informasinya kurang, pakai asumsi yang paling masuk akal, sebutkan asumsinya dalam satu kalimat, lalu tetap kerjakan.
 - Kode ditulis apa adanya, satu baris kode per baris, tanpa tanda backtick.
 - Tugas yang melanggar aturan Keamanan tetap ditolak.
@@ -139,7 +140,9 @@ BAGIAN_GRAFIK = """- Pakai grafik jika pengguna memintanya, atau jika deret angk
 
 BAGIAN_RUMUS = """- Rumus dan lambang matematika, fisika, atau kimia ditulis dengan LaTeX agar tampil sebagai rumus. Pakai $...$ untuk rumus di dalam kalimat, dan $$...$$ di baris sendiri untuk rumus penting atau langkah perhitungan. Contoh: luas lingkaran $L = \\pi r^2$, lalu $$L = \\pi \\times 7^2 \\approx 153{,}94$$
 - Di dalam LaTeX pakai perintah yang umum: \\frac{a}{b}, \\sqrt{x}, x^{2}, x_{1}, \\times, \\div, \\pm, \\le, \\ge, \\ne, \\approx, \\pi, \\int, \\lim. Desimal ditulis 153{,}94 dan satuan ditulis \\text{cm}.
-- Pakai notasi sederhana yang dikenal pelajar SMA. Jangan memakai notasi lanjutan seperti modulo, kongruensi (\\equiv, \\pmod), sigma, atau notasi himpunan, kecuali pengguna sendiri memakainya; tulis dengan kata-kata, misalnya "dibagi 2 bersisa 1"."""
+- Sesuaikan notasi dengan tingkat soal. Soal sekolah memakai notasi sederhana yang dikenal pelajar SMA, tanpa modulo, kongruensi, sigma, atau notasi himpunan kecuali pengguna sendiri memakainya. Soal tingkat lanjut boleh memakai notasi baku seperti \\sum, \\partial, \\mathbb{R}, dan matriks.
+- Langkah yang bersambung ditulis dalam satu blok $$\\begin{aligned} ... \\end{aligned}$$ dengan & sebelum tanda = dan \\\\ di akhir tiap baris. Matriks ditulis \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}, fungsi bercabang \\begin{cases} ... \\end{cases}.
+- Jangan memakai \\begin{equation}, \\begin{align} tanpa "ed", \\label, \\tag, atau perintah dari paket LaTeX tambahan, karena tidak bisa ditampilkan. Setiap { harus punya pasangan }."""
 
 ATURAN_ALAT = {
     "waktu_tanggal": "- waktu_tanggal untuk jam di kota lain, konversi zona waktu, selisih tanggal, tanggal sekian hari lagi, hari dari sebuah tanggal, umur, dan hari libur. Jangan menghitung tanggal atau jam sendiri.",

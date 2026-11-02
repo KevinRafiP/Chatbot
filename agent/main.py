@@ -9,6 +9,7 @@ from config import muat
 from handler import buat_penangan
 from llm.client import KlienCadangan, buat_klien
 from llm.embedding import buat_pembuat_embedding
+from llm.gambar import PembacaGambar
 from prompt import INSTRUKSI_CEPAT, INSTRUKSI_MENDALAM, INSTRUKSI_SISTEM, INSTRUKSI_TAMU
 from service import Agen
 
@@ -21,6 +22,7 @@ def main():
         klien, nama_model = buat_klien(cfg)
         klien_cepat, nama_cepat = buat_klien(cfg, cfg.llm_model_cepat) if cfg.llm_model_cepat else (klien, nama_model)
         klien_tamu, nama_tamu = buat_klien(cfg, cfg.llm_model_tamu) if cfg.llm_model_tamu else (klien_cepat, nama_cepat)
+        klien_gambar = buat_klien(cfg, cfg.model_gambar)[0] if cfg.model_gambar else klien
         if cfg.llm_model_cadangan:
             cadangan, _ = buat_klien(cfg, cfg.llm_model_cadangan)
             klien, klien_cepat, klien_tamu = (KlienCadangan(k, cadangan) for k in (klien, klien_cepat, klien_tamu))
@@ -46,8 +48,11 @@ def main():
     }
 
     pembuat_embedding = buat_pembuat_embedding(cfg)
+    # foto soal dibaca model vision menjadi teks; BACA_GAMBAR=tidak mematikannya
+    pembaca_gambar = PembacaGambar(klien_gambar) if cfg.baca_gambar else None
 
-    server = ThreadingHTTPServer((cfg.host, cfg.port), buat_penangan(daftar_agen, cfg.api_key, pembuat_embedding, cfg.alat.berkas_maks_huruf))
+    server = ThreadingHTTPServer((cfg.host, cfg.port), buat_penangan(daftar_agen, cfg.api_key, pembuat_embedding, cfg.alat.berkas_maks_huruf,
+                                                                     pembaca_gambar))
     logging.info("layanan agent jalan di http://%s:%d (%s, model mendalam %s, cepat %s, tamu %s, cadangan %s)", cfg.host, cfg.port,
                  cfg.llm_provider, nama_model, nama_cepat, nama_tamu, cfg.llm_model_cadangan or "-")
     server.serve_forever()

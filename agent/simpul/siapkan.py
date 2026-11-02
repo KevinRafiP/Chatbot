@@ -6,11 +6,13 @@ from prompt import instruksi_tambahan
 from pengaman.aturan import (batas_sumber, butuh_cari, minta_cari_ulang, minta_email, minta_internet, periksa_pertanyaan,
                              permintaan_merusak, tanya_selera)
 
-MAKS_RIWAYAT = 10
-# 4 pesan terakhir dikirim hampir utuh agar jawaban sebelumnya (beserta daftar sumbernya) terbaca lengkap
-JUMLAH_PESAN_TERBARU = 4
-MAKS_HURUF_TERBARU = 1000
-MAKS_HURUF_LAMA = 1000
+# makin lama pesannya, makin pendek yang dikirim; 2 pesan terakhir memakai batas AGENT_RIWAYAT_HURUF_TERBARU dari .env
+JUMLAH_PESAN_TERAKHIR = 2
+JUMLAH_PESAN_TERBARU = 6
+MAKS_HURUF_TERBARU = 1500
+MAKS_HURUF_LAMA = 500
+# isi lampiran ikut dipakai memilih alat, misalnya foto soal integral dengan pertanyaan "kerjakan ini"
+MAKS_HURUF_PILIH_LAMPIRAN = 3000
 
 MAKS_KONTEKS = 10
 MAKS_HURUF_LAMPIRAN = 30000
@@ -41,7 +43,7 @@ def buat_siapkan(kotak_alat):
         # alat internet selalu diberikan, karena data internal bisa cocok sebagian saja (misalnya hanya nama gamenya);
         # kirim_email hanya diberikan jika pengguna memintanya dan akunnya bisa menerima email
         bisa_email = bool(keadaan.get("bisa_email")) and minta_email(pertanyaan)
-        teks_pilih = teks_pilih_alat(pertanyaan, keadaan.get("riwayat"))
+        teks_pilih = teks_pilih_alat(pertanyaan, keadaan.get("riwayat"), keadaan.get("lampiran"))
         keadaan["deklarasi"] = kotak_alat.deklarasi(email=bisa_email, teks=teks_pilih)
         # aturan grafik, rumus, selera, berkas, dan alat khusus hanya ditambahkan jika dibutuhkan pertanyaan ini
         keadaan["instruksi_tambahan"] = instruksi_tambahan({d["name"] for d in keadaan["deklarasi"]}, teks_pilih, selera,
@@ -53,7 +55,7 @@ def buat_siapkan(kotak_alat):
         keadaan["wajib_cari"] = langsung_cari and kotak_alat.wajib_cari(segarkan) and perlu_cari
         # jika ada data internal, model yang memutuskan; jawaban "tidak ada informasi" tanpa mencari diulang di simpul pikir
         keadaan["cari_cadangan"] = perlu_cari and not keadaan["wajib_cari"] and kotak_alat.wajib_cari(paksa=True)
-        keadaan["isi"] = susun_isi(keadaan.get("riwayat"), pesan)
+        keadaan["isi"] = susun_isi(keadaan.get("riwayat"), pesan, kotak_alat.cfg.riwayat_pesan, kotak_alat.cfg.riwayat_huruf_terbaru)
         keadaan["catatan"] = {
             "sumber": sumber_internal(keadaan.get("konteks")),
             "bukti": bukti_internal(keadaan.get("konteks")),
@@ -67,21 +69,25 @@ def buat_siapkan(kotak_alat):
 
     return siapkan
 
-def teks_pilih_alat(pertanyaan, riwayat):
-    """Pertanyaan dan beberapa pesan terakhir pengguna, dipakai untuk memilih alat khusus yang dikirim ke model."""
+def teks_pilih_alat(pertanyaan, riwayat, lampiran=None):
+    """Pertanyaan, beberapa pesan terakhir pengguna, dan awal isi lampiran, dipakai untuk memilih alat khusus yang dikirim ke model."""
     sebelumnya = [str(p.get("teks", "")) for p in (riwayat or []) if p.get("peran") != "asisten"]
-    return "\n".join(sebelumnya[-JUMLAH_PESAN_PILIH_ALAT:] + [pertanyaan])
+    bagian = sebelumnya[-JUMLAH_PESAN_PILIH_ALAT:] + [pertanyaan]
+    if lampiran and lampiran.get("teks"):
+        bagian.append(str(lampiran["teks"])[:MAKS_HURUF_PILIH_LAMPIRAN])
+    return "\n".join(bagian)
 
-def susun_isi(riwayat, pesan_baru):
+def susun_isi(riwayat, pesan_baru, maks_pesan=20, huruf_terakhir=4000):
     """Menyusun riwayat dan pesan baru menjadi giliran user/assistant yang selalu bergantian, diawali user."""
     daftar = []
-    terpilih = (riwayat or [])[-MAKS_RIWAYAT:]
+    terpilih = (riwayat or [])[-maks_pesan:]
     for urutan, pesan in enumerate(terpilih):
         teks = str(pesan.get("teks", "")).strip()
         if teks:
             peran = "assistant" if pesan.get("peran") == "asisten" else "user"
-            batas = MAKS_HURUF_TERBARU if urutan >= len(terpilih) - JUMLAH_PESAN_TERBARU else MAKS_HURUF_LAMA
-            daftar.append((peran, teks[:batas]))
+            jarak = len(terpilih) - urutan
+            batas = huruf_terakhir if jarak <= JUMLAH_PESAN_TERAKHIR else MAKS_HURUF_TERBARU if jarak <= JUMLAH_PESAN_TERBARU else MAKS_HURUF_LAMA
+            daftar.append((peran, ringkas_teks(teks, batas)))
     daftar.append(("user", pesan_baru))
 
     hasil = []
@@ -93,6 +99,13 @@ def susun_isi(riwayat, pesan_baru):
         else:
             hasil.append({"role": peran, "content": [{"text": teks}]})
     return hasil
+
+def ringkas_teks(teks, batas):
+    """Teks yang terlalu panjang diambil awal dan akhirnya, karena kesimpulan dan daftar sumber jawaban biasanya di akhir."""
+    if len(teks) <= batas:
+        return teks
+    akhir = batas // 3
+    return f"{teks[:batas - akhir]}\n[...]\n{teks[-akhir:]}"
 
 
 def sumber_internal(konteks):

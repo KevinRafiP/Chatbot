@@ -6,17 +6,20 @@ import urllib.parse
 from llm.client import GalatLLM, buka, kirim_json
 from llm.tanda_tangan import tanda_tangani
 
-MAKS_TOKEN_JAWABAN = 8192
+# batas keluaran Kimi K2.5 di Bedrock 16K token, termasuk proses berpikirnya
+MAKS_TOKEN_JAWABAN = 16000
+CATATAN_TERPOTONG = "\n\n*Jawaban terpotong karena terlalu panjang. Ketik \"lanjutkan\" untuk melanjutkan.*"
 BATAS_WAKTU_WAJIB_ALAT = 20
 
 
 class KlienAWS:
-    def __init__(self, access_key, secret_key, wilayah, model, batas_waktu=60):
+    def __init__(self, access_key, secret_key, wilayah, model, batas_waktu=60, maks_token=MAKS_TOKEN_JAWABAN):
         self.access_key = access_key
         self.secret_key = secret_key
         self.wilayah = wilayah
         self.model = model
         self.batas_waktu = batas_waktu
+        self.maks_token = maks_token
         self.alamat = f"https://bedrock-runtime.{wilayah}.amazonaws.com"
 
     def kirim(self, instruksi_sistem, isi_percakapan, deklarasi_alat=None, wajib_alat=False, saat_teks=None):
@@ -25,7 +28,7 @@ class KlienAWS:
         badan = {
             "system": [{"text": instruksi_sistem}],
             "messages": isi_percakapan,
-            "inferenceConfig": {"maxTokens": MAKS_TOKEN_JAWABAN},
+            "inferenceConfig": {"maxTokens": self.maks_token},
         }
         if deklarasi_alat:
             badan["toolConfig"] = {"tools": [ubah_alat(d) for d in deklarasi_alat]}
@@ -47,10 +50,23 @@ class KlienAWS:
                 data = kirim_json(alamat, data_kirim, header, batas_waktu, "Bedrock")
                 pesan, alasan = (data.get("output") or {}).get("message"), data.get("stopReason")
         except TimeoutError:
+            if alasan == "max_tokens":
+                # token habis untuk berpikir sebelum menulis jawaban; mengulang tanpa alat hanya membuang token lagi
+                raise GalatLLM(f"Bedrock kehabisan {self.maks_token} token sebelum menulis jawaban", 413)
             raise GalatLLM(f"Bedrock diam lebih dari {batas_waktu} detik", 204)
-
         if not pesan or not pesan.get("content"):
+            if alasan == "max_tokens":
+                # token habis untuk berpikir sebelum menulis jawaban; mengulang tanpa alat hanya membuang token lagi
+                raise GalatLLM(f"Bedrock kehabisan {self.maks_token} token sebelum menulis jawaban", 413)
             raise GalatLLM(f"Bedrock tidak memberi jawaban (alasan berhenti: {alasan})", 204)
+        if alasan == "max_tokens":
+            # batas token habis di tengah jawaban: teks yang sudah ada dipakai, dengan catatan agar pengguna bisa meminta lanjutan
+            logging.warning("jawaban Bedrock terpotong karena batas %d token", self.maks_token)
+            teks = [b for b in pesan["content"] if "text" in b]
+            if teks and not any("toolUse" in b for b in pesan["content"]):
+                teks[-1]["text"] += CATATAN_TERPOTONG
+                if saat_teks:
+                    saat_teks(CATATAN_TERPOTONG)
         return pesan
 
 def rakit_pesan_stream(respon, saat_teks):

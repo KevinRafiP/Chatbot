@@ -14,13 +14,14 @@ def sympy_tersedia():
 
 
 class AlatKalkulus:
-    """Turunan, integral, limit, dan persamaan memakai SymPy di proses terpisah yang dibatasi waktunya."""
+    """Kalkulus, aljabar, matriks, deret, dan persamaan diferensial memakai SymPy di proses terpisah yang dibatasi waktunya."""
 
     def __init__(self, p):
         self.batas_detik = p.kalkulus_batas_detik
 
     def jalankan(self, argumen):
-        masukan = {k: argumen.get(k) for k in ("operasi", "ekspresi", "variabel", "orde", "batas_bawah", "batas_atas", "menuju", "arah")}
+        masukan = {k: argumen.get(k) for k in ("operasi", "ekspresi", "variabel", "orde", "batas_bawah", "batas_atas", "menuju", "arah",
+                                                "kondisi")}
         try:
             proses = subprocess.run([sys.executable, "-I", str(BERKAS_PROSES)], input=json.dumps(masukan), capture_output=True,
                                     text=True, timeout=self.batas_detik)

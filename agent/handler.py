@@ -16,7 +16,7 @@ BATAS_BODY = 256_000
 BATAS_BODY_BERKAS = 8_000_000
 
 
-def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berkas=20000):
+def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berkas=20000, pembaca_gambar=None):
     """Membuat kelas penangan HTTP yang sudah membawa agen per profil (mendalam, cepat, tamu) dan API key."""
     agen = daftar_agen["mendalam"]
 
@@ -104,10 +104,10 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berka
             self.kirim_json(200, {"status": "sukses", "message": "embedding", "data": hasil})
         
         def baca_berkas(self, data):
-            """Mengambil teks dari berkas unggahan; body {"nama": "laporan.pdf", "isi": "base64"}."""
+            """Mengambil teks dari berkas unggahan atau foto; body {"nama": "laporan.pdf", "isi": "base64"}."""
             try:
                 isi = base64.b64decode(str(data.get("isi", "")), validate=True)
-                hasil = baca_berkas(data.get("nama"), isi, maks_huruf_berkas)
+                hasil = baca_berkas(data.get("nama"), isi, maks_huruf_berkas, pembaca_gambar)
             except (binascii.Error, ValueError):
                 self.kirim_json(400, {"status": "gagal", "message": "isi berkas tidak valid"})
                 return

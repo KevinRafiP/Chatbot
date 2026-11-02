@@ -69,6 +69,11 @@ class Config:
     embed_provider: str
     embed_model: str
     embed_region: str
+    maks_token_jawaban: int
+    riwayat_pesan: int
+    riwayat_huruf_terbaru: int
+    baca_gambar: bool
+    model_gambar: str
     embed_api_url: str
     embed_api_key: str
     embed_local_url: str
@@ -211,6 +216,15 @@ def muat():
         embed_api_key=ambil("EMBED_API_KEY", ambil("API_KEY")),
         # bawaannya ikut LOCAL_URL dan LOCAL_API_KEY, jadi gerbang local dan ngrok yang sama bisa dipakai
         embed_local_url=ambil("EMBED_LOCAL_URL", ambil("LOCAL_URL", "http://127.0.0.1:11434/v1")),
+        # batas keluaran model per jawaban, termasuk proses berpikir; Kimi K2.5 di Bedrock paling banyak 16000
+        maks_token_jawaban=ambil_angka("AGENT_MAKS_TOKEN_JAWABAN", 16000),
+        # jumlah pesan sebelumnya yang dibaca model, dan panjang maksimal 2 pesan terakhir (jawaban panjang tetap terbaca awal dan akhirnya)
+        riwayat_pesan=ambil_angka("AGENT_RIWAYAT_PESAN", 20),
+        riwayat_huruf_terbaru=ambil_angka("AGENT_RIWAYAT_HURUF_TERBARU", 4000),
+        # foto soal atau rumus dibaca model vision menjadi teks dan LaTeX; fotonya sendiri tidak disimpan
+        baca_gambar=ambil_ya("BACA_GAMBAR", True),
+        # kosong = LLM_MODEL; model harus bisa membaca gambar
+        model_gambar=ambil("LLM_MODEL_GAMBAR"),
         embed_local_api_key=ambil("EMBED_LOCAL_API_KEY", ambil("LOCAL_API_KEY")),
         embed_skor_minimal=ambil_desimal("EMBED_SKOR_MINIMAL", SKOR_EMBED_BAWAAN.get(penyedia_embed, 0.5)),
         alat=alat,

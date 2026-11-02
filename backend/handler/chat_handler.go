@@ -12,7 +12,7 @@ import (
 )
 
 // batasBodyChat cukup untuk pertanyaan, riwayat tamu, dan teks lampiran
-const batasBodyChat = 200 << 10
+const batasBodyChat = 400 << 10
 
 type PermintaanChat struct {
 	Pertanyaan string          `json:"pertanyaan"`

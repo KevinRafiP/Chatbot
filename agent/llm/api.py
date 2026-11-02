@@ -82,7 +82,7 @@ def rakit_pesan_stream(respon, saat_teks):
     return pesan, alasan
 
 def ke_format_api(giliran):
-    """Mengubah satu giliran berbentuk internal (content berisi text/toolUse/toolResult) ke pesan format OpenAI."""
+    """Mengubah satu giliran berbentuk internal (content berisi text/image/toolUse/toolResult) ke pesan format OpenAI."""
     isi = giliran.get("content", [])
     hasil_alat = [b["toolResult"] for b in isi if "toolResult" in b]
     teks = "".join(b.get("text", "") for b in isi)
@@ -93,7 +93,12 @@ def ke_format_api(giliran):
             pesan.append({"role": "user", "content": teks})
         return pesan
 
+    gambar = [b["image"] for b in isi if "image" in b]
     pesan = {"role": giliran.get("role", "user"), "content": teks or None}
+    if gambar:
+        # format OpenAI: gambar dikirim sebagai data URL di samping teks
+        pesan["content"] = [{"type": "image_url", "image_url": {"url": f"data:image/{g['format']};base64,{g['source']['bytes']}"}}
+                            for g in gambar] + ([{"type": "text", "text": teks}] if teks else [])
     panggilan = [b["toolUse"]["asli"] for b in isi if "toolUse" in b]
     if panggilan:
         pesan["tool_calls"] = panggilan

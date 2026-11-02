@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState, type PointerEvent } from "react";
 import type { Message, Source } from "./api";
 import { Markdown } from "./Markdown";
-import { formatTime } from "./messageText";
+import { formatTime, looksFormatted } from "./messageText";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const LONG_PRESS_MS = 500;
@@ -181,7 +181,11 @@ export function MessageItemView(props: MessageItemProps) {
                 {message.attachment}
               </span>
             )}
-            {message.sender === "bot" ? <Markdown text={message.text.slice(0, length)} /> : message.text.slice(0, length)}
+            {message.sender === "bot" || looksFormatted(message.text) ? (
+              <Markdown text={message.text.slice(0, length)} />
+            ) : (
+              message.text.slice(0, length)
+            )}
             {!typing && message.sources.length > 0 && (
               <div className="sources">
                 <p className="sources-title">Sumber Referensi</p>

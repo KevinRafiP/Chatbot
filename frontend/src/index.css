@@ -377,6 +377,11 @@ button:disabled {
   border: 1px solid var(--accent);
 }
 
+.bubble.user .markdown a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .bubble.bot {
   align-self: flex-start;
   background: var(--surface);

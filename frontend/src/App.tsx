@@ -1,8 +1,18 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ClipboardEvent as ReactClipboardEvent,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { AccountMenu, AdminForm, AuthForm, Dialog, ForgotForm, KnowledgeForm, ResetForm, type DialogName } from "./AccountMenu";
 import { FavoriteList } from "./FavoriteList";
+import { IMAGE_NAME, isImage, prepareImage } from "./imageUpload";
 import { CopyIcon, MessageItem, PaperclipIcon, StarIcon, TypingItem } from "./MessageItem";
 import { copyMessage } from "./messageText";
+import { htmlToMarkdown } from "./pasteFormat";
 import { ScrollHandle } from "./ScrollHandle";
 import {
   ApiError,
@@ -46,8 +56,9 @@ const INPUT_MAX_HEIGHT = 200;
 const MODE_KEY = "answerMode";
 // must match BERKAS_MAKS_MB on the backend
 const MAX_FILE_MB = Number(import.meta.env.VITE_MAX_FILE_MB ?? 5);
-const FILE_TYPES = ".pdf,.docx,.txt,.md,.csv,.json,.log,.html,.htm,.xml,.py,.go,.js,.ts,.sql";
+const FILE_TYPES = ".pdf,.docx,.txt,.md,.csv,.json,.log,.html,.htm,.xml,.py,.go,.js,.ts,.sql,.png,.jpg,.jpeg,.webp,.gif,image/*";
 const FILE_ONLY_QUESTION = "Tolong ringkas isi berkas ini.";
+const IMAGE_ONLY_QUESTION = "Tolong jawab soal atau jelaskan isi gambar ini.";
 
 // The last chosen answer mode, kept per browser; "deep" when nothing was saved or storage is blocked
 function readMode(): AnswerMode {
@@ -444,8 +455,21 @@ function App() {
   async function chooseFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file) {
-      return;
+    if (file) {
+      await attachFile(file);
+    }
+  }
+
+  // A photo is shrunk first, then read by the server into text and formulas; the photo itself is not kept
+  async function attachFile(chosen: File) {
+    let file = chosen;
+    if (isImage(file)) {
+      try {
+        file = await prepareImage(file);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Gambar gagal diproses.");
+        return;
+      }
     }
     if (file.size > MAX_FILE_MB * 1024 * 1024) {
       setError(`Berkas terlalu besar, maksimal ${MAX_FILE_MB} MB.`);
@@ -501,10 +525,41 @@ function App() {
     event.currentTarget.form?.requestSubmit();
   }
 
+  // A pasted screenshot becomes an attachment; pasted rich text keeps its bold, lists, tables, and formulas as Markdown
+  function handlePaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    const data = event.clipboardData;
+    const plain = data.getData("text/plain");
+    const image = Array.from(data.files).find(isImage);
+    if (image && plain.trim() === "") {
+      event.preventDefault();
+      if (!loading && !uploading) {
+        void attachFile(image);
+      }
+      return;
+    }
+    const markdown = htmlToMarkdown(data.getData("text/html"));
+    if (markdown === null || markdown === plain.trim()) {
+      return;
+    }
+
+    event.preventDefault();
+    const box = event.currentTarget;
+    const start = box.selectionStart;
+    const end = box.selectionEnd;
+    const room = box.maxLength - (input.length - (end - start));
+    const pasted = markdown.slice(0, Math.max(room, 0));
+    if (pasted.length < markdown.length) {
+      showToast("Teks terlalu panjang, sebagian terpotong");
+    }
+    setInput(input.slice(0, start) + pasted + input.slice(end));
+    requestAnimationFrame(() => box.setSelectionRange(start + pasted.length, start + pasted.length));
+  }
+
   // Sends the question, waits for the answer, then shows both as saved by the server
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const text = input.trim() || (attachment !== null ? FILE_ONLY_QUESTION : "");
+    const fileQuestion = attachment !== null && IMAGE_NAME.test(attachment.name) ? IMAGE_ONLY_QUESTION : FILE_ONLY_QUESTION;
+    const text = input.trim() || (attachment !== null ? fileQuestion : "");
     if (text === "" || loading || uploading) {
       return;
     }
@@ -564,7 +619,7 @@ function App() {
       }
     } catch (err) {
       setMessages((current) => current.filter((item) => item.id !== draftId));
-      setInput(text === FILE_ONLY_QUESTION && input.trim() === "" ? "" : text);
+      setInput(text === fileQuestion && input.trim() === "" ? "" : text);
       if (err instanceof ApiError && err.status === 403 && isGuest) {
         setError(err.message);
         openDialog("masuk");
@@ -727,7 +782,7 @@ function App() {
 
         {view === "chat" && (attachment !== null || uploading) && (
           <div className="attachment-bar">
-            <span className="attachment-chip">
+            <span className="attachment-chip" title={attachment?.text.slice(0, 1000)}>
               <PaperclipIcon size={14} />
               <span className="attachment-name">{uploading ? "Membaca berkas..." : attachment?.name}</span>
               {attachment !== null && (
@@ -746,7 +801,7 @@ function App() {
             className="attach-button"
             onClick={() => fileRef.current?.click()}
             disabled={loading || uploading}
-            title={`Lampirkan berkas PDF, Word, atau teks (maksimal ${MAX_FILE_MB} MB)`}
+            title={`Lampirkan berkas PDF, Word, teks, atau foto soal (maksimal ${MAX_FILE_MB} MB). Foto juga bisa ditempel.`}
             aria-label="Lampirkan berkas"
           >
             <PaperclipIcon />
@@ -770,6 +825,7 @@ function App() {
             onFocus={() => setInputFocused(true)}
             onBlur={() => setInputFocused(false)}
             onKeyDown={handleInputKey}
+            onPaste={handlePaste}
             placeholder="Tulis pertanyaan..."
             maxLength={2000}
           />

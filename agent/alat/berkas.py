@@ -8,6 +8,7 @@ from alat.jaringan import GalatAlat
 
 MAKS_HALAMAN_PDF = 60
 MAKS_XML_DOCX = 20_000_000
+JENIS_GAMBAR = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 JENIS_TEKS = (".txt", ".md", ".csv", ".json", ".log", ".html", ".htm", ".xml", ".py", ".go", ".js", ".ts", ".sql")
 POLA_TAG = re.compile(r"<[^>]+>")
 
@@ -16,29 +17,34 @@ def pdf_didukung():
     return importlib.util.find_spec("pypdf") is not None
 
 
-def jenis_didukung():
+def jenis_didukung(gambar=False):
     daftar = list(JENIS_TEKS) + [".docx"]
     if pdf_didukung():
         daftar.append(".pdf")
+    if gambar:
+        daftar.extend(JENIS_GAMBAR)
     return daftar
 
 
-def baca_berkas(nama, isi, maks_huruf):
-    """Mengambil teks dari berkas unggahan: PDF (perlu pypdf), DOCX, dan berkas teks biasa."""
+def baca_berkas(nama, isi, maks_huruf, pembaca_gambar=None):
+    """Mengambil teks dari berkas unggahan: PDF (perlu pypdf), DOCX, berkas teks biasa, dan gambar (perlu pembaca_gambar)."""
     nama = str(nama or "berkas").strip()[:200]
     akhiran = "." + nama.rsplit(".", 1)[-1].lower() if "." in nama else ""
     if akhiran == ".pdf":
         teks, halaman = baca_pdf(isi)
     elif akhiran == ".docx":
         teks, halaman = baca_docx(isi), None
+    elif akhiran in JENIS_GAMBAR and pembaca_gambar:
+        teks, halaman = pembaca_gambar.baca(isi), None
     elif akhiran in JENIS_TEKS:
         teks, halaman = baca_teks(isi), None
         if akhiran in (".html", ".htm", ".xml"):
             teks = unescape(POLA_TAG.sub(" ", teks))
     else:
-        raise GalatAlat(f"jenis berkas belum didukung; yang didukung: {', '.join(jenis_didukung())}")
+        raise GalatAlat(f"jenis berkas belum didukung; yang didukung: {', '.join(jenis_didukung(bool(pembaca_gambar)))}")
 
-    teks = re.sub(r"[ \t]+", " ", teks)
+    if akhiran not in JENIS_GAMBAR:
+        teks = re.sub(r"[ \t]+", " ", teks)    
     teks = re.sub(r"\n\s*\n\s*\n+", "\n\n", teks).strip()
     if not teks:
         raise GalatAlat("berkas tidak berisi teks (mungkin hasil scan gambar)")
