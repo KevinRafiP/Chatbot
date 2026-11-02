@@ -49,6 +49,20 @@ POLA_SELERA = [re.compile(pola) for pola in (
     r"\b(do|would)\s+you\s+(rather|prefer|like|choose|pick)\b|\byour\s+(favou?rite|pick|preference)\b",
 )]
 
+# sapaan, ucapan terima kasih, dan tanggapan singkat yang dijawab tanpa alat; huruf dobel dirapatkan, jadi "makasihh" = "makasih"
+KATA_OBROLAN = {
+    "hai", "hay", "hi", "halo", "hallo", "helo", "hello", "hey", "hei", "pagi", "siang", "sore", "malam", "selamat", "met",
+    "assalamualaikum", "salam", "permisi", "kabar", "terima", "makasih", "makasi", "mksh", "thanks", "thank", "thx", "tq",
+    "tengkyu", "nuhun", "suwun", "nuwun", "ok", "oke", "okey", "okay", "sip", "siap", "mantap", "mantab", "keren", "bagus",
+    "good", "nice", "cool", "great", "wow", "wah", "noted",
+}
+# kata yang boleh menyertai sapaan, tetapi sendirian bukan sapaan (misalnya "vokapas" bisa berarti bertanya tentang Vokapas)
+KATA_PELENGKAP = {
+    "ya", "iya", "apa", "kasih", "kak", "min", "bot", "vokapas", "banyak", "sekali", "deh", "dong", "sih", "nih", "juga", "semua", "aja",
+    "atas", "untuk", "buat", "infonya", "jawabannya", "bantuannya", "you", "so", "much", "very", "for", "the", "help",
+}
+POLA_TAWA = re.compile(r"(ha|he|hi|wk)+")
+
 POLA_MINTA_EMAIL = re.compile(r"\b(kirim\w*|send|email\w*)\b.{0,80}\b(e-?mail|surel|inbox)\b|\b(ke|di|lewat|via)\s+(e-?mail|surel)\b")
 
 POLA_KATA_SUMBER = re.compile(r"\b(sumber|referensi|rujukan|link|tautan)")
@@ -129,7 +143,25 @@ def tanya_selera(teks):
     """True jika pengguna menanyakan selera Vokapas sendiri, bukan meminta saran untuk dirinya."""
     kecil = " ".join(teks.lower().split())
     return any(pola.search(kecil) for pola in POLA_SELERA)
-    
+
+def obrolan_ringan(teks, riwayat=None):
+    """True jika pesan hanya sapaan, ucapan terima kasih, atau tanggapan singkat seperti "oke makasih".
+    Jika jawaban terakhir Vokapas bertanya atau menawarkan sesuatu, "oke" bisa berarti setuju, jadi tidak dihitung."""
+    kata = [rapatkan(k) for k in re.findall(r"[a-z]+", teks.lower())]
+    if not kata or len(kata) > 8 or len(teks) > 80:
+        return False
+    sapaan = [k in KATA_OBROLAN_RAPAT or bool(POLA_TAWA.fullmatch(k)) for k in kata]
+    if not any(sapaan) or not all(s or k in KATA_PELENGKAP_RAPAT for s, k in zip(sapaan, kata)):
+        return False
+    terakhir = next((str(p.get("teks", "")) for p in reversed(riwayat or []) if p.get("peran") == "asisten"), "")
+    return "?" not in terakhir[-300:]
+
+def rapatkan(kata):
+    return re.sub(r"(.)\1+", r"\1", kata)
+
+KATA_OBROLAN_RAPAT = {rapatkan(k) for k in KATA_OBROLAN}
+KATA_PELENGKAP_RAPAT = {rapatkan(k) for k in KATA_PELENGKAP}
+
 def permintaan_merusak(teks):
     """True jika pesan berusaha membatalkan aturan agent, membocorkan rahasia, atau merusak data dan sistem, termasuk yang disamarkan."""
     if POLA_DAN.search(teks):

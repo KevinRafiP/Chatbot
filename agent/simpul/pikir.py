@@ -3,7 +3,7 @@ import re
 import time
 
 from llm.client import GalatLLM
-from prompt import INSTRUKSI_SISTEM
+from prompt import INSTRUKSI_OBROLAN, INSTRUKSI_SISTEM
 
 # galat sementara setelah alat dipakai tidak menggagalkan agen; jawaban disusun di simpul batas dari data yang terkumpul
 KODE_SEMENTARA = {0, 204, 408, 429}
@@ -25,7 +25,7 @@ def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM):
         bisa_wajib = time.monotonic() >= ingat["tolak_wajib_sampai"]
         wajib = bool(keadaan.get("wajib_cari")) and keadaan["putaran_llm"] == 0 and bisa_wajib
         kabar = keadaan.get("kabar")
-        sistem = instruksi + keadaan.get("instruksi_tambahan", "")
+        sistem = INSTRUKSI_OBROLAN if keadaan.get("obrolan") else instruksi + keadaan.get("instruksi_tambahan", "")
         tertulis = []
 
         def saat_teks(potongan):

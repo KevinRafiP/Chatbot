@@ -66,6 +66,9 @@ class Config:
     domain_diblokir: list
     cache_cari_detik: int
     cache_cari_maks: int
+    cuplikan_maks_huruf: int
+    halaman_maks_huruf: int
+    hemat_obrolan: bool
     embed_provider: str
     embed_model: str
     embed_region: str
@@ -74,6 +77,10 @@ class Config:
     riwayat_huruf_terbaru: int
     baca_gambar: bool
     model_gambar: str
+    cari_gambar_penyedia: str
+    saucenao_api_key: str
+    saucenao_ambang: int
+    saucenao_batas_detik: int
     embed_api_url: str
     embed_api_key: str
     embed_local_url: str
@@ -208,6 +215,11 @@ def muat():
         # CACHE_CARI=tidak mematikan cache hasil pencarian
         cache_cari_detik=ambil_angka("CACHE_CARI_JAM", 24) * 3600 if ambil_ya("CACHE_CARI", True) else 0,
         cache_cari_maks=ambil_angka("CACHE_CARI_MAKS", 500),
+        # panjang teks hasil alat yang dibaca model; bukti sumber tetap menyimpan teks lengkapnya
+        cuplikan_maks_huruf=ambil_angka("AGENT_MAKS_HURUF_CUPLIKAN", 1000),
+        halaman_maks_huruf=ambil_angka("AGENT_MAKS_HURUF_HALAMAN", 8000),
+        # sapaan dan ucapan terima kasih dijawab tanpa alat dan dengan instruksi pendek
+        hemat_obrolan=ambil_ya("AGENT_HEMAT_OBROLAN", True),
         # pencarian makna pengetahuan; EMBED_PROVIDER kosong = mati
         embed_provider=penyedia_embed,
         embed_model=ambil("EMBED_MODEL", MODEL_EMBED_BAWAAN.get(penyedia_embed, "")),
@@ -225,6 +237,12 @@ def muat():
         baca_gambar=ambil_ya("BACA_GAMBAR", True),
         # kosong = LLM_MODEL; model harus bisa membaca gambar
         model_gambar=ambil("LLM_MODEL_GAMBAR"),
+        # asal foto anime, game, atau ilustrasi dicari dulu sebelum dibaca model; kosong atau mati = langsung dibaca model
+        cari_gambar_penyedia=ambil("CARI_GAMBAR_PENYEDIA").lower(),
+        saucenao_api_key=ambil("SAUCENAO_API_KEY"),
+        # kemiripan minimal (persen) agar hasil SauceNAO dipakai; di bawahnya foto dibaca model
+        saucenao_ambang=min(ambil_angka("SAUCENAO_AMBANG", 80), 100),
+        saucenao_batas_detik=ambil_angka("SAUCENAO_BATAS_DETIK", 8),
         embed_local_api_key=ambil("EMBED_LOCAL_API_KEY", ambil("LOCAL_API_KEY")),
         embed_skor_minimal=ambil_desimal("EMBED_SKOR_MINIMAL", SKOR_EMBED_BAWAAN.get(penyedia_embed, 0.5)),
         alat=alat,

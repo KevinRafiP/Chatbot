@@ -3,8 +3,8 @@ from datetime import datetime, timedelta, timezone
 
 from ingatan import pilih_ingatan
 from prompt import instruksi_tambahan
-from pengaman.aturan import (batas_sumber, butuh_cari, minta_cari_ulang, minta_email, minta_internet, periksa_pertanyaan,
-                             permintaan_merusak, tanya_selera)
+from pengaman.aturan import (batas_sumber, butuh_cari, minta_cari_ulang, minta_email, minta_internet, obrolan_ringan,
+                             periksa_pertanyaan, permintaan_merusak, tanya_selera)
 
 # makin lama pesannya, makin pendek yang dikirim; 2 pesan terakhir memakai batas AGENT_RIWAYAT_HURUF_TERBARU dari .env
 JUMLAH_PESAN_TERAKHIR = 2
@@ -22,6 +22,8 @@ MAKS_PILIHAN = 6
 ZONA_WIB = timezone(timedelta(hours=7))
 # pesan pengguna sebelumnya ikut dicocokkan, agar pertanyaan lanjutan seperti "kalau 20 tahun?" tetap mendapat alatnya
 JUMLAH_PESAN_PILIH_ALAT = 2
+# sapaan cukup melihat jawaban terakhir, misalnya untuk membalas "makasih" dengan wajar
+JUMLAH_RIWAYAT_OBROLAN = 2
 
 def buat_siapkan(kotak_alat):
     """Simpul pertama: memeriksa pertanyaan dan menyusun pesan untuk LLM."""
@@ -32,6 +34,8 @@ def buat_siapkan(kotak_alat):
         keadaan["ditolak"] = permintaan_merusak(pertanyaan)
         if keadaan["ditolak"]:
             return keadaan
+        if kotak_alat.cfg.hemat_obrolan and not keadaan.get("lampiran") and obrolan_ringan(pertanyaan, keadaan.get("riwayat")):
+            return siapkan_obrolan(keadaan, pertanyaan)
 
         segarkan = minta_cari_ulang(pertanyaan)
         selera = tanya_selera(pertanyaan)
@@ -69,6 +73,20 @@ def buat_siapkan(kotak_alat):
         return keadaan
 
     return siapkan
+
+def siapkan_obrolan(keadaan, pertanyaan):
+    """Sapaan dan ucapan terima kasih dijawab tanpa alat, tanpa data internal, dan dengan instruksi pendek, agar token hemat."""
+    keadaan.update({
+        "obrolan": True,
+        "deklarasi": None,
+        "instruksi_tambahan": "",
+        "wajib_cari": False,
+        "cari_cadangan": False,
+        "isi": susun_isi((keadaan.get("riwayat") or [])[-JUMLAH_RIWAYAT_OBROLAN:], pertanyaan),
+        "catatan": {"sumber": [], "bukti": {}, "jumlah_baca": 0, "maks_sumber_luar": 0, "segarkan": False, "bisa_email": False},
+        "putaran_llm": 0,
+    })
+    return keadaan
 
 def teks_pilih_alat(pertanyaan, riwayat, lampiran=None):
     """Pertanyaan, beberapa pesan terakhir pengguna, dan awal isi lampiran, dipakai untuk memilih alat khusus yang dikirim ke model."""

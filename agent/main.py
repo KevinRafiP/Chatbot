@@ -8,6 +8,7 @@ from alat.tambahan import AlatTambahan
 from config import muat
 from handler import buat_penangan
 from llm.client import KlienCadangan, buat_klien
+from llm.cari_gambar import buat_pencari_gambar
 from llm.embedding import buat_pembuat_embedding
 from llm.gambar import PembacaGambar
 from prompt import INSTRUKSI_CEPAT, INSTRUKSI_MENDALAM, INSTRUKSI_SISTEM, INSTRUKSI_TAMU
@@ -49,7 +50,7 @@ def main():
 
     pembuat_embedding = buat_pembuat_embedding(cfg)
     # foto soal dibaca model vision menjadi teks; BACA_GAMBAR=tidak mematikannya
-    pembaca_gambar = PembacaGambar(klien_gambar) if cfg.baca_gambar else None
+    pembaca_gambar = PembacaGambar(klien_gambar, buat_pencari_gambar(cfg)) if cfg.baca_gambar else None
 
     server = ThreadingHTTPServer((cfg.host, cfg.port), buat_penangan(daftar_agen, cfg.api_key, pembuat_embedding, cfg.alat.berkas_maks_huruf,
                                                                      pembaca_gambar))
