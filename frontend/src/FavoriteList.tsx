@@ -2,6 +2,7 @@ import type { FavoriteMessage } from "./api";
 import { StarIcon } from "./MessageItem";
 import { plainMarkdown } from "./markdownPlain";
 import { formatTime } from "./messageText";
+import { ListSkeleton } from "./Skeleton";
 
 type FavoriteListProps = {
   items: FavoriteMessage[] | null;
@@ -15,7 +16,11 @@ export function FavoriteList({ items, error, onOpen }: FavoriteListProps) {
     return <p className="error">{error}</p>;
   }
   if (items === null) {
-    return <p className="notice">Memuat pesan berbintang...</p>;
+    return (
+      <ul className="favorite-list" aria-busy="true" aria-label="Memuat pesan berbintang">
+        <ListSkeleton rows={5} lines={2} />
+      </ul>
+    );
   }
   if (items.length === 0) {
     return (

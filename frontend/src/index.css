@@ -38,6 +38,24 @@ textarea {
 
 button {
   cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.1s ease;
+}
+
+/* a pressed button sinks in a little */
+button:not(:disabled):active {
+  transform: scale(0.96);
+}
+
+/* whole rows only change color, because a wide row shrinking looks odd */
+.conversation-list button:active,
+.favorite-list button:active,
+.dropdown button:active {
+  transform: none;
 }
 
 button:disabled {
@@ -1345,6 +1363,125 @@ button:disabled {
 
 .modal {
   animation: rise-in 0.2s ease-out;
+}
+
+/* the question and answer that were already on screen do not slide in again once saved */
+.message.quiet .bubble {
+  animation: none;
+}
+
+/* switching conversations or opening the starred list fades the old screen into the new one */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.2s;
+}
+
+/* Code longer than 15 lines is folded to about 13 lines, then slides open */
+.md-code-box {
+  position: relative;
+  max-height: 18em;
+  overflow: hidden;
+  border-radius: 8px;
+  transition: max-height 0.3s ease;
+}
+
+.md-code-fold.open .md-code-box {
+  max-height: none;
+}
+
+.md-code-fold:not(.open) .md-code-box::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3em;
+  background: linear-gradient(transparent, var(--panel));
+  pointer-events: none;
+}
+
+.md-code-toggle {
+  margin-top: 4px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--accent-soft);
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.md-code-toggle:hover {
+  background: var(--surface-hover);
+}
+
+/* Gray shimmering shapes while something is loading */
+.skeleton {
+  display: block;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--surface) 25%, var(--surface-hover) 50%, var(--surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 8px;
+}
+
+.skeleton-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.skeleton-row.user {
+  justify-content: flex-end;
+}
+
+.skeleton-avatar {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.skeleton-bubble {
+  height: 44px;
+  border-radius: 16px;
+}
+
+.skeleton-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+}
+
+/* beats the row rules of the conversation list, which center items and color them on hover */
+.conversation-list li.skeleton-item {
+  align-items: flex-start;
+  background: none;
+}
+
+.favorite-list .skeleton-item {
+  border-bottom: 1px solid var(--line);
+}
+
+.skeleton-line {
+  height: 12px;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

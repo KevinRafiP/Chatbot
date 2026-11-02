@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -14,6 +15,8 @@ import { CopyIcon, MessageItem, PaperclipIcon, StarIcon, TypingItem } from "./Me
 import { copyMessage } from "./messageText";
 import { htmlToMarkdown } from "./pasteFormat";
 import { ScrollHandle } from "./ScrollHandle";
+import { ChatSkeleton, ListSkeleton } from "./Skeleton";
+import { withTransition } from "./viewTransition";
 import {
   ApiError,
   BlockedError,
@@ -53,6 +56,8 @@ if (VERIFY_CODE !== null || RESET_CODE !== null) {
 const TOAST_MS = 2000;
 const HIGHLIGHT_MS = 4000;
 const INPUT_MAX_HEIGHT = 200;
+// closer than this to the bottom counts as reading the newest message
+const FOLLOW_GAP_PX = 80;
 const MODE_KEY = "answerMode";
 // must match BERKAS_MAKS_MB on the backend
 const MAX_FILE_MB = Number(import.meta.env.VITE_MAX_FILE_MB ?? 5);
@@ -175,6 +180,9 @@ function App() {
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [uploading, setUploading] = useState(false);
   const [guestFile, setGuestFile] = useState<Attachment | null>(null);
+  const [opening, setOpening] = useState(false);
+  const [listLoading, setListLoading] = useState(true);
+  const [quietIds, setQuietIds] = useState<ReadonlySet<string>>(new Set());
   const messagesRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -182,6 +190,7 @@ function App() {
   const jumpToRef = useRef<string | null>(null);
   const toastTimer = useRef(0);
   const highlightTimer = useRef(0);
+  const followRef = useRef(true);
 
   // Loads who is using this device, then their saved conversations; a guest has none.
   // Opening the link from the verification email logs into the new account first
@@ -208,7 +217,8 @@ function App() {
           setConversations(await listConversations());
         }
       })
-      .catch(() => setError("Tidak bisa terhubung ke server."));
+      .catch(() => setError("Tidak bisa terhubung ke server."))
+      .finally(() => setListLoading(false));
 
     return () => onServerWaking(null);
   }, []);
@@ -216,10 +226,39 @@ function App() {
   // Scrolls to the newest message when one is sent or a chat is opened, but not while an answer is being typed out
   // or a message is starred
   useEffect(() => {
-    if (jumpToRef.current === null) {
+    if (jumpToRef.current === null && followRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages.length, loading]);
+  
+  // Following the answer down stops when the user scrolls up to read, and starts again once they are back at the bottom
+  useEffect(() => {
+    const box = messagesRef.current;
+    if (box === null) {
+      return;
+    }
+    let lastTop = box.scrollTop;
+    function track() {
+      if (box === null) return;
+      const fromBottom = box.scrollHeight - box.scrollTop - box.clientHeight;
+      if (fromBottom < FOLLOW_GAP_PX) {
+        followRef.current = true;
+      } else if (box.scrollTop < lastTop) {
+        followRef.current = false;
+      }
+      lastTop = box.scrollTop;
+    }
+    box.addEventListener("scroll", track, { passive: true });
+    return () => box.removeEventListener("scroll", track);
+  }, []);
+
+  // Keeps the newest line of the answer in view while it is being written
+  const followAnswer = useCallback(() => {
+    const box = messagesRef.current;
+    if (box !== null && followRef.current && jumpToRef.current === null) {
+      box.scrollTop = box.scrollHeight;
+    }
+  }, []);
 
   // After a starred message is chosen, scrolls to it once it is on screen
   useEffect(() => {
@@ -279,10 +318,13 @@ function App() {
     }
   }
 
-  // Opens a saved conversation and loads its messages
+  // Opens a saved conversation and loads its messages; gray bubbles stand in until they arrive, then fade into the chat
   async function openConversation(id: string) {
+    followRef.current = true;
     setActiveId(id);
     setMessages([]);
+    setQuietIds(new Set());
+    setOpening(true);
     setAttachment(null);
     setTypingId(null);
     setSelectedId(null);
@@ -290,24 +332,34 @@ function App() {
     setError("");
     closeSidebarOnMobile();
     try {
-      setMessages(await listMessages(id));
+      const loaded = await listMessages(id);
+      withTransition(() => {
+        setMessages(loaded);
+        setOpening(false);
+      });
     } catch {
       jumpToRef.current = null;
+      setOpening(false);
       setError("Gagal memuat percakapan.");
     }
   }
 
   // Starts an empty chat; it is saved when the first message is sent
   function startNew() {
-    setActiveId(null);
-    setMessages([]);
-    setAttachment(null);
-    setGuestFile(null);
-    setTypingId(null);
-    setSelectedId(null);
-    setView("chat");
-    setError("");
-    closeSidebarOnMobile();
+    followRef.current = true;
+    withTransition(() => {
+      setActiveId(null);
+      setMessages([]);
+      setQuietIds(new Set());
+      setOpening(false);
+      setAttachment(null);
+      setGuestFile(null);
+      setTypingId(null);
+      setSelectedId(null);
+      setView("chat");
+      setError("");
+      closeSidebarOnMobile();
+    });
   }
 
   // Shows a short note at the bottom of the chat that goes away by itself
@@ -350,7 +402,7 @@ function App() {
   async function openFavorites() {
     setMenuId(null);
     setSelectedId(null);
-    setView("favorites");
+    withTransition(() => setView("favorites"));
     setFavoritesError("");
     if (isGuest) {
       const starred = messages.filter((item) => item.favorite).reverse();
@@ -374,7 +426,7 @@ function App() {
     if (!isGuest && item.conversationId !== activeId) {
       openConversation(item.conversationId);
     } else {
-      setView("chat");
+      withTransition(() => setView("chat"));
     }
   }
 
@@ -416,10 +468,13 @@ function App() {
     setAccount(current);
     setDialog(null);
     startNew();
+    setListLoading(true);
     try {
       setConversations(await listConversations());
     } catch {
       setError("Gagal memuat percakapan.");
+    } finally {
+      setListLoading(false);
     }
   }
   
@@ -496,6 +551,8 @@ function App() {
     const file = attachment ?? guestFile;
     const answer = await sendGuestMessage(text, messages, file, onUpdate);
     setGuestFile(file);
+    // the question and the answer are already on screen, so their new bubbles do not slide in again
+    setQuietIds((current) => new Set(current).add(`question-${draftId}`).add(answer.id));
     setMessages((current) => [
       ...current.map((item) => (item.id === draftId ? { ...item, id: `question-${draftId}` } : item)),
       answer,
@@ -574,6 +631,7 @@ function App() {
       favorite: false,
       attachment: attachment?.name ?? "",
     };
+    followRef.current = true;
     setMessages((current) => [...current, draft]);
     setInput("");
     setError("");
@@ -606,6 +664,7 @@ function App() {
       const conversationId = id;
       const result = await sendMessage(conversationId, text, mode, attachment, onUpdate);
       setAttachment(null);
+      setQuietIds((current) => new Set(current).add(result.question.id).add(result.answer.id));
       setMessages((current) => [
         ...current.filter((item) => item.id !== draftId),
         result.question,
@@ -660,8 +719,12 @@ function App() {
 
         <p className="list-title">Riwayat</p>
         <ul className="conversation-list">
-          {conversations.length === 0 && (
-            <li className="list-empty">{isGuest ? "Masuk untuk menyimpan percakapan" : "Belum ada percakapan"}</li>
+          {listLoading ? (
+            <ListSkeleton rows={4} />
+          ) : (
+            conversations.length === 0 && (
+              <li className="list-empty">{isGuest ? "Masuk untuk menyimpan percakapan" : "Belum ada percakapan"}</li>
+            )
           )}
           {conversations.map((item) => (
             <ConversationItem
@@ -678,7 +741,7 @@ function App() {
           ))}
         </ul>
 
-        {isGuest && (
+        {isGuest && !listLoading && (
           <p className="guest-note">
             Percakapan tamu tidak disimpan dan hilang saat halaman dimuat ulang.{" "}
             <button className="link-button" onClick={() => openDialog("masuk")}>
@@ -713,7 +776,7 @@ function App() {
           ) : (
             <>
               {view === "favorites" ? (
-                <button className="icon-button" onClick={() => setView("chat")} aria-label="Kembali ke percakapan">
+                <button className="icon-button" onClick={() => withTransition(() => setView("chat"))} aria-label="Kembali ke percakapan">
                   ←
                 </button>
               ) : (
@@ -737,18 +800,22 @@ function App() {
         </header>
 
         <main className={`chat-messages ${view === "favorites" ? "hidden" : ""}`} ref={messagesRef}>
-          {messages.length === 0 && (
-            <div className="empty">
-              <span className="empty-logo" aria-hidden="true" />
-              <p>Halo, ada yang bisa dibantu?</p>
-            </div>
-          )}
+          {messages.length === 0 &&
+            (opening ? (
+              <ChatSkeleton />
+            ) : (
+              <div className="empty">
+                <span className="empty-logo" aria-hidden="true" />
+                <p>Halo, ada yang bisa dibantu?</p>
+              </div>
+            ))}
 
           {messages.map((message) => (
             <MessageItem
               key={message.id}
               message={message}
               animate={message.id === typingId}
+              quiet={quietIds.has(message.id)}
               menuOpen={menuId === `msg:${message.id}`}
               selected={message.id === selectedId}
               highlighted={message.id === highlightId}
@@ -764,7 +831,7 @@ function App() {
           ))}
 
           {waking && <p className="notice">Menyalakan server, mohon tunggu sebentar...</p>}
-          {loading && <TypingItem status={live.status} text={live.text} />}
+          {loading && <TypingItem status={live.status} text={live.text} onGrow={followAnswer} />}
           {error !== "" && <p className="error">{error}</p>}
           <div ref={bottomRef} />
         </main>

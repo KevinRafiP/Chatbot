@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Chart } from "./Chart";
+import { CodeBlock } from "./CodeBlock";
 import { MathText } from "./MathText";
 import { FORMULA } from "./mathPlain";
 
@@ -132,11 +133,7 @@ function renderBlocks(text: string, prefix = "b"): ReactNode[] {
         // the chart is drawn only once its data has fully arrived
         blocks.push(closed ? <Chart key={key()} source={body.join("\n")} /> : <div key={key()} className="chart-loading">Menyiapkan grafik...</div>);
       } else {
-        blocks.push(
-          <pre key={key()} className="md-code">
-            <code>{body.join("\n")}</code>
-          </pre>,
-        );
+        blocks.push(<CodeBlock key={key()} code={body.join("\n")} />);
       }
       continue;
     }

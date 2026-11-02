@@ -1,7 +1,8 @@
-import { memo, useEffect, useRef, useState, type PointerEvent } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 import type { Message, Source } from "./api";
 import { Markdown } from "./Markdown";
 import { formatTime, looksFormatted } from "./messageText";
+import { useSmoothText } from "./useSmoothText";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const LONG_PRESS_MS = 500;
@@ -81,6 +82,7 @@ function SourceItem({ source }: { source: Source }) {
 type MessageItemProps = {
   message: Message;
   animate: boolean;
+  quiet: boolean;
   menuOpen: boolean;
   selected: boolean;
   highlighted: boolean;
@@ -157,7 +159,14 @@ export function MessageItemView(props: MessageItemProps) {
     props.onTap();
   }
 
-  const classes = ["message", message.sender, menuOpen && "menu-open", selected && "selected", highlighted && "highlight"];
+  const classes = [
+    "message",
+    message.sender,
+    props.quiet && "quiet",
+    menuOpen && "menu-open",
+    selected && "selected",
+    highlighted && "highlight",
+  ];
   return (
     <div
       id={`message-${message.id}`}
@@ -239,20 +248,28 @@ export const MessageItem = memo(
   (before, after) =>
     before.message === after.message &&
     before.animate === after.animate &&
+    before.quiet === after.quiet &&
     before.menuOpen === after.menuOpen &&
     before.selected === after.selected &&
     before.highlighted === after.highlighted,
 );
 
 // The bubble shown while the answer is being made: the answer so far, or else the current step such as "Mencari: ..."
-export function TypingItem({ status, text }: { status: string; text: string }) {
+export function TypingItem({ status, text, onGrow }: { status: string; text: string; onGrow: () => void }) {
+  const shown = useSmoothText(text);
+
+  // runs before the frame is drawn, so following the answer down never shows a jump
+  useLayoutEffect(() => {
+    onGrow();
+  }, [shown, status, onGrow]);
+
   return (
     <div className="message bot">
       <span className="bot-avatar" aria-hidden="true" />
       <div className="message-body">
-        {text !== "" ? (
+        {shown !== "" ? (
           <div className="bubble bot streaming">
-            <Markdown text={text} />
+            <Markdown text={shown} />
           </div>
         ) : (
           <div className="bubble bot typing">{status || "Mengetik"}</div>
