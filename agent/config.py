@@ -60,6 +60,9 @@ class Config:
     tamu_maks_langkah: int
     tamu_maks_baca_url: int
     verifikasi_jawaban: bool
+    periksa_logika: bool
+    llm_model_periksa: str
+    periksa_huruf_sumber: int
     wajib_cari: bool
     tavily_kedalaman: str
     batas_waktu: int
@@ -208,6 +211,11 @@ def muat():
         tamu_maks_langkah=ambil_angka("TAMU_MAKS_LANGKAH", 2),
         tamu_maks_baca_url=ambil_angka("TAMU_MAKS_BACA_URL", 1),
         verifikasi_jawaban=verifikasi,
+        # model cepat memeriksa logika draf jawaban mode mendalam; ada masalah = model utama menulis ulang sekali
+        periksa_logika=ambil_ya("AGENT_PERIKSA_LOGIKA", provider != "local"),
+        # kosong = LLM_MODEL_CEPAT (atau LLM_MODEL jika itu juga kosong)
+        llm_model_periksa=ambil("LLM_MODEL_PERIKSA"),
+        periksa_huruf_sumber=ambil_angka("AGENT_PERIKSA_HURUF_SUMBER", 12000),
         wajib_cari=wajib_cari,
         tavily_kedalaman="basic" if ambil("TAVILY_KEDALAMAN", "advanced").lower() == "basic" else "advanced",
         batas_waktu=ambil_angka("AGENT_BATAS_WAKTU_DETIK", 15),

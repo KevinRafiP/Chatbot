@@ -2,7 +2,7 @@ import random
 from datetime import datetime, timedelta, timezone
 
 from ingatan import pilih_ingatan
-from prompt import instruksi_tambahan
+from prompt import butuh_analisis, instruksi_tambahan
 from pengaman.aturan import (batas_sumber, butuh_cari, minta_cari_ulang, minta_email, minta_internet, obrolan_ringan,
                              periksa_pertanyaan, permintaan_merusak, tanya_selera)
 
@@ -52,6 +52,8 @@ def buat_siapkan(kotak_alat):
         # aturan grafik, rumus, selera, berkas, dan alat khusus hanya ditambahkan jika dibutuhkan pertanyaan ini
         keadaan["instruksi_tambahan"] = instruksi_tambahan({d["name"] for d in keadaan["deklarasi"]}, teks_pilih, selera,
                                                            bool(keadaan.get("lampiran")), not kotak_alat.cfg.alat.pilih_otomatis)
+        # pertanyaan kelayakan, kalkulasi, atau simulasi ikut diperiksa simpul periksa logika (jika aktif)
+        keadaan["analisis"] = butuh_analisis(teks_pilih)
         # pertanyaan fakta wajib dicari dulu di putaran pertama jika tidak ada data internal yang cocok;
         # permintaan cari ulang selalu dicari, pertanyaan selera tidak perlu dicari
         perlu_cari = segarkan or (butuh_cari(pertanyaan) and not selera)

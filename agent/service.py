@@ -5,15 +5,18 @@ from ringkasan import BATAS_RINGKASAN, ringkas_percakapan
 from simpul.aksi import buat_aksi
 from prompt import INSTRUKSI_SISTEM
 from simpul.akhir import buat_batas, jawab, tolak
+from simpul.periksa import buat_periksa
 from simpul.pikir import buat_pikir
 from simpul.siapkan import buat_siapkan
 from simpul.verifikasi import verifikasi
 
 
 class Agen:
-    def __init__(self, klien, kotak_alat, maks_langkah, verifikasi=True, instruksi=INSTRUKSI_SISTEM):
+    def __init__(self, klien, kotak_alat, maks_langkah, verifikasi=True, instruksi=INSTRUKSI_SISTEM, pemeriksa=None):
+        """pemeriksa = (klien model pemeriksa, batas huruf sumber) untuk simpul periksa logika; None = tanpa pemeriksa."""
         self.maks_langkah = maks_langkah
         self.verifikasi = verifikasi
+        self.pemeriksa = pemeriksa
         self.instruksi = instruksi
         self.klien = klien
         self.graf = self.rakit(klien, kotak_alat)
@@ -25,6 +28,9 @@ class Agen:
         graf.tambah_simpul("pikir", buat_pikir(klien, self.instruksi))
         graf.tambah_simpul("aksi", buat_aksi(kotak_alat, self.maks_langkah))
         graf.tambah_simpul("verifikasi", verifikasi)
+        if self.pemeriksa:
+            graf.tambah_simpul("periksa", buat_periksa(self.pemeriksa[0], klien, self.instruksi, self.pemeriksa[1]))
+            graf.tambah_sisi("periksa", self.setelah_draf())
         graf.tambah_simpul("jawab", jawab)
         graf.tambah_simpul("batas", buat_batas(klien, self.instruksi))
         graf.tambah_simpul("tolak", tolak)
@@ -35,7 +41,7 @@ class Agen:
         graf.tambah_sisi("aksi", "pikir")
         graf.tambah_sisi("verifikasi", "jawab")
         graf.tambah_sisi("jawab", SELESAI)
-        graf.tambah_sisi("batas", "verifikasi" if self.verifikasi else "jawab")
+        graf.tambah_sisi("batas", self.setelah_draf())
         graf.tambah_sisi("tolak", SELESAI)
 
         graf.periksa()
@@ -48,10 +54,13 @@ class Agen:
         if keadaan.get("ke_batas"):
             return "batas"
         if not keadaan["panggilan"]:
-            return "verifikasi" if self.verifikasi else "jawab"
+            return "periksa" if self.pemeriksa else self.setelah_draf()
         if keadaan["putaran_llm"] >= self.maks_langkah:
             return "batas"
         return "aksi"
+
+    def setelah_draf(self):
+        return "verifikasi" if self.verifikasi else "jawab"
 
     def jawab(self, pertanyaan, konteks=None, riwayat=None, ingatan=None, kabar=None, lampiran=None, bisa_email=False,
               ringkasan=None):

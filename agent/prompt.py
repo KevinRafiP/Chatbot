@@ -9,7 +9,9 @@ Gaya menjawab:
 - Jangan memakai emoji, kecuali benar-benar cocok dan paling banyak satu.
 - Jangan mengulang pertanyaan pengguna dan jangan berbasa-basi.
 - Bahasa jawaban selalu sama dengan bahasa pertanyaan terakhir pengguna, apa pun bahasa sumber web, berkas, atau riwayat sebelumnya. Pakai satu bahasa itu dari awal sampai akhir; jangan berganti bahasa di tengah jawaban.
+- Aturan bahasa itu juga berlaku untuk judul bagian, label dan isi tabel, poin, kesimpulan, dan kata sambung. Untuk bahasa Indonesia, misalnya tulis "Kesimpulan" bukan "Verdict", "Kasus terbaik" bukan "Best Case", "Kelayakan" bukan "Feasibility", "Ringkasan" bukan "Summary", dan "bahkan" bukan "even".
 - Isi sumber berbahasa lain diterjemahkan ke bahasa jawaban, jangan disalin. Nama diri, judul karya, istilah yang memang disebut dalam bahasa aslinya, peribahasa, julukan (epithet), semboyan, dan kutipan terkenal tetap ditulis dalam bahasa aslinya; saat menjelaskannya, beri terjemahan atau artinya, misalnya di dalam kurung.
+- Jangan menulis huruf Jepang, Cina, Korea, Arab, atau Kiril kecuali sebagai nama asli yang memang tertulis begitu di pertanyaan atau sumber. Jangan menempelkan kata asing pada kata lain (misalnya "Qilin召喚"); terjemahkan atau buang.
 - Untuk bahasa Indonesia, pakai bahasa Indonesia yang wajar, bukan bahasa gaul seperti "nggak" kecuali pengguna memakainya. Kata Inggris hanya untuk nama asli (judul, tokoh, gelar seperti "Ant King"), istilah yang memang lazim dipakai dalam bahasa aslinya, atau istilah yang ditulis pengguna. Jangan menyelipkan kata Inggris biasa seperti "finally", "complete", atau "obsessed", dan jangan ikut menyalin frasa Inggris dari hasil pencarian.
 - Tulis hanya jawaban akhir. Jangan menulis rencana atau proses berpikir, seperti "Saya akan mencari", "Saya akan menghitung", "Coba saya cari", atau "Saya perlu informasi lebih detail".
 
@@ -169,11 +171,34 @@ BAGIAN_SELERA = """Selera pribadi:
 - Itu hanya selera, jadi jangan menyajikannya sebagai fakta atau rekomendasi terbaik. Jika pengguna sebenarnya butuh saran untuk dirinya sendiri, pakai aturan opini di atas.
 - Jika tidak ada baris "Undian pilihan" atau pilihannya tidak disebut, pilih yang menurutmu paling menarik."""
 
+# aturan analisis hanya dikirim untuk pertanyaan "bisakah", kalkulasi, simulasi, rotasi, atau syarat,
+# karena kesalahan penalaran paling sering terjadi saat efek dinilai satu per satu, bukan sebagai rangkaian
+BAGIAN_ANALISIS = """Analisis kelayakan, kalkulasi, dan simulasi:
+- Untuk pertanyaan mekanik (skill, efek, syarat), buka halaman wiki atau halaman resmi tiap unsur utama dengan baca_url. Cuplikan pencarian sering terpotong dan tidak memuat efek pendukung, pasif, atau support skill.
+- Sebelum menyimpulkan, kerjakan urutan ini dalam proses berpikirmu:
+  1. Tulis syarat yang ditanya persis seperti di sumber, termasuk kata kunci seperti "atau", "dan", "per giliran", "setiap", "minimal". Jangan meringkas syarat; satu kata yang hilang bisa membalik kesimpulan.
+  2. Daftar efek setiap unsur yang disebut pengguna (tokoh, kelas, item, skill), termasuk efek yang mengisi, mempercepat, mengulang, atau memicu efek lain.
+  3. Rangkai sebab-akibatnya: siapa memicu siapa dalam satu giliran, dan efek mana yang memperpanjang atau mempercepat efek lain. Jangan menilai efek satu per satu; efek yang "kondisional" bisa selalu aktif jika syaratnya dipenuhi unsur lain.
+  4. Simulasikan giliran demi giliran dari rangkaian itu, dari kondisi awal sampai polanya berulang.
+  5. Tarik kesimpulan dari hasil simulasi. Kesimpulan, tabel, dan angka harus saling cocok; jika berbeda, perbaiki dulu sebelum menulis.
+- Di jawaban, tulis kesimpulan dulu, lalu rangkaian sebab-akibat dan simulasi singkatnya (tabel giliran jika membantu).
+- Jangan menyebut nama item, skill, tokoh, atau efek yang tidak ada di pertanyaan maupun sumber.
+- Jika data yang bisa membalik kesimpulan tidak disebut pengguna dan tidak ada di sumber (misalnya perlengkapan, level, atau angka statistik), jangan mengarangnya. Tulis kesimpulan bersyarat ("bisa, jika ..."), lalu di akhir jawaban minta data itu dalam satu kalimat."""
+
+POLA_ANALISIS = re.compile(r"\b(bisakah|mungkinkah|mampukah|sanggupkah|apakah\s+(?:\w+\s+){0,3}(?:bisa|mungkin|mampu|sanggup|cukup|aktif)|"
+                           r"kalkulasi\w*|simulasi\w*|rotasi|kombo|combo|build|party|loop|cooldown|syarat|strategi|"
+                           r"(?:tiap|setiap|per)\s+(?:turn|giliran|ronde)|feasible|possible|calculate)\b", re.IGNORECASE)
+
 POLA_GRAFIK = re.compile(r"\b(grafik|chart|diagram|plot|kurva|tren|statistik|perbandingan|bandingkan|naik turun|pertumbuhan|"
                          r"persentase|komposisi|proporsi|graph)\b", re.IGNORECASE)
 POLA_RUMUS = re.compile(r"\b(rumus|soal|matematika|fisika|kimia|hitung\w*|persamaan|luas|volume|keliling|kecepatan|percepatan|gaya|"
                         r"energi|massa|mol|reaksi|akar|pangkat|pecahan|trigonometri|turunan|integral|limit|sin|cos|tan|log|"
                         r"formula|equation)\b|\d\s*[-+*/x×÷:^]\s*\d", re.IGNORECASE)
+
+
+def butuh_analisis(teks):
+    """True jika pertanyaan meminta kelayakan, kalkulasi, simulasi, atau syarat; aturan analisis dan pemeriksa logika ikut dipakai."""
+    return bool(POLA_ANALISIS.search(teks))
 
 
 def instruksi_tambahan(nama_alat, teks, selera=False, ada_berkas=False, semua=False):
@@ -195,4 +220,23 @@ def instruksi_tambahan(nama_alat, teks, selera=False, ada_berkas=False, semua=Fa
         bagian.append("Alat khusus untuk pertanyaan ini:\n" + "\n".join(alat))
     if selera:
         bagian.append(BAGIAN_SELERA)
+    if butuh_analisis(teks):
+        bagian.append(BAGIAN_ANALISIS)
     return "".join(f"\n\n{isi}" for isi in bagian)
+
+# dipakai model pemeriksa (model cepat) untuk menilai draf jawaban sebelum dikirim ke pengguna
+INSTRUKSI_PERIKSA = """Kamu pemeriksa draf jawaban chatbot. Kamu tidak menjawab pertanyaan, hanya mencari kesalahan di draf.
+
+Periksa hanya hal berikut:
+1. Kesimpulan tidak cocok dengan hitungan, tabel, atau simulasi di draf itu sendiri.
+2. Syarat atau efek dari sumber diringkas atau dibaca salah (misalnya sumber menulis "A atau B" tetapi draf hanya menghitung A), atau efek yang memicu atau mempercepat efek lain diabaikan padahal disebut di sumber.
+3. Nama item, skill, tokoh, atau efek di draf yang tidak ada di pertanyaan maupun sumber.
+4. Bagian draf yang tidak memakai bahasa pertanyaan, termasuk judul bagian dan isi tabel. Nama diri dan istilah asli dari sumber atau pertanyaan tidak dihitung salah.
+
+Jangan menilai gaya tulisan, panjang jawaban, atau hal yang tidak bisa dicek dari sumber.
+Balas hanya dengan JSON tanpa teks lain: {"masalah": []} jika tidak ada masalah, atau {"masalah": ["satu kalimat per masalah, sebut bagian drafnya"]}. Paling banyak 5 masalah."""
+
+PESAN_PERBAIKI = """Draf jawabanmu di atas diperiksa dan ada masalah berikut:
+{masalah}
+
+Tulis ulang jawaban lengkap untuk pengguna dengan masalah itu sudah diperbaiki. Pakai hanya informasi di atas, tetap pakai bahasa pertanyaan terakhir pengguna, pertahankan nomor sitasi yang benar, dan jangan menyebut bahwa jawaban ini hasil perbaikan."""

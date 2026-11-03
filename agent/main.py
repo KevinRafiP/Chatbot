@@ -24,6 +24,7 @@ def main():
         klien_cepat, nama_cepat = buat_klien(cfg, cfg.llm_model_cepat) if cfg.llm_model_cepat else (klien, nama_model)
         klien_tamu, nama_tamu = buat_klien(cfg, cfg.llm_model_tamu) if cfg.llm_model_tamu else (klien_cepat, nama_cepat)
         klien_gambar = buat_klien(cfg, cfg.model_gambar)[0] if cfg.model_gambar else klien
+        klien_periksa = buat_klien(cfg, cfg.llm_model_periksa)[0] if cfg.llm_model_periksa else klien_cepat
         if cfg.llm_model_cadangan:
             cadangan, _ = buat_klien(cfg, cfg.llm_model_cadangan)
             klien, klien_cepat, klien_tamu = (KlienCadangan(k, cadangan) for k in (klien, klien_cepat, klien_tamu))
@@ -42,8 +43,12 @@ def main():
     cache = CacheCari(cfg.cache_cari_detik, cfg.cache_cari_maks)
     tambahan = AlatTambahan(cfg.alat)
     logging.info("alat tambahan aktif: %s", ", ".join(tambahan.alat) or "-")
+    # pemeriksa logika hanya untuk mode mendalam, karena menambah satu panggilan model
+    pemeriksa = (klien_periksa, cfg.periksa_huruf_sumber) if cfg.periksa_logika else None
+    logging.info("pemeriksa logika mode mendalam: %s", "aktif" if pemeriksa else "mati")
     daftar_agen = {
-        "mendalam": Agen(klien, KotakAlat(cfg, cache, tambahan), cfg.maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_MENDALAM),
+        "mendalam": Agen(klien, KotakAlat(cfg, cache, tambahan), cfg.maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_MENDALAM,
+                         pemeriksa),
         "cepat": Agen(klien_cepat, KotakAlat(cfg_cepat, cache, tambahan), cfg.cepat_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_CEPAT),
         "tamu": Agen(klien_tamu, KotakAlat(cfg_tamu, cache, tambahan), cfg.tamu_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_TAMU),
     }
