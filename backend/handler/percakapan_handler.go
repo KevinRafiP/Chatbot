@@ -159,6 +159,56 @@ func FavoritPesan(percakapan *service.PercakapanService) http.HandlerFunc {
 	}
 }
 
+// SematkanPercakapan: PATCH /percakapan/{id}/sematkan dengan body {"sematkan": true}
+func SematkanPercakapan(percakapan *service.PercakapanService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := bacaID(w, r)
+		if !ok {
+			return
+		}
+
+		var permintaan struct {
+			Sematkan bool `json:"sematkan"`
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
+		if err := json.NewDecoder(r.Body).Decode(&permintaan); err != nil {
+			writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "body JSON tidak valid"})
+			return
+		}
+
+		if err := percakapan.Sematkan(id, middleware.PenggunaDari(r.Context()).ID, permintaan.Sematkan); err != nil {
+			gagalPercakapan(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, Response{Status: "sukses", Message: "sematan diperbarui"})
+	}
+}
+
+// NilaiPesan: PATCH /pesan/{id}/penilaian dengan body {"penilaian": 1}; 1 suka, -1 tidak suka, 0 hapus penilaian
+func NilaiPesan(percakapan *service.PercakapanService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := bacaID(w, r)
+		if !ok {
+			return
+		}
+
+		var permintaan struct {
+			Penilaian int `json:"penilaian"`
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
+		if err := json.NewDecoder(r.Body).Decode(&permintaan); err != nil {
+			writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "body JSON tidak valid"})
+			return
+		}
+
+		if err := percakapan.Nilai(id, middleware.PenggunaDari(r.Context()).ID, permintaan.Penilaian); err != nil {
+			gagalPercakapan(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, Response{Status: "sukses", Message: "penilaian disimpan"})
+	}
+}
+
 // DaftarFavorit: GET /pesan/favorit
 func DaftarFavorit(percakapan *service.PercakapanService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -194,6 +244,11 @@ func gagalPercakapan(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "pertanyaan wajib diisi, maksimal 2000 huruf"})
 	case errors.Is(err, service.ErrJudulTidakValid):
 		writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "judul wajib diisi, maksimal 100 huruf"})
+	case errors.Is(err, service.ErrPenilaianSalah):
+		writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "penilaian harus 1, -1, atau 0"})
+	case errors.Is(err, service.ErrAgentGagal):
+		// bukan 502: frontend mengulang otomatis 502 sampai 504 (server bangun), sehingga pertanyaan terkirim berkali kali
+		writeJSON(w, http.StatusInternalServerError, Response{Status: "gagal", Message: "jawaban gagal dibuat, coba lagi"})
 	default:
 		log.Println("error percakapan:", err)
 		writeJSON(w, http.StatusInternalServerError, Response{Status: "gagal", Message: "server sedang bermasalah"})

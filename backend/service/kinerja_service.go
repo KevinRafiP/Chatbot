@@ -22,15 +22,17 @@ var ErrKinerjaMati = errors.New("catatan kinerja tidak aktif")
 type KinerjaService struct {
 	repo           *repository.KinerjaRepository
 	simpanHari     int
+	tampilkanIsi   bool
 	terakhirBersih atomic.Int64
 }
 
-// BaruKinerjaService mengembalikan nil bila simpanHari 0; semua method aman dipanggil pada nil
-func BaruKinerjaService(repo *repository.KinerjaRepository, simpanHari int) *KinerjaService {
+// BaruKinerjaService mengembalikan nil bila simpanHari 0; semua method aman dipanggil pada nil.
+// tampilkanIsi true berarti admin bisa melihat potongan pertanyaan dan jawaban yang tidak disukai pengguna
+func BaruKinerjaService(repo *repository.KinerjaRepository, simpanHari int, tampilkanIsi bool) *KinerjaService {
 	if simpanHari <= 0 {
 		return nil
 	}
-	return &KinerjaService{repo: repo, simpanHari: simpanHari}
+	return &KinerjaService{repo: repo, simpanHari: simpanHari, tampilkanIsi: tampilkanIsi}
 }
 
 // CatatPanggilan menyimpan hasil satu panggilan agent di latar belakang, jadi pengguna tidak ikut menunggu
@@ -83,5 +85,15 @@ func (s *KinerjaService) Laporan(hari int) (model.LaporanKinerja, error) {
 	if hari != 1 && hari != 30 {
 		hari = 7
 	}
-	return s.repo.Laporan(hari, 10, 20)
+	laporan, err := s.repo.Laporan(hari, 10, 20)
+	if err != nil {
+		return laporan, err
+	}
+	if laporan.Penilaian, err = s.repo.Penilaian(hari); err != nil {
+		return laporan, err
+	}
+	if s.tampilkanIsi {
+		laporan.TidakDisukai, err = s.repo.TidakDisukai(hari, 10)
+	}
+	return laporan, err
 }

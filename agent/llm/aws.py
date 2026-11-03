@@ -3,7 +3,7 @@ import logging
 import struct
 import urllib.parse
 
-from llm import pemakaian
+from llm import denyut, pemakaian
 from llm.client import GalatLLM, buka, kirim_json
 from llm.tanda_tangan import tanda_tangani
 
@@ -83,6 +83,8 @@ def rakit_pesan_stream(respon, saat_teks):
     alasan = None
     panjang_pikir = 0
     for header, isi in baca_event_aws(respon):
+        # berhenti membaca jika backend sudah menutup koneksi, agar model tidak terus memakai token
+        denyut.detak()
         data = json.loads(isi or b"{}")
         if header.get(":message-type") != "event":
             raise GalatLLM(f"Bedrock menghentikan stream ({header.get(':exception-type')}): {str(data.get('message', ''))[:300]}")

@@ -1669,3 +1669,129 @@ button:disabled {
     transition: none !important;
   }
 }
+
+/* pinned conversations get their own list above the history; both scroll together */
+.conversation-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.conversation-scroll .conversation-list {
+  flex: none;
+  overflow: visible;
+}
+
+.conversation-scroll .list-title:first-child {
+  margin-top: 16px;
+}
+
+.pin-icon {
+  flex-shrink: 0;
+  margin-right: 6px;
+  vertical-align: -2px;
+  color: var(--accent-soft);
+}
+
+/* a failed or stopped question: a short note and the "Coba lagi" button under its bubble */
+.message-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 4px 4px 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.retry-button {
+  padding: 4px 12px;
+  border: 1px solid var(--accent-soft);
+  border-radius: 999px;
+  background: none;
+  color: var(--accent-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.retry-button:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* like and dislike buttons next to the time of an answer */
+.rating {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 6px;
+}
+
+.rating button {
+  display: inline-flex;
+  padding: 3px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+}
+
+.rating button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.rating button.chosen {
+  color: var(--accent-soft);
+}
+
+/* a rated answer keeps its buttons visible, so the choice can be seen without hovering */
+.message:has(.rating .chosen) .message-time {
+  visibility: visible;
+}
+
+.chat-form .stop-button {
+  border-color: var(--danger);
+  background: none;
+  color: var(--danger);
+}
+
+.chat-form .stop-button:hover {
+  background: var(--danger);
+  color: var(--bg);
+}
+
+.disliked-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.disliked-list li {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.disliked-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.disliked-question {
+  margin: 4px 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.disliked-answer {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}

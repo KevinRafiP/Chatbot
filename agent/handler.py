@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler
 
 from alat.berkas import baca_berkas
 from alat.jaringan import GalatAlat
+from llm import denyut
 from llm.client import GalatLLM
 from llm.embedding import MAKS_TEKS
 from pengaman.aturan import GalatPengaman
@@ -133,12 +134,14 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berka
             def kabar(jenis, isi):
                 self.wfile.write(f"event: {jenis}\ndata: {json.dumps(isi, ensure_ascii=False)}\n\n".encode("utf-8"))
 
+            # baris komentar SSE (diawali ":") diabaikan backend; gunanya hanya mengetahui koneksi yang sudah putus
+            denyut.pasang(lambda: self.wfile.write(b": denyut\n\n"))
             try:
                 hasil = pilihan.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"), kabar,
                                       data.get("lampiran"), data.get("bisa_email"), data.get("ringkasan"))
                 kabar("selesai", hasil)
-            except (BrokenPipeError, ConnectionResetError):
-                logging.info("backend menutup stream sebelum jawaban selesai")
+            except (BrokenPipeError, ConnectionResetError, denyut.Dihentikan):
+                logging.info("backend menutup stream sebelum jawaban selesai (dihentikan pengguna)")
             except GalatPengaman as galat:
                 kabar("galat", {"message": str(galat)})
             except GalatLLM as galat:
@@ -147,6 +150,8 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berka
             except Exception:
                 logging.exception("galat tak terduga")
                 kabar("galat", {"message": "agent sedang bermasalah"})
+            finally:
+                denyut.lepas()
 
         def kirim_json(self, status, data):
             badan = json.dumps(data, ensure_ascii=False).encode("utf-8")

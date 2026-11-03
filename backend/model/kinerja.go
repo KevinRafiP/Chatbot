@@ -34,11 +34,28 @@ type PemakaianAlat struct {
 	Jumlah int    `json:"jumlah"`
 }
 
+// PenilaianJawaban adalah jumlah suka dan tidak suka dari pengguna; Profil kosong berarti semua profil
+type PenilaianJawaban struct {
+	Profil    string `json:"profil"`
+	Suka      int    `json:"suka"`
+	TidakSuka int    `json:"tidak_suka"`
+}
+
+// JawabanDinilai adalah potongan jawaban yang tidak disukai beserta pertanyaannya
+type JawabanDinilai struct {
+	Profil      string    `json:"profil"`
+	Pertanyaan  string    `json:"pertanyaan"`
+	Jawaban     string    `json:"jawaban"`
+	DinilaiPada time.Time `json:"dinilai_pada"`
+}
+
 // LaporanKinerja adalah isi halaman kinerja admin untuk beberapa hari terakhir
 type LaporanKinerja struct {
-	Hari      int                `json:"hari"`
-	Semua     StatistikKinerja   `json:"semua"` // semua jawaban, tanpa peringkasan percakapan
-	PerProfil []StatistikKinerja `json:"per_profil"`
-	Alat      []PemakaianAlat    `json:"alat"`
-	Terbaru   []Kinerja          `json:"terbaru"`
+	Hari         int                `json:"hari"`
+	Semua        StatistikKinerja   `json:"semua"` // semua jawaban, tanpa peringkasan percakapan
+	PerProfil    []StatistikKinerja `json:"per_profil"`
+	Alat         []PemakaianAlat    `json:"alat"`
+	Terbaru      []Kinerja          `json:"terbaru"`
+	Penilaian    []PenilaianJawaban `json:"penilaian"`     // baris pertama adalah total
+	TidakDisukai []JawabanDinilai   `json:"tidak_disukai"` // kosong bila KINERJA_TAMPILKAN_ISI=tidak
 }

@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { ApiError, getPerformance, type PerformanceEntry, type PerformanceReport, type PerformanceStats } from "./api";
+import {
+  ApiError,
+  getPerformance,
+  type DislikedAnswer,
+  type PerformanceEntry,
+  type PerformanceReport,
+  type PerformanceStats,
+  type RatingStats,
+} from "./api";
 
 const PERIODS = [
   { days: 1, label: "24 jam" },
@@ -40,8 +48,8 @@ function formatTime(iso: string): string {
   return `${date.toLocaleDateString("id-ID", { day: "numeric", month: "short" })} ${time}`;
 }
 
-// Admin only: how fast the AI answers, how many tokens it uses, and which tools it calls.
-// The question and answer text are never stored, only these numbers
+// Admin only: how fast the AI answers, how many tokens it uses, which tools it calls, and how users rate the answers.
+// The performance log stores no question or answer text; disliked answers are read from the users' conversations
 export function PerformancePanel() {
   const [days, setDays] = useState(7);
   const [report, setReport] = useState<PerformanceReport | null>(null);
@@ -98,9 +106,13 @@ export function PerformancePanel() {
               <RecentTable entries={report.recent} />
             </>
           )}
+          <RatingSection ratings={report.ratings} disliked={report.disliked} />
         </div>
       )}
-      <p className="performance-note">Isi pertanyaan dan jawaban tidak disimpan, hanya waktu, token, dan nama alat.</p>
+      <p className="performance-note">
+        Catatan kinerja hanya menyimpan waktu, token, dan nama alat. Potongan jawaban yang tidak disukai diambil dari percakapan
+        pengguna dan bisa dimatikan dengan KINERJA_TAMPILKAN_ISI=tidak.
+      </p>
     </div>
   );
 }
@@ -219,6 +231,58 @@ function RecentTable({ entries }: { entries: PerformanceEntry[] }) {
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+// Likes and dislikes from users: the totals, a row per profile, and the newest disliked answers
+function RatingSection({ ratings, disliked }: { ratings: RatingStats[]; disliked: DislikedAnswer[] }) {
+  const [total, ...byProfile] = ratings;
+  if (total === undefined) {
+    return (
+      <section>
+        <h3>Penilaian pengguna</h3>
+        <p className="form-note">Belum ada jawaban yang dinilai di rentang waktu ini.</p>
+      </section>
+    );
+  }
+  return (
+    <section>
+      <h3>Penilaian pengguna</h3>
+      <div className="stat-grid">
+        <div className="stat-tile">
+          <span>Suka</span>
+          <strong>{formatNumber(total.likes)}</strong>
+          <small>{formatPercent(total.likes, total.likes + total.dislikes)}</small>
+        </div>
+        <div className="stat-tile">
+          <span>Tidak suka</span>
+          <strong>{formatNumber(total.dislikes)}</strong>
+          <small>{formatPercent(total.dislikes, total.likes + total.dislikes)}</small>
+        </div>
+        {byProfile.map((row) => (
+          <div key={row.profile} className="stat-tile">
+            <span>{profileLabel(row.profile) || "Lainnya"}</span>
+            <strong>{formatPercent(row.likes, row.likes + row.dislikes)} suka</strong>
+            <small>
+              {formatNumber(row.likes)} suka, {formatNumber(row.dislikes)} tidak
+            </small>
+          </div>
+        ))}
+      </div>
+      {disliked.length > 0 && (
+        <ul className="disliked-list">
+          {disliked.map((item, index) => (
+            <li key={`${item.ratedAt}-${index}`}>
+              <span className="disliked-meta">
+                {formatTime(item.ratedAt)} · {profileLabel(item.profile) || "Lainnya"}
+              </span>
+              <p className="disliked-question">{item.question || "(pertanyaan tidak ditemukan)"}</p>
+              <p className="disliked-answer">{item.answer}</p>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

@@ -24,6 +24,7 @@ var (
 	ErrPercakapanTidakAda = errors.New("percakapan tidak ditemukan")
 	ErrJudulTidakValid    = errors.New("judul tidak valid")
 	ErrPesanTidakAda      = errors.New("pesan tidak ditemukan")
+	ErrPenilaianSalah     = errors.New("penilaian harus 1, -1, atau 0")
 	BatasFavorit          = 200
 )
 
@@ -129,14 +130,10 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 		}
 	}
 
-	pesan, err := s.repo.SimpanPesanLampiran(id, "user", pertanyaan, nil, baru)
-	if err != nil {
-		return HasilPesan{}, err
-	}
-
 	ingatan, waktunya := s.ingatan.Ambil(penggunaID)
 	tambahan := agen.Tambahan{Lampiran: lampiranAgen(&berkas), BisaEmail: s.email.Bisa(pengguna), Ringkasan: ringkasan}
-	hasil, err := s.chatbot.Jawab(ctx, pertanyaan, riwayat, ingatan, profilPengguna(mode), tambahan, kabar)
+	profil := profilPengguna(mode)
+	hasil, err := s.chatbot.Jawab(ctx, pertanyaan, riwayat, ingatan, profil, tambahan, kabar)
 	if err != nil {
 		return HasilPesan{}, err
 	}
@@ -146,7 +143,8 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 			hasil.Jawaban += "\n\n*Email belum terkirim: " + alasanEmail(err) + ".*"
 		}
 	}
-	jawaban, err := s.repo.SimpanPesan(id, "asisten", hasil.Jawaban, hasil.Sumber)
+	// pertanyaan baru disimpan bersama jawabannya; yang gagal atau dihentikan tidak tersimpan dan bisa dicoba lagi
+	pesan, jawaban, err := s.repo.SimpanTanyaJawab(id, pertanyaan, baru, hasil.Jawaban, hasil.Sumber, profil)
 	if err != nil {
 		return HasilPesan{}, err
 	}
@@ -165,6 +163,33 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 		}
 	}
 	return HasilPesan{Judul: judul, Pesan: pesan, Jawaban: jawaban}, nil
+}
+
+// Sematkan menaruh percakapan di atas daftar, atau melepasnya
+func (s *PercakapanService) Sematkan(id, penggunaID string, sematkan bool) error {
+	berubah, err := s.repo.Sematkan(id, penggunaID, sematkan)
+	if err != nil {
+		return err
+	}
+	if !berubah {
+		return ErrPercakapanTidakAda
+	}
+	return nil
+}
+
+// Nilai menyimpan suka (1), tidak suka (-1), atau menghapus penilaian (0) pada jawaban asisten milik pengguna
+func (s *PercakapanService) Nilai(pesanID, penggunaID string, nilai int) error {
+	if nilai < -1 || nilai > 1 {
+		return ErrPenilaianSalah
+	}
+	berubah, err := s.repo.UbahPenilaian(pesanID, penggunaID, nilai)
+	if err != nil {
+		return err
+	}
+	if !berubah {
+		return ErrPesanTidakAda
+	}
+	return nil
 }
 
 // TandaiFavorit memberi atau melepas bintang pada pesan milik pengguna

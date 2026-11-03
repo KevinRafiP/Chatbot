@@ -45,6 +45,7 @@ type Config struct {
 	BatasBerkasPerJam   int
 	EmailJawabanPerHari int
 	KinerjaSimpanHari   int
+	KinerjaTampilkanIsi bool
 	RingkasanSetelah    int
 	RingkasanSisa       int
 }
@@ -88,6 +89,7 @@ func Muat() Config {
 		BatasBerkasPerJam:   ambilAngka("BATAS_BERKAS_PER_JAM", 20),
 		EmailJawabanPerHari: ambilAngkaBolehNol("EMAIL_JAWABAN_PER_HARI", 5),
 		KinerjaSimpanHari:   ambilAngkaBolehNol("KINERJA_SIMPAN_HARI", 30),
+		KinerjaTampilkanIsi: ambil("KINERJA_TAMPILKAN_ISI", "ya") != "tidak",
 		RingkasanSetelah:    ambilAngkaBolehNol("RINGKASAN_SETELAH_PESAN", 20),
 		RingkasanSisa:       ambilAngkaBolehNol("RINGKASAN_SISA_PESAN", 10),
 	}

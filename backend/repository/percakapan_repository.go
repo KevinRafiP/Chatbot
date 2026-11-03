@@ -17,10 +17,10 @@ func BaruPercakapanRepository(db *sql.DB) *PercakapanRepository {
 	return &PercakapanRepository{db: db}
 }
 
-// Semua mengambil percakapan milik satu pengguna, yang terbaru di atas
+// Semua mengambil percakapan milik satu pengguna: yang disematkan paling atas (terakhir disematkan dulu), lalu yang terbaru
 func (r *PercakapanRepository) Semua(penggunaID string) ([]model.Percakapan, error) {
-	rows, err := r.db.Query(`SELECT id, judul, diperbarui_pada FROM percakapan
-		WHERE pengguna_id = $1 ORDER BY diperbarui_pada DESC`, penggunaID)
+	rows, err := r.db.Query(`SELECT id, judul, disematkan_pada IS NOT NULL, diperbarui_pada FROM percakapan
+		WHERE pengguna_id = $1 ORDER BY disematkan_pada DESC NULLS LAST, diperbarui_pada DESC`, penggunaID)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +29,7 @@ func (r *PercakapanRepository) Semua(penggunaID string) ([]model.Percakapan, err
 	daftar := []model.Percakapan{}
 	for rows.Next() {
 		var p model.Percakapan
-		if err := rows.Scan(&p.ID, &p.Judul, &p.DiperbaruiPada); err != nil {
+		if err := rows.Scan(&p.ID, &p.Judul, &p.Disematkan, &p.DiperbaruiPada); err != nil {
 			return nil, err
 		}
 		daftar = append(daftar, p)
@@ -73,8 +73,19 @@ func (r *PercakapanRepository) UbahJudul(id string, judul string) error {
 func (r *PercakapanRepository) GantiJudul(id, penggunaID, judul string) (model.Percakapan, error) {
 	var p model.Percakapan
 	err := r.db.QueryRow(`UPDATE percakapan SET judul = $1 WHERE id = $2 AND pengguna_id = $3
-		RETURNING id, judul, diperbarui_pada`, judul, id, penggunaID).Scan(&p.ID, &p.Judul, &p.DiperbaruiPada)
+		RETURNING id, judul, disematkan_pada IS NOT NULL, diperbarui_pada`, judul, id, penggunaID).Scan(&p.ID, &p.Judul, &p.Disematkan, &p.DiperbaruiPada)
 	return p, err
+}
+
+// Sematkan menyematkan atau melepas sematan percakapan milik pengguna; false bila percakapan tidak ada
+func (r *PercakapanRepository) Sematkan(id, penggunaID string, sematkan bool) (bool, error) {
+	hasil, err := r.db.Exec(`UPDATE percakapan SET disematkan_pada = CASE WHEN $3 THEN NOW() END
+		WHERE id = $1 AND pengguna_id = $2`, id, penggunaID, sematkan)
+	if err != nil {
+		return false, err
+	}
+	jumlah, err := hasil.RowsAffected()
+	return jumlah > 0, err
 }
 
 // DaftarPesan mengambil pesan sebuah percakapan dari yang paling lama; batas 0 berarti semua, selain itu hanya N terakhir
@@ -84,8 +95,8 @@ func (r *PercakapanRepository) DaftarPesan(percakapanID string, batas int) ([]mo
 
 // DaftarPesanSetelah sama seperti DaftarPesan, tetapi hanya pesan sesudah urutan tertentu (yang belum diringkas)
 func (r *PercakapanRepository) DaftarPesanSetelah(percakapanID string, setelah int64, batas int) ([]model.Pesan, error) {
-	rows, err := r.db.Query(`SELECT id, urutan, pengirim, isi, sumber, favorit, lampiran_nama, dibuat_pada FROM (
-		SELECT id, urutan, pengirim, isi, sumber, favorit, lampiran_nama, dibuat_pada FROM pesan
+	rows, err := r.db.Query(`SELECT id, urutan, pengirim, isi, sumber, favorit, COALESCE(penilaian, 0), lampiran_nama, dibuat_pada FROM (
+		SELECT id, urutan, pengirim, isi, sumber, favorit, penilaian, lampiran_nama, dibuat_pada FROM pesan
 			WHERE percakapan_id = $1 AND urutan > $3 ORDER BY urutan DESC LIMIT NULLIF($2, 0)
 		) AS terakhir ORDER BY urutan`, percakapanID, batas, setelah)
 	if err != nil {
@@ -97,7 +108,7 @@ func (r *PercakapanRepository) DaftarPesanSetelah(percakapanID string, setelah i
 	for rows.Next() {
 		var p model.Pesan
 		var sumber string
-		if err := rows.Scan(&p.ID, &p.Urutan, &p.Pengirim, &p.Isi, &sumber, &p.Favorit, &p.Lampiran, &p.DibuatPada); err != nil {
+		if err := rows.Scan(&p.ID, &p.Urutan, &p.Pengirim, &p.Isi, &sumber, &p.Favorit, &p.Penilaian, &p.Lampiran, &p.DibuatPada); err != nil {
 			return nil, err
 		}
 		p.Sumber = pecahSumber(sumber)
@@ -146,6 +157,41 @@ func (r *PercakapanRepository) SimpanPesanLampiran(percakapanID string, pengirim
 	return p, err
 }
 
+// SimpanTanyaJawab menyimpan pertanyaan dan jawabannya sekaligus dalam satu transaksi, jadi pertanyaan yang gagal
+// atau dihentikan tidak pernah tersimpan tanpa jawaban; profil dicatat pada jawaban untuk penilaian per profil
+func (r *PercakapanRepository) SimpanTanyaJawab(percakapanID, pertanyaan string, lampiran model.Lampiran, jawaban string, sumber []model.Sumber, profil string) (model.Pesan, model.Pesan, error) {
+	if sumber == nil {
+		sumber = []model.Sumber{}
+	}
+	teksSumber, err := json.Marshal(sumber)
+	if err != nil {
+		return model.Pesan{}, model.Pesan{}, err
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return model.Pesan{}, model.Pesan{}, err
+	}
+	defer tx.Rollback()
+
+	tanya := model.Pesan{Pengirim: "user", Isi: pertanyaan, Sumber: []model.Sumber{}, Lampiran: lampiran.Nama}
+	err = tx.QueryRow(`INSERT INTO pesan (percakapan_id, pengirim, isi, sumber, lampiran_nama, lampiran_teks) VALUES ($1, 'user', $2, '[]', $3, $4)
+		RETURNING id, dibuat_pada`, percakapanID, pertanyaan, lampiran.Nama, lampiran.Teks).Scan(&tanya.ID, &tanya.DibuatPada)
+	if err != nil {
+		return model.Pesan{}, model.Pesan{}, err
+	}
+	jawab := model.Pesan{Pengirim: "asisten", Isi: jawaban, Sumber: sumber}
+	err = tx.QueryRow(`INSERT INTO pesan (percakapan_id, pengirim, isi, sumber, profil) VALUES ($1, 'asisten', $2, $3, $4)
+		RETURNING id, dibuat_pada`, percakapanID, jawaban, string(teksSumber), profil).Scan(&jawab.ID, &jawab.DibuatPada)
+	if err != nil {
+		return model.Pesan{}, model.Pesan{}, err
+	}
+	if _, err := tx.Exec(`UPDATE percakapan SET diperbarui_pada = NOW() WHERE id = $1`, percakapanID); err != nil {
+		return model.Pesan{}, model.Pesan{}, err
+	}
+	return tanya, jawab, tx.Commit()
+}
+
 // LampiranTerakhir mengambil berkas terbaru di antara batas pesan terakhir sebuah percakapan;
 // kosong bila tidak ada, agar berkas lama tidak terus ikut ke pertanyaan yang sudah jauh
 func (r *PercakapanRepository) LampiranTerakhir(percakapanID string, batas int) (model.Lampiran, error) {
@@ -163,6 +209,18 @@ func (r *PercakapanRepository) LampiranTerakhir(percakapanID string, batas int) 
 func (r *PercakapanRepository) UbahFavorit(pesanID, penggunaID string, favorit bool) (bool, error) {
 	hasil, err := r.db.Exec(`UPDATE pesan p SET favorit = $3 FROM percakapan c
 		WHERE p.id = $1 AND p.percakapan_id = c.id AND c.pengguna_id = $2`, pesanID, penggunaID, favorit)
+	if err != nil {
+		return false, err
+	}
+	jumlah, err := hasil.RowsAffected()
+	return jumlah > 0, err
+}
+
+// UbahPenilaian menyimpan suka (1), tidak suka (-1), atau menghapus penilaian (0) pada jawaban asisten milik pengguna
+func (r *PercakapanRepository) UbahPenilaian(pesanID, penggunaID string, nilai int) (bool, error) {
+	hasil, err := r.db.Exec(`UPDATE pesan p SET penilaian = NULLIF($3::SMALLINT, 0), dinilai_pada = CASE WHEN $3 = 0 THEN NULL ELSE NOW() END
+		FROM percakapan c WHERE p.id = $1 AND p.percakapan_id = c.id AND c.pengguna_id = $2 AND p.pengirim = 'asisten'`,
+		pesanID, penggunaID, nilai)
 	if err != nil {
 		return false, err
 	}

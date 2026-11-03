@@ -98,9 +98,11 @@ func BuatChatbot(
 	mux.Handle("POST /percakapan", akun(handler.BuatPercakapan(percakapanService)))
 	mux.Handle("DELETE /percakapan/{id}", akun(handler.HapusPercakapan(percakapanService)))
 	mux.Handle("PATCH /percakapan/{id}", akun(handler.GantiNamaPercakapan(percakapanService)))
+	mux.Handle("PATCH /percakapan/{id}/sematkan", akun(handler.SematkanPercakapan(percakapanService)))
 	mux.Handle("GET /percakapan/{id}/pesan", akun(handler.DaftarPesan(percakapanService)))
 	mux.Handle("GET /pesan/favorit", akun(handler.DaftarFavorit(percakapanService)))
 	mux.Handle("PATCH /pesan/{id}/favorit", akun(handler.FavoritPesan(percakapanService)))
+	mux.Handle("PATCH /pesan/{id}/penilaian", akun(handler.NilaiPesan(percakapanService)))
 	mux.Handle("POST /percakapan/{id}/pesan",
 		akun(middleware.BatasiLaju(pembatasPesan, perPengguna,
 			middleware.BatasiLaju(pembatasGlobal, semua, handler.KirimPesan(percakapanService)))))

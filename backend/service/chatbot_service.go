@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -23,8 +24,9 @@ type HasilChat struct {
 // ErrAgentMati dipakai fitur yang hanya bisa jalan lewat agent, misalnya membaca berkas
 var ErrAgentMati = errors.New("agent tidak aktif")
 
-// JawabanAgentGagal ditampilkan jika agent aktif tetapi gagal atau terlalu lama menjawab
-const JawabanAgentGagal = "Maaf, saya sedang kesulitan menyusun jawaban. Coba kirim ulang pertanyaannya sebentar lagi."
+// ErrAgentGagal dipakai bila agent aktif tetapi gagal, terlalu lama, atau dihentikan pengguna;
+// pertanyaannya tidak disimpan, jadi pengguna bisa menekan "Coba lagi"
+var ErrAgentGagal = errors.New("agent gagal menjawab")
 
 type ChatbotService struct {
 	repo    *repository.PengetahuanRepository
@@ -51,11 +53,11 @@ func (s *ChatbotService) Jawab(ctx context.Context, pertanyaan string, riwayat [
 	if s.agen != nil {
 		hasil, pakai, err := s.tanyaAgen(ctx, pertanyaan, daftar, riwayat, ingatan, profil, tambahan, kabar)
 		s.kinerja.CatatPanggilan(ctx, profil, mulai, pakai, hasil.Jawaban, err)
-		if err == nil {
-			return hasil, nil
+		if err != nil {
+			log.Println("agent gagal:", err)
+			return HasilChat{}, fmt.Errorf("%w: %w", ErrAgentGagal, err)
 		}
-		log.Println("agent gagal:", err)
-		return HasilChat{Jawaban: JawabanAgentGagal, Sumber: []model.Sumber{}, Penjawab: "database"}, nil
+		return hasil, nil
 	}
 	return jawabDariDatabase(daftar), nil
 }

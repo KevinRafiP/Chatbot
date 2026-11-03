@@ -2,7 +2,7 @@ const API_URL = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replac
 const ACCOUNT_TOKEN_KEY = "chatbot_token";
 const GUEST_TOKEN_KEY = "chatbot_guest_token";
 
-export type Conversation = { id: string; title: string };
+export type Conversation = { id: string; title: string; pinned: boolean };
 export type Source = { title: string; url: string };
 export type Message = {
   id: string;
@@ -12,7 +12,11 @@ export type Message = {
   sentAt: string;
   favorite: boolean;
   attachment: string;
+  rating: Rating;
+  note?: string;
+  retry?: { attachment: Attachment | null };
 };
+export type Rating = 1 | -1 | 0;
 // Text read from an uploaded file; it is sent along with the next question
 export type Attachment = { name: string; text: string; truncated: boolean; pages: number | null };
 export type FavoriteMessage = Message & { conversationId: string; conversationTitle: string };
@@ -48,16 +52,22 @@ export type PerformanceEntry = {
   tools: string[];
   createdAt: string;
 };
+// Likes and dislikes from users; profile is empty for the total
+export type RatingStats = { profile: string; likes: number; dislikes: number };
+// A disliked answer with the question before it, both cut short; empty when the server hides message text
+export type DislikedAnswer = { profile: string; question: string; answer: string; ratedAt: string };
 export type PerformanceReport = {
   days: number;
   total: PerformanceStats;
   byProfile: PerformanceStats[];
   tools: { name: string; count: number }[];
   recent: PerformanceEntry[];
+  ratings: RatingStats[];
+  disliked: DislikedAnswer[];
 };
 
 type ApiResponse<T> = { status: string; message: string; data: T };
-type RawConversation = { id: string; judul: string };
+type RawConversation = { id: string; judul: string; disematkan?: boolean };
 type RawSource = { judul: string; url: string };
 type RawMessage = {
   id: string;
@@ -65,6 +75,7 @@ type RawMessage = {
   isi: string;
   sumber: RawSource[] | null;
   favorit: boolean;
+  penilaian?: number;
   lampiran?: string;
   dibuat_pada: string;
 };
@@ -102,6 +113,8 @@ type RawPerformance = {
   per_profil: RawStats[];
   alat: { nama: string; jumlah: number }[];
   terbaru: RawPerformanceEntry[];
+  penilaian?: { profil: string; suka: number; tidak_suka: number }[];
+  tidak_disukai?: { profil: string; pertanyaan: string; jawaban: string; dinilai_pada: string }[];
 };
 
 // Render free puts the backend to sleep; these are the waits before each new try while it wakes up (about 2.5 minutes in total)
@@ -178,6 +191,11 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
         return response;
       }
     } catch (error) {
+      // the user pressed stop: no retry and no "server is waking" notice
+      if (init?.signal?.aborted) {
+        wakingListener?.(false);
+        throw error;
+      }
       if (await serverAnswers()) {
         wakingListener?.(false);
         throw new BlockedError();
@@ -245,17 +263,25 @@ async function request<T>(method: string, path: string, body?: unknown, retry = 
 // Like request, but asks for the answer as Server-Sent Events and passes every step and piece of text to onUpdate.
 // fetch is used instead of EventSource because EventSource can only send GET requests.
 // A backend that answers with plain JSON (an error, or an answer made without the agent) is handled as well
-async function streamRequest<T>(path: string, body: unknown, onUpdate: (update: AnswerUpdate) => void, retry = true): Promise<T> {
+// signal stops the answer: the connection is closed, so the backend and agent stop too
+async function streamRequest<T>(
+  path: string,
+  body: unknown,
+  onUpdate: (update: AnswerUpdate) => void,
+  signal?: AbortSignal,
+  retry = true,
+): Promise<T> {
   const currentToken = await ensureToken();
   const response = await fetchWithRetry(`${API_URL}${path}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${currentToken}`, "Content-Type": "application/json", Accept: "text/event-stream" },
     body: JSON.stringify(body),
+    signal,
   });
 
   if (response.status === 401 && retry) {
     saveToken(null);
-    return streamRequest<T>(path, body, onUpdate, false);
+    return streamRequest<T>(path, body, onUpdate, signal, false);
   }
   if (!(response.headers.get("Content-Type") ?? "").includes("text/event-stream") || response.body === null) {
     const result: ApiResponse<T> = await response.json();
@@ -301,7 +327,7 @@ async function streamRequest<T>(path: string, body: unknown, onUpdate: (update: 
 
 // Converts a backend conversation into the shape used by the UI
 function toConversation(raw: RawConversation): Conversation {
-  return { id: raw.id, title: raw.judul };
+  return { id: raw.id, title: raw.judul, pinned: raw.disematkan === true };
 }
 
 // Converts a backend user into the shape used by the UI
@@ -319,6 +345,7 @@ function toMessage(raw: RawMessage): Message {
     sentAt: raw.dibuat_pada,
     favorite: raw.favorit,
     attachment: raw.lampiran ?? "",
+    rating: raw.penilaian === 1 || raw.penilaian === -1 ? raw.penilaian : 0,
   };
 }
 
@@ -326,7 +353,7 @@ function attachmentBody(attachment: Attachment | null) {
   return attachment === null ? undefined : { nama: attachment.name, teks: attachment.text };
 }
 
-// Lists the conversations of this account, newest first
+// Lists the conversations of this account: pinned ones first, then the newest
 export async function listConversations(): Promise<Conversation[]> {
   const data = await request<RawConversation[]>("GET", "/percakapan");
   return data.map(toConversation);
@@ -347,6 +374,11 @@ export async function renameConversation(id: string, title: string): Promise<Con
   return toConversation(await request<RawConversation>("PATCH", `/percakapan/${id}`, { judul: title }));
 }
 
+// Pins a conversation to the top of the list, or unpins it
+export async function pinConversation(id: string, pinned: boolean): Promise<void> {
+  await request<undefined>("PATCH", `/percakapan/${id}/sematkan`, { sematkan: pinned });
+}
+
 // Lists the messages of one conversation, oldest first
 export async function listMessages(conversationId: string): Promise<Message[]> {
   const data = await request<RawMessage[]>("GET", `/percakapan/${conversationId}/pesan`);
@@ -360,9 +392,10 @@ export async function sendMessage(
   mode: AnswerMode,
   attachment: Attachment | null,
   onUpdate: (update: AnswerUpdate) => void,
+  signal?: AbortSignal,
 ): Promise<SendResult> {
   const body = { pertanyaan: text, mode: mode === "fast" ? "cepat" : "mendalam", lampiran: attachmentBody(attachment) };
-  const data = await streamRequest<RawSendResult>(`/percakapan/${conversationId}/pesan`, body, onUpdate);
+  const data = await streamRequest<RawSendResult>(`/percakapan/${conversationId}/pesan`, body, onUpdate, signal);
   return { title: data.judul, question: toMessage(data.pesan), answer: toMessage(data.jawaban) };
 }
 
@@ -372,9 +405,14 @@ export async function sendGuestMessage(
   history: Message[],
   attachment: Attachment | null,
   onUpdate: (update: AnswerUpdate) => void,
+signal?: AbortSignal,
 ): Promise<Message> {
-  const riwayat = history.map((item) => ({ peran: item.sender === "user" ? "user" : "asisten", teks: item.text }));
-  const data = await streamRequest<RawAnswer>("/tamu/pesan", { pertanyaan: text, riwayat, lampiran: attachmentBody(attachment) }, onUpdate);
+  // failed or stopped questions on screen were never answered, so they are not part of the history
+  const riwayat = history
+    .filter((item) => item.note === undefined)
+    .map((item) => ({ peran: item.sender === "user" ? "user" : "asisten", teks: item.text }));
+  const body = { pertanyaan: text, riwayat, lampiran: attachmentBody(attachment) };
+  const data = await streamRequest<RawAnswer>("/tamu/pesan", body, onUpdate, signal);
   return {
     id: `guest-${Date.now()}`,
     sender: "bot",
@@ -383,6 +421,7 @@ export async function sendGuestMessage(
     sentAt: new Date().toISOString(),
     favorite: false,
     attachment: "",
+    rating: 0,
   };
 }
 
@@ -414,6 +453,11 @@ export async function uploadFile(file: File, retry = true): Promise<Attachment> 
 // Stars or unstars a saved message of this account
 export async function setFavorite(messageId: string, favorite: boolean): Promise<void> {
   await request<undefined>("PATCH", `/pesan/${messageId}/favorit`, { favorit: favorite });
+}
+
+// Likes (1) or dislikes (-1) a saved answer; 0 removes the rating
+export async function setRating(messageId: string, rating: Rating): Promise<void> {
+  await request<undefined>("PATCH", `/pesan/${messageId}/penilaian`, { penilaian: rating });
 }
 
 // Lists the starred messages from every conversation of this account, newest first
@@ -514,6 +558,13 @@ export async function getPerformance(days: number): Promise<PerformanceReport> {
       modelCalls: entry.panggilan_llm,
       tools: entry.alat ?? [],
       createdAt: entry.dibuat_pada,
+    })),
+    ratings: (data.penilaian ?? []).map((row) => ({ profile: row.profil, likes: row.suka, dislikes: row.tidak_suka })),
+    disliked: (data.tidak_disukai ?? []).map((row) => ({
+      profile: row.profil,
+      question: row.pertanyaan,
+      answer: row.jawaban,
+      ratedAt: row.dinilai_pada,
     })),
   };
 }

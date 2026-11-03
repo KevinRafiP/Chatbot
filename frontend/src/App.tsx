@@ -29,10 +29,12 @@ import {
   listMessages,
   logout,
   onServerWaking,
+  pinConversation,
   renameConversation,
   sendGuestMessage,
   sendMessage,
   setFavorite,
+  setRating,
   uploadFile,
   verifyEmail,
   type Account,
@@ -42,6 +44,7 @@ import {
   type Conversation,
   type FavoriteMessage,
   type Message,
+  type Rating,
 } from "./api";
 
 const MOBILE_QUERY = "(max-width: 768px)";
@@ -65,6 +68,8 @@ const MAX_FILE_MB = Number(import.meta.env.VITE_MAX_FILE_MB ?? 5);
 const FILE_TYPES = ".pdf,.docx,.txt,.md,.csv,.json,.log,.html,.htm,.xml,.py,.go,.js,.ts,.sql,.png,.jpg,.jpeg,.webp,.gif,image/*";
 const FILE_ONLY_QUESTION = "Tolong ringkas isi berkas ini.";
 const IMAGE_ONLY_QUESTION = "Tolong jawab soal atau jelaskan isi gambar ini.";
+// Messages made in this page only (a question being sent, a failed one, a stopped half answer, a guest chat)
+const LOCAL_ID = /^(draft|stopped|question|guest)-/;
 
 // The last chosen answer mode, kept per browser; "deep" when nothing was saved or storage is blocked
 function readMode(): AnswerMode {
@@ -84,9 +89,26 @@ type ConversationItemProps = {
   onToggleMenu: () => void;
   onRename: (title: string) => void;
   onDelete: () => void;
+  onTogglePin: () => void;
 };
 
-// One row in the sidebar: the title opens the chat, the three-dot button opens rename and delete
+// A pushpin, shown before the title of a pinned conversation
+function PinIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" className="pin-icon">
+      <path
+        d="M9 3h6l-1 6 4 4H6l4-4zM12 13v8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// One row in the sidebar: the title opens the chat, the three-dot button opens pin, rename, and delete
 function ConversationItem(props: ConversationItemProps) {
   const { conversation, active, menuOpen, disabled } = props;
   const [editing, setEditing] = useState(false);
@@ -128,6 +150,7 @@ function ConversationItem(props: ConversationItemProps) {
   return (
     <li className={active ? "active" : ""}>
       <button className="open" onClick={props.onOpen} disabled={disabled} title={conversation.title}>
+        {conversation.pinned && <PinIcon />}
         {conversation.title}
       </button>
       <div className="item-menu">
@@ -142,6 +165,9 @@ function ConversationItem(props: ConversationItemProps) {
         </button>
         {menuOpen && (
           <div className="dropdown" role="menu">
+            <button role="menuitem" onClick={props.onTogglePin}>
+              {conversation.pinned ? "Lepas sematan" : "Sematkan"}
+            </button>
             <button role="menuitem" onClick={startRename}>
               Ganti nama
             </button>
@@ -192,6 +218,7 @@ function App() {
   const toastTimer = useRef(0);
   const highlightTimer = useRef(0);
   const followRef = useRef(true);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Loads who is using this device, then their saved conversations; a guest has none.
   // Opening the link from the verification email logs into the new account first
@@ -381,7 +408,7 @@ function App() {
   async function toggleFavorite(message: Message) {
     setMenuId(null);
     setSelectedId(null);
-    if (message.id.startsWith("draft-")) {
+    if (message.id.startsWith("draft-") || message.id.startsWith("stopped-")) {
       return;
     }
     const favorite = !message.favorite;
@@ -396,6 +423,35 @@ function App() {
     } catch {
       mark(!favorite);
       setError("Gagal menyimpan pesan favorit.");
+    }
+  }
+
+  // Likes or dislikes a saved answer right away, and undoes it if saving fails
+  async function rate(message: Message, rating: Rating) {
+    const mark = (value: Rating) =>
+      setMessages((current) => current.map((item) => (item.id === message.id ? { ...item, rating: value } : item)));
+    mark(rating);
+    try {
+      await setRating(message.id, rating);
+    } catch {
+      mark(message.rating);
+      setError("Gagal menyimpan penilaian.");
+    }
+  }
+
+  // Pins or unpins a conversation, then reads the list again so it shows the server's order
+  async function togglePin(conversation: Conversation) {
+    setMenuId(null);
+    const pinned = !conversation.pinned;
+    const mark = (value: boolean) =>
+      setConversations((current) => current.map((item) => (item.id === conversation.id ? { ...item, pinned: value } : item)));
+    mark(pinned);
+    try {
+      await pinConversation(conversation.id, pinned);
+      setConversations(await listConversations());
+    } catch {
+      mark(!pinned);
+      setError("Gagal menyematkan percakapan.");
     }
   }
 
@@ -548,9 +604,15 @@ function App() {
   }
 
   // A guest chat lives only in this page: it is sent with its history and never saved
-  async function sendAsGuest(text: string, draftId: string, onUpdate: (update: AnswerUpdate) => void): Promise<Message> {
-    const file = attachment ?? guestFile;
-    const answer = await sendGuestMessage(text, messages, file, onUpdate);
+    async function sendAsGuest(
+    text: string,
+    draftId: string,
+    chosen: Attachment | null,
+    onUpdate: (update: AnswerUpdate) => void,
+    signal: AbortSignal,
+  ): Promise<Message> {
+    const file = chosen ?? guestFile;
+    const answer = await sendGuestMessage(text, messages, file, onUpdate, signal);
     setGuestFile(file);
     // the question and the answer are already on screen, so their new bubbles do not slide in again
     setQuietIds((current) => new Set(current).add(`question-${draftId}`).add(answer.id));
@@ -613,7 +675,7 @@ function App() {
     requestAnimationFrame(() => box.setSelectionRange(start + pasted.length, start + pasted.length));
   }
 
-  // Sends the question, waits for the answer, then shows both as saved by the server
+  // Sends the question in the input box; the box and the chosen file are cleared at once
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const fileQuestion = attachment !== null && IMAGE_NAME.test(attachment.name) ? IMAGE_ONLY_QUESTION : FILE_ONLY_QUESTION;
@@ -621,35 +683,65 @@ function App() {
     if (text === "" || loading || uploading) {
       return;
     }
+    const typed = input.trim() !== "";
+    setInput("");
+    setAttachment(null);
+    await send(text, attachment, typed);
+  }
 
-    const draftId = `draft-${Date.now()}`;
+  // Sends a failed or stopped question again; its old bubble and any half answer under it are removed first
+  function retry(message: Message) {
+    if (loading || uploading) {
+      return;
+    }
+    setMessages((current) => current.filter((item) => item.id !== message.id && item.id !== `stopped-${message.id}`));
+    void send(message.text, message.retry?.attachment ?? null, true);
+  }
+
+  // Stops the answer being made; the question stays on screen with "Coba lagi"
+  function stopAnswer() {
+    abortRef.current?.abort();
+  }
+
+  // Waits for the answer, then shows the question and answer as saved by the server.
+  // A failed or stopped question is not saved: it stays on screen with a note and "Coba lagi",
+  // and the user can also just type a new question
+  async function send(text: string, file: Attachment | null, typed: boolean) {
+    const sentAt = new Date();
+    const draftId = `draft-${sentAt.getTime()}`;
     const draft: Message = {
       id: draftId,
       sender: "user",
       text,
       sources: [],
-      sentAt: new Date().toISOString(),
+      sentAt: sentAt.toISOString(),
       favorite: false,
-      attachment: attachment?.name ?? "",
+      attachment: file?.name ?? "",
+      rating: 0,
     };
     followRef.current = true;
     setMessages((current) => [...current, draft]);
-    setInput("");
     setError("");
     setLive({ status: "", text: "" });
     setLoading(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
 
-    // An answer that already appeared piece by piece is not typed out again
+    // An answer that already appeared piece by piece is not typed out again; a stopped one keeps what arrived
     let streamed = false;
+    let partial = "";
     const onUpdate = (update: AnswerUpdate) => {
-      if (update.kind === "text") streamed = true;
+      if (update.kind === "text") {
+        streamed = true;
+        partial += update.text;
+      }
+      if (update.kind === "reset") partial = "";
       showUpdate(update);
     };
 
     try {
       if (isGuest) {
-        const answer = await sendAsGuest(text, draftId, onUpdate);
-        setAttachment(null);
+        const answer = await sendAsGuest(text, draftId, file, onUpdate, controller.signal);
         setTypingId(streamed ? null : answer.id);
         return;
       }
@@ -663,8 +755,7 @@ function App() {
       }
 
       const conversationId = id;
-      const result = await sendMessage(conversationId, text, mode, attachment, onUpdate);
-      setAttachment(null);
+      const result = await sendMessage(conversationId, text, mode, file, onUpdate, controller.signal);
       setQuietIds((current) => new Set(current).add(result.question.id).add(result.answer.id));
       setMessages((current) => [
         ...current.filter((item) => item.id !== draftId),
@@ -678,28 +769,69 @@ function App() {
         );
       }
     } catch (err) {
-      setMessages((current) => current.filter((item) => item.id !== draftId));
-      setInput(text === fileQuestion && input.trim() === "" ? "" : text);
-      if (err instanceof ApiError && err.status === 403 && isGuest) {
+      // the question stays with a note; a half answer that already arrived stays under it, marked with an empty note
+      // so it is never sent as guest history
+      const keep = (note: string) =>
+        setMessages((current) => {
+          const kept = current.map((item) => (item.id === draftId ? { ...item, note, retry: { attachment: file } } : item));
+          if (partial.trim() === "") {
+            return kept;
+          }
+          const half: Message = { ...draft, id: `stopped-${draftId}`, sender: "bot", text: partial, attachment: "", note: "" };
+          return [...kept, half];
+        });
+      const giveBack = () => {
+        setMessages((current) => current.filter((item) => item.id !== draftId));
+        setInput(typed ? text : "");
+        setAttachment(file);
+      };
+      if (controller.signal.aborted) {
+        keep("Jawaban dihentikan.");
+      } else if (err instanceof ApiError && err.status === 403 && isGuest) {
+        giveBack();
         setError(err.message);
         openDialog("masuk");
-      } else if (err instanceof ApiError && err.status === 429) {
-        setError(err.message);
       } else if (err instanceof BlockedError) {
+        giveBack();
         setError("Pesan ditolak oleh pengaman server karena mirip perintah berbahaya (misalnya kode SQL). Ubah kalimatnya lalu coba lagi.");
+      } else if (err instanceof ApiError && err.status === 429) {
+        keep(err.message);
       } else {
-        setError("Pesan gagal terkirim. Coba lagi.");
+        keep("Jawaban gagal dibuat.");
       }
     } finally {
+      abortRef.current = null;
       setLoading(false);
     }
   }
 
   const isGuest = account === null || account.role === "tamu";
   const selected = messages.find((item) => item.id === selectedId) ?? null;
+  const pinnedList = conversations.filter((item) => item.pinned);
+  const otherList = conversations.filter((item) => !item.pinned);
+  // only the newest question can be sent again, and only when nothing came after it except its half answer
+  const lastQuestion = [...messages].reverse().find((item) => item.sender === "user");
+  const retryId = !loading && lastQuestion?.note ? lastQuestion.id : null;
   const activeTitle = isGuest
     ? "Percakapan tamu"
     : (conversations.find((item) => item.id === activeId)?.title ?? "Percakapan baru");
+
+  function renderConversation(item: Conversation) {
+    return (
+      <ConversationItem
+        key={item.id}
+        conversation={item}
+        active={item.id === activeId}
+        menuOpen={item.id === menuId}
+        disabled={loading}
+        onOpen={() => openConversation(item.id)}
+        onToggleMenu={() => setMenuId((current) => (current === item.id ? null : item.id))}
+        onRename={(title) => changeTitle(item.id, title)}
+        onDelete={() => removeConversation(item.id)}
+        onTogglePin={() => togglePin(item)}
+      />
+    );
+  }
 
   return (
     <div className={`app ${sidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
@@ -718,29 +850,25 @@ function App() {
           + Percakapan baru
         </button>
 
-        <p className="list-title">Riwayat</p>
-        <ul className="conversation-list">
-          {listLoading ? (
-            <ListSkeleton rows={4} />
-          ) : (
-            conversations.length === 0 && (
-              <li className="list-empty">{isGuest ? "Masuk untuk menyimpan percakapan" : "Belum ada percakapan"}</li>
-            )
+        <div className="conversation-scroll">
+          {pinnedList.length > 0 && (
+            <>
+              <p className="list-title">Disematkan</p>
+              <ul className="conversation-list">{pinnedList.map(renderConversation)}</ul>
+            </>
           )}
-          {conversations.map((item) => (
-            <ConversationItem
-              key={item.id}
-              conversation={item}
-              active={item.id === activeId}
-              menuOpen={item.id === menuId}
-              disabled={loading}
-              onOpen={() => openConversation(item.id)}
-              onToggleMenu={() => setMenuId((current) => (current === item.id ? null : item.id))}
-              onRename={(title) => changeTitle(item.id, title)}
-              onDelete={() => removeConversation(item.id)}
-            />
-          ))}
-        </ul>
+          <p className="list-title">Riwayat</p>
+          <ul className="conversation-list">
+            {listLoading ? (
+              <ListSkeleton rows={4} />
+            ) : (
+              conversations.length === 0 && (
+                <li className="list-empty">{isGuest ? "Masuk untuk menyimpan percakapan" : "Belum ada percakapan"}</li>
+              )
+            )}
+            {otherList.map(renderConversation)}
+          </ul>
+        </div>
 
         {isGuest && !listLoading && (
           <p className="guest-note">
@@ -828,6 +956,9 @@ function App() {
                 setSelectedId(message.id);
               }}
               onTap={() => setSelectedId((current) => (current === null || current === message.id ? null : message.id))}
+              canRate={!isGuest && message.sender === "bot" && !LOCAL_ID.test(message.id)}
+              onRate={(rating) => rate(message, rating)}
+              onRetry={message.id === retryId ? () => retry(message) : undefined}
             />
           ))}
 
@@ -897,9 +1028,15 @@ function App() {
             placeholder="Tulis pertanyaan..."
             maxLength={2000}
           />
-          <button type="submit" disabled={(input.trim() === "" && attachment === null) || loading || uploading}>
-            Kirim
-          </button>
+          {loading ? (
+            <button type="button" className="stop-button" onClick={stopAnswer} aria-label="Hentikan jawaban">
+              Berhenti
+            </button>
+          ) : (
+            <button type="submit" disabled={(input.trim() === "" && attachment === null) || uploading}>
+              Kirim
+            </button>
+          )}
         </form>
       </div>
       {(dialog === "masuk" || dialog === "daftar") && (

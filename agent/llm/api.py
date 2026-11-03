@@ -1,6 +1,6 @@
 import json
 
-from llm import pemakaian
+from llm import denyut, pemakaian
 from llm.client import GalatLLM, buka, kirim_json
 
 
@@ -55,6 +55,7 @@ def rakit_pesan_stream(respon, saat_teks):
     """Menyusun kembali pesan utuh dari baris "data: {...}" stream format OpenAI, sambil meneruskan teksnya."""
     teks, panggilan, alasan, pakai = "", {}, None, None
     for baris in respon:
+        denyut.detak()
         baris = baris.decode("utf-8", "replace").strip()
         if not baris.startswith("data:"):
             continue

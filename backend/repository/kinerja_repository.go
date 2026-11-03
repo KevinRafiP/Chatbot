@@ -35,7 +35,8 @@ func (r *KinerjaRepository) HapusSebelum(batas time.Time) (int64, error) {
 
 // Laporan merangkum catatan sejak hari terakhir: total, per profil, alat terbanyak, dan beberapa catatan terbaru
 func (r *KinerjaRepository) Laporan(hari, batasAlat, batasTerbaru int) (model.LaporanKinerja, error) {
-	laporan := model.LaporanKinerja{Hari: hari, PerProfil: []model.StatistikKinerja{}, Alat: []model.PemakaianAlat{}, Terbaru: []model.Kinerja{}}
+	laporan := model.LaporanKinerja{Hari: hari, PerProfil: []model.StatistikKinerja{}, Alat: []model.PemakaianAlat{}, Terbaru: []model.Kinerja{},
+		Penilaian: []model.PenilaianJawaban{}, TidakDisukai: []model.JawabanDinilai{}}
 	sejak := time.Now().AddDate(0, 0, -hari)
 
 	// ROLLUP menambah baris total per jenis (GROUPING = 1) di samping baris per profil; total "jawaban" tidak ikut
@@ -106,4 +107,47 @@ func (r *KinerjaRepository) Laporan(hari, batasAlat, batasTerbaru int) (model.La
 		laporan.Terbaru = append(laporan.Terbaru, k)
 	}
 	return laporan, rows.Err()
+}
+
+// Penilaian menghitung suka dan tidak suka sejak hari terakhir; baris pertama total, lalu per profil
+func (r *KinerjaRepository) Penilaian(hari int) ([]model.PenilaianJawaban, error) {
+	rows, err := r.db.Query(`SELECT COALESCE(profil, ''), COUNT(*) FILTER (WHERE penilaian = 1), COUNT(*) FILTER (WHERE penilaian = -1)
+		FROM pesan WHERE penilaian IS NOT NULL AND dinilai_pada >= $1
+		GROUP BY ROLLUP(profil) ORDER BY GROUPING(profil) DESC, COUNT(*) DESC`, time.Now().AddDate(0, 0, -hari))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	daftar := []model.PenilaianJawaban{}
+	for rows.Next() {
+		var p model.PenilaianJawaban
+		if err := rows.Scan(&p.Profil, &p.Suka, &p.TidakSuka); err != nil {
+			return nil, err
+		}
+		daftar = append(daftar, p)
+	}
+	return daftar, rows.Err()
+}
+
+// TidakDisukai mengambil jawaban terbaru yang tidak disukai beserta pertanyaan tepat sebelumnya, dipotong pendek
+func (r *KinerjaRepository) TidakDisukai(hari, batas int) ([]model.JawabanDinilai, error) {
+	rows, err := r.db.Query(`SELECT p.profil, COALESCE(LEFT(t.isi, 200), ''), LEFT(p.isi, 300), p.dinilai_pada
+		FROM pesan p LEFT JOIN LATERAL (
+			SELECT isi FROM pesan WHERE percakapan_id = p.percakapan_id AND urutan < p.urutan AND pengirim = 'user'
+			ORDER BY urutan DESC LIMIT 1
+		) AS t ON TRUE
+		WHERE p.penilaian = -1 AND p.dinilai_pada >= $1 ORDER BY p.dinilai_pada DESC LIMIT $2`, time.Now().AddDate(0, 0, -hari), batas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	daftar := []model.JawabanDinilai{}
+	for rows.Next() {
+		var j model.JawabanDinilai
+		if err := rows.Scan(&j.Profil, &j.Pertanyaan, &j.Jawaban, &j.DinilaiPada); err != nil {
+			return nil, err
+		}
+		daftar = append(daftar, j)
+	}
+	return daftar, rows.Err()
 }

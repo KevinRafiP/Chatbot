@@ -2,6 +2,10 @@ import json
 import logging
 import urllib.parse
 
+# hasil pencarian sering berbahasa lain; pengingat pendek ini menjaga bahasa jawaban tetap mengikuti pertanyaan
+ALAT_BACA_WEB = {"cari_web", "baca_url", "wikipedia"}
+PENGINGAT_BAHASA = "Pengingat: tetap jawab dengan bahasa pertanyaan terakhir pengguna; terjemahkan isi sumber yang berbahasa lain."
+
 PESAN_PUTARAN_TERAKHIR = (
     "Batas pencarian sudah tercapai. Jangan memanggil alat lagi. "
     "Jawab sekarang hanya dari informasi yang sudah terkumpul; "
@@ -27,6 +31,8 @@ def buat_aksi(kotak_alat, maks_langkah):
                 }
             })
 
+        if any(p.get("name") in ALAT_BACA_WEB for p in keadaan["panggilan"]):
+            balasan.append({"text": PENGINGAT_BAHASA})
         if keadaan["putaran_llm"] >= maks_langkah - 1:
             balasan.append({"text": PESAN_PUTARAN_TERAKHIR})
 

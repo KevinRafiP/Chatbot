@@ -13,6 +13,7 @@ type Pengguna struct {
 type Percakapan struct {
 	ID             string    `json:"id"`
 	Judul          string    `json:"judul"`
+	Disematkan     bool      `json:"disematkan"`
 	DiperbaruiPada time.Time `json:"diperbarui_pada"`
 }
 
@@ -28,6 +29,7 @@ type Pesan struct {
 	Isi        string    `json:"isi"`
 	Sumber     []Sumber  `json:"sumber"`
 	Favorit    bool      `json:"favorit"`
+	Penilaian  int       `json:"penilaian"` // 1 suka, -1 tidak suka, 0 belum dinilai
 	Lampiran   string    `json:"lampiran,omitempty"`
 	DibuatPada time.Time `json:"dibuat_pada"`
 }

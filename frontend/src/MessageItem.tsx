@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
-import type { Message, Source } from "./api";
+import type { Message, Rating, Source } from "./api";
 import { Markdown } from "./Markdown";
 import { formatTime, looksFormatted } from "./messageText";
 import { useSmoothText } from "./useSmoothText";
@@ -62,6 +62,21 @@ export function StarIcon({ filled, size = 18 }: { filled: boolean; size?: number
   );
 }
 
+// A thumb pointing up for "like", or down for "dislike"; filled when chosen
+function ThumbIcon({ down, filled }: { down?: boolean; filled: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" style={down ? { transform: "scaleY(-1)" } : undefined}>
+      <path
+        d="M7 10v10H4V10zM7 10l4-7a2 2 0 0 1 3 2l-1 5h5.5a2 2 0 0 1 2 2.4l-1.4 6A2 2 0 0 1 17.2 20H7"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 // Shows one reference: its title, plus a link to open it when it has a web address
 function SourceItem({ source }: { source: Source }) {
   return (
@@ -91,6 +106,9 @@ type MessageItemProps = {
   onToggleFavorite: () => void;
   onLongPress: () => void;
   onTap: () => void;
+  canRate: boolean;
+  onRate: (rating: Rating) => void;
+  onRetry?: () => void;
 };
 
 // One chat message: the bubble, a small menu at its top right (shown on hover), and the time it was sent.
@@ -232,9 +250,43 @@ export function MessageItemView(props: MessageItemProps) {
             </div>
           )}
         </div>
+        {message.note && (
+          <p className="message-note" onClick={(event) => event.stopPropagation()}>
+            {message.note}
+            {props.onRetry && (
+              <button type="button" className="retry-button" onClick={props.onRetry}>
+                Coba lagi
+              </button>
+            )}
+          </p>
+        )}
         <span className="message-time">
           {message.favorite && <StarIcon filled size={12} />}
           {formatTime(message.sentAt)}
+          {props.canRate && !typing && (
+            <span className="rating" onClick={(event) => event.stopPropagation()}>
+              <button
+                type="button"
+                className={message.rating === 1 ? "chosen" : ""}
+                onClick={() => props.onRate(message.rating === 1 ? 0 : 1)}
+                aria-label="Jawaban bagus"
+                aria-pressed={message.rating === 1}
+                title="Jawaban bagus"
+              >
+                <ThumbIcon filled={message.rating === 1} />
+              </button>
+              <button
+                type="button"
+                className={message.rating === -1 ? "chosen" : ""}
+                onClick={() => props.onRate(message.rating === -1 ? 0 : -1)}
+                aria-label="Jawaban kurang bagus"
+                aria-pressed={message.rating === -1}
+                title="Jawaban kurang bagus"
+              >
+                <ThumbIcon down filled={message.rating === -1} />
+              </button>
+            </span>
+          )}
         </span>
       </div>
     </div>
@@ -251,7 +303,9 @@ export const MessageItem = memo(
     before.quiet === after.quiet &&
     before.menuOpen === after.menuOpen &&
     before.selected === after.selected &&
-    before.highlighted === after.highlighted,
+    before.highlighted === after.highlighted &&
+    before.canRate === after.canRate &&
+    (before.onRetry === undefined) === (after.onRetry === undefined),
 );
 
 // The bubble shown while the answer is being made: the answer so far, or else the current step such as "Mencari: ..."
