@@ -17,14 +17,16 @@ BATAS_BODY = 256_000
 BATAS_BODY_BERKAS = 8_000_000
 
 
-def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berkas=20000, pembaca_gambar=None):
+def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berkas=20000, pembaca_gambar=None, cek_llm=None):
     """Membuat kelas penangan HTTP yang sudah membawa agen per profil (mendalam, cepat, tamu) dan API key."""
     agen = daftar_agen["mendalam"]
 
     class Penangan(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/kesehatan":
-                self.kirim_json(200, {"status": "sukses", "message": "layanan agent aktif"})
+                # llm = apakah model AI bisa dihubungi (misalnya laptop untuk mode lokal sedang menyala)
+                data = {"llm": cek_llm()} if cek_llm else {}
+                self.kirim_json(200, {"status": "sukses", "message": "layanan agent aktif", "data": data})
                 return
             self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
 

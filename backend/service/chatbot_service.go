@@ -63,6 +63,10 @@ func (s *ChatbotService) Jawab(ctx context.Context, pertanyaan string, riwayat [
 }
 
 // CariPengetahuan dipakai alat cari_pengetahuan di agent untuk mencari ulang data dengan kata kunci lain
+// AgenTerhubung bernilai true jika pertanyaan bisa dijawab sekarang; tanpa agent, jawaban diambil langsung dari database
+func (s *ChatbotService) AgenTerhubung(ctx context.Context) bool {
+	return s.agen == nil || s.agen.Sehat(ctx)
+}
 func (s *ChatbotService) CariPengetahuan(ctx context.Context, kueri string) ([]agen.Konteks, error) {
 	daftar, err := s.cariData(ctx, potong(strings.TrimSpace(kueri), 300))
 	if err != nil {

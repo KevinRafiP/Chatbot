@@ -26,6 +26,12 @@ POLA_MINTA_SUMBER = re.compile(
     r"|\b(beri|berikan|sertakan|cantumkan|tampilkan|tulis|kasih)\w*\s+(juga\s+)?(sumber|referensi|rujukan|link)\b"
     r"|\b(sources?|references?|citations?)\b")
 
+# besaran dan bentuk nilainya; hitungan yang menyebut besaran tanpa nilainya (biaya tanpa tarif, listrik tanpa watt) dicari dulu datanya
+DATA_DICARI = [(re.compile(kata), re.compile(nilai)) for kata, nilai in (
+    (r"\b(biaya|harga|tarif|ongkos|rupiah)", r"\brp\s?\d|\d{1,3}(\.\d{3})+|\d\s?(ribu|rb|juta|jt|miliar|usd|eur|jpy|sgd|myr|dolar|dollar|euro|yen|ringgit)\b"),
+    (r"\b(listrik|daya|watt|kwh|konsumsi)\b", r"\d\s?(w|watt|kw|kwh)\b"),
+)]
+
 # pesan yang tidak perlu dicek ke internet dulu: sapaan, terima kasih, pertanyaan tentang diri pengguna, tulisan kreatif, tugas (hitung, kode, rencana, rangkuman), dan soal logika
 POLA_TANPA_CARI = [re.compile(pola) for pola in (
     r"^(halo|hai|hi|hello|hey|pagi|siang|sore|malam|selamat \w+|terima ?kasih|makasih|thanks?|thank you|oke|ok|siap|mantap|sip|baik)\b[\s\w]{0,15}[!.?]*$",
@@ -141,7 +147,14 @@ def butuh_cari(teks):
     kecil = " ".join(teks.lower().split())
     if len(kecil) < 4:
         return False
+    if butuh_data(kecil):
+        return True
     return not any(pola.search(kecil) for pola in POLA_TANPA_CARI)
+    
+def butuh_data(teks):
+    """True jika pertanyaan menyebut besaran (biaya, daya listrik) tetapi nilainya tidak diberikan, jadi datanya harus dicari dulu."""
+    kecil = " ".join(teks.lower().split())
+    return any(kata.search(kecil) and not nilai.search(kecil) for kata, nilai in DATA_DICARI)
 
 def minta_cari_ulang(teks):
     """True jika pengguna bilang jawaban sebelumnya salah atau usang, atau meminta dicari ulang."""

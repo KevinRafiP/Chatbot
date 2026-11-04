@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from ingatan import pilih_ingatan
 from prompt import butuh_analisis, instruksi_tambahan
-from pengaman.aturan import (batas_sumber, butuh_cari, minta_cari_ulang, minta_email, minta_internet, obrolan_ringan,
+from pengaman.aturan import (batas_sumber, butuh_cari, butuh_data, minta_cari_ulang, minta_email, minta_internet, obrolan_ringan,
                              periksa_pertanyaan, permintaan_merusak, tanya_selera)
 
 # makin lama pesannya, makin pendek yang dikirim; 2 pesan terakhir memakai batas AGENT_RIWAYAT_HURUF_TERBARU dari .env
@@ -58,6 +58,7 @@ def buat_siapkan(kotak_alat):
         # permintaan cari ulang selalu dicari, pertanyaan selera tidak perlu dicari
         perlu_cari = segarkan or (butuh_cari(pertanyaan) and not selera)
         langsung_cari = segarkan or minta_internet(pertanyaan) or not keadaan.get("konteks")
+        keadaan["butuh_data"] = butuh_data(pertanyaan)
         keadaan["wajib_cari"] = ((langsung_cari and kotak_alat.wajib_cari(segarkan) and perlu_cari)
                                  or kotak_alat.wajib_alat_khusus(pertanyaan, perlu_cari))
         # jika ada data internal, model yang memutuskan; jawaban "tidak ada informasi" tanpa mencari diulang di simpul pikir

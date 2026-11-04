@@ -922,8 +922,18 @@ button:disabled {
   border-top: 1px solid var(--line);
 }
 
-.attachment-bar + .chat-form {
+.attachment-bar + .chat-form,
+.agent-offline + .chat-form {
   border-top: 0;
+}
+
+.agent-offline {
+  margin: 0;
+  padding: 8px 16px 0;
+  border-top: 1px solid var(--line);
+  color: var(--danger);
+  font-size: 14px;
+  text-align: center;
 }
 
 .attachment-chip {

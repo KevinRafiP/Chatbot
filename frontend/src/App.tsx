@@ -24,6 +24,7 @@ import {
   createConversation,
   deleteConversation,
   getAccount,
+  getAgentStatus,
   listConversations,
   listFavorites,
   listMessages,
@@ -58,6 +59,7 @@ if (VERIFY_CODE !== null || RESET_CODE !== null) {
   window.history.replaceState(null, "", window.location.pathname);
 }
 const TOAST_MS = 2000;
+const AGENT_CHECK_MS = 30_000;
 const HIGHLIGHT_MS = 4000;
 const INPUT_MAX_HEIGHT = 200;
 // closer than this to the bottom counts as reading the newest message
@@ -196,6 +198,7 @@ function App() {
   const [typingId, setTypingId] = useState<string | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
   const [waking, setWaking] = useState(false);
+  const [agentOffline, setAgentOffline] = useState(false);
   const [view, setView] = useState<"chat" | "favorites">("chat");
   const [favorites, setFavorites] = useState<FavoriteMessage[] | null>(null);
   const [favoritesError, setFavoritesError] = useState("");
@@ -249,6 +252,24 @@ function App() {
       .finally(() => setListLoading(false));
 
     return () => onServerWaking(null);
+  }, []);
+  
+  // Checks every 30 seconds whether the AI can answer, so people do not keep sending messages while it is offline
+  useEffect(() => {
+    let active = true;
+    const check = () => {
+      getAgentStatus().then((connected) => {
+        if (active) {
+          setAgentOffline(!connected);
+        }
+      });
+    };
+    check();
+    const timer = window.setInterval(check, AGENT_CHECK_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, []);
 
   // Scrolls to the newest message when one is sent or a chat is opened, but not while an answer is being typed out
@@ -680,7 +701,7 @@ function App() {
     event.preventDefault();
     const fileQuestion = attachment !== null && IMAGE_NAME.test(attachment.name) ? IMAGE_ONLY_QUESTION : FILE_ONLY_QUESTION;
     const text = input.trim() || (attachment !== null ? fileQuestion : "");
-    if (text === "" || loading || uploading) {
+    if (text === "" || loading || uploading || agentOffline) {
       return;
     }
     const typed = input.trim() !== "";
@@ -992,6 +1013,11 @@ function App() {
             </span>
           </div>
         )}
+        {view === "chat" && agentOffline && (
+          <p className="agent-offline" role="status">
+            AI sedang tidak terhubung, jadi pesan belum bisa dijawab. Coba lagi beberapa saat lagi.
+          </p>
+        )}
 
         <form className={`chat-form ${view === "favorites" ? "hidden" : ""}`} onSubmit={handleSubmit}>
           <input ref={fileRef} type="file" accept={FILE_TYPES} onChange={chooseFile} hidden />
@@ -1033,7 +1059,7 @@ function App() {
               Berhenti
             </button>
           ) : (
-            <button type="submit" disabled={(input.trim() === "" && attachment === null) || uploading}>
+            <button type="submit" disabled={(input.trim() === "" && attachment === null) || uploading || agentOffline}>
               Kirim
             </button>
           )}

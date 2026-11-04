@@ -29,6 +29,8 @@ KATA_UMUM = {"apa", "itu", "yang", "dan", "atau", "ada", "berapa", "siapa", "bag
              "untuk", "dalam", "tentang", "ini", "saja", "the", "and", "what", "who", "how", "for"}
 # sisa kueri yang lebih pendek dari ini berarti pertanyaan lanjutan ("cari lagi"), jadi pesan pengguna sebelumnya ikut dipakai
 MIN_KATA_KUERI_SENDIRI = 2
+PESAN_WAJIB_DATA = ("Jangan menjawab dulu. Ada data yang dibutuhkan hitungan ini tetapi tidak diberikan pengguna (misalnya spesifikasi, "
+                    "daya, harga, atau tarif). Panggil cari_web sekarang untuk mencarinya; hitung setelah datanya ada.")
 
 
 def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM, paksa_cari=False):
@@ -81,8 +83,10 @@ def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM, paksa_cari=False):
             return pikir(keadaan)
 
         if wajib and paksa_cari and ada_alat(keadaan, "cari_web"):
-            if not ada_panggilan(konten):
-                konten = paksa_panggil_cari(klien, sistem, keadaan)
+            # data yang belum diberikan pengguna (misalnya daya GPU atau tarif listrik) dicari dulu, bukan diasumsikan
+            harus_web = bool(keadaan.get("butuh_data")) and not memanggil(konten, "cari_web")
+            if not ada_panggilan(konten) or harus_web:
+                konten = paksa_panggil_cari(klien, sistem, keadaan, harus_web)
             luruskan_kueri(konten, keadaan)
 
         keadaan["isi"].append(konten)
@@ -99,6 +103,9 @@ def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM, paksa_cari=False):
 def ada_panggilan(konten):
     return any("toolUse" in b for b in konten.get("content", []))
 
+def memanggil(konten, nama):
+    return any(b["toolUse"].get("name") == nama for b in konten.get("content", []) if "toolUse" in b)
+
 def ada_alat(keadaan, nama):
     return any(d.get("name") == nama for d in keadaan.get("deklarasi") or [])
 
@@ -110,13 +117,13 @@ def pesan_wajib(keadaan):
             f"pilih dari: {nama}. Pakai alat khusus jika deskripsinya cocok; "
             "cari_web hanya untuk fakta yang tidak bisa dijawab alat lain.")
 
-def paksa_panggil_cari(klien, sistem, keadaan):
-    """Meminta model sekali lagi memanggil cari_web; jika tetap tidak, agent membuat panggilan cari_web sendiri dari pertanyaan."""
-    logging.info("model tidak memanggil alat walau wajib mencari, diminta ulang")
-    isi = keadaan["isi"] + [{"role": "user", "content": [{"text": pesan_wajib(keadaan)}]}]
+def paksa_panggil_cari(klien, sistem, keadaan, harus_web=False):
+    """Meminta model sekali lagi memanggil alat (cari_web jika harus_web); jika tetap tidak, agent membuat panggilan cari_web sendiri."""
+    pesan = PESAN_WAJIB_DATA if harus_web else pesan_wajib(keadaan)
+    isi = keadaan["isi"] + [{"role": "user", "content": [{"text": pesan}]}]
     try:
         konten = klien.kirim(sistem, isi, keadaan["deklarasi"], True)
-        if ada_panggilan(konten):
+        if ada_panggilan(konten) and (not harus_web or memanggil(konten, "cari_web")):
             return konten
     except GalatLLM as galat:
         logging.warning("permintaan ulang cari_web gagal: %s", galat)

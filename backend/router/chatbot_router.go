@@ -71,6 +71,7 @@ func BuatChatbot(
 	}
 
 	mux.HandleFunc("GET /kesehatan", handler.Kesehatan)
+	mux.HandleFunc("GET /status-agen", handler.StatusAgen(chatbotService))
 
 	mux.Handle("POST /sesi/tamu", middleware.BatasiLaju(pembatasTamu, perIP, handler.MasukTamu(sesiService)))
 	mux.Handle("GET /sesi", wajib(http.HandlerFunc(handler.SesiSaya)))

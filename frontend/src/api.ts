@@ -175,6 +175,21 @@ async function serverAnswers(): Promise<boolean> {
   }
 }
 
+// Asks the backend whether the agent and its AI model can answer right now. An unreachable backend counts as
+// connected here, because the "server is waking" notice already covers that case
+export async function getAgentStatus(): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_URL}/status-agen`);
+    if (!response.ok) {
+      return true;
+    }
+    const body: ApiResponse<{ terhubung: boolean }> = await response.json();
+    return body.data.terhubung;
+  } catch {
+    return true;
+  }
+}
+
 // Lets the UI show a notice while the backend is waking up
 export function onServerWaking(listener: ((waking: boolean) => void) | null) {
   wakingListener = listener;

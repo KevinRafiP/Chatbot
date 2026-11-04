@@ -185,6 +185,34 @@ func (g GalatDitolak) Error() string {
 // galatSementara marks failures that did not come from the agent itself (network error, or a non-JSON reply from Render)
 type galatSementara struct{ error }
 
+// BatasWaktuSehat adalah waktu paling lama menunggu agent menjawab pengecekan kesehatan
+const BatasWaktuSehat = 8 * time.Second
+
+// Sehat mengecek apakah agent hidup dan model AI-nya bisa dihubungi
+func (k *Klien) Sehat(ctx context.Context) bool {
+	ctx, batal := context.WithTimeout(ctx, BatasWaktuSehat)
+	defer batal()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, k.alamat+"/kesehatan", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := k.http.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	var isi struct {
+		Data struct {
+			LLM *bool `json:"llm"`
+		} `json:"data"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&isi) != nil {
+		return false
+	}
+	// agent versi lama tidak mengirim data llm, jadi dianggap terhubung
+	return isi.Data.LLM == nil || *isi.Data.LLM
+}
+
 // Tanya mengirim pertanyaan, data dari database, riwayat percakapan, dan ingatan tentang pengguna ke layanan agent;
 // profil menentukan kemampuan agent: ProfilTamu, ProfilCepat, atau ProfilMendalam
 func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan, profil string, tambahan Tambahan) (Jawaban, error) {

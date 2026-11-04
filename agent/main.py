@@ -7,7 +7,7 @@ from alat.daftar import KotakAlat
 from alat.tambahan import AlatTambahan
 from config import muat
 from handler import buat_penangan
-from llm.client import KlienCadangan, buat_klien
+from llm.client import CekLLM, KlienCadangan, buat_klien
 from llm.cari_gambar import buat_pencari_gambar
 from llm.embedding import buat_pembuat_embedding
 from llm.gambar import PembacaGambar
@@ -21,6 +21,8 @@ def main():
 
     try:
         klien, nama_model = buat_klien(cfg)
+        # dicek sebelum dibungkus model cadangan, agar status di frontend menunjukkan model utama
+        cek_llm = CekLLM(klien)
         klien_cepat, nama_cepat = buat_klien(cfg, cfg.llm_model_cepat) if cfg.llm_model_cepat else (klien, nama_model)
         klien_tamu, nama_tamu = buat_klien(cfg, cfg.llm_model_tamu) if cfg.llm_model_tamu else (klien_cepat, nama_cepat)
         klien_gambar = buat_klien(cfg, cfg.model_gambar)[0] if cfg.model_gambar else klien
@@ -58,7 +60,7 @@ def main():
     pembaca_gambar = PembacaGambar(klien_gambar, buat_pencari_gambar(cfg)) if cfg.baca_gambar else None
 
     server = ThreadingHTTPServer((cfg.host, cfg.port), buat_penangan(daftar_agen, cfg.api_key, pembuat_embedding, cfg.alat.berkas_maks_huruf,
-                                                                     pembaca_gambar))
+                                                                     pembaca_gambar, cek_llm))
     logging.info("layanan agent jalan di http://%s:%d (%s, model mendalam %s, cepat %s, tamu %s, cadangan %s)", cfg.host, cfg.port,
                  cfg.llm_provider, nama_model, nama_cepat, nama_tamu, cfg.llm_model_cadangan or "-")
     server.serve_forever()
