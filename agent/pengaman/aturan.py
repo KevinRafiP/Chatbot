@@ -19,6 +19,13 @@ KATA_MINTA_INTERNET = [
 
 POLA_URL = re.compile(r"https?://\S+", re.IGNORECASE)
 
+# meminta sumber atau referensi berarti jawabannya harus dicari di internet, bukan dari ingatan model
+POLA_MINTA_SUMBER = re.compile(
+    r"\b(\d+|minimal|min|beberapa|banyak|berbagai)\s+(sumber|referensi|rujukan)\b"
+    r"|\b(sumbernya|referensinya|rujukannya)\b"
+    r"|\b(beri|berikan|sertakan|cantumkan|tampilkan|tulis|kasih)\w*\s+(juga\s+)?(sumber|referensi|rujukan|link)\b"
+    r"|\b(sources?|references?|citations?)\b")
+
 # pesan yang tidak perlu dicek ke internet dulu: sapaan, terima kasih, pertanyaan tentang diri pengguna, tulisan kreatif, tugas (hitung, kode, rencana, rangkuman), dan soal logika
 POLA_TANPA_CARI = [re.compile(pola) for pola in (
     r"^(halo|hai|hi|hello|hey|pagi|siang|sore|malam|selamat \w+|terima ?kasih|makasih|thanks?|thank you|oke|ok|siap|mantap|sip|baik)\b[\s\w]{0,15}[!.?]*$",
@@ -119,6 +126,8 @@ def minta_internet(teks):
     """True jika pengguna jelas meminta sesuatu dari internet."""
     kecil = teks.lower()
     if POLA_URL.search(kecil):
+        return True
+    if POLA_MINTA_SUMBER.search(kecil):
         return True
     return any(kata in kecil for kata in KATA_MINTA_INTERNET)
 

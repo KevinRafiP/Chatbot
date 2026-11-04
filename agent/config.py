@@ -52,6 +52,8 @@ class Config:
     local_url: str
     local_model: str
     local_api_key: str
+    local_penalaran: str 
+    local_batas_waktu: int
     tavily_api_key: str
     maks_langkah: int
     maks_baca_url: int
@@ -64,6 +66,8 @@ class Config:
     llm_model_periksa: str
     periksa_huruf_sumber: int
     wajib_cari: bool
+    paksa_cari: bool
+    wajib_alat: bool
     tavily_kedalaman: str
     batas_waktu: int
     domain_diblokir: list
@@ -146,13 +150,24 @@ def muat():
     maks_baca_url = ambil_angka("AGENT_MAKS_BACA_URL", 3)
     verifikasi = ambil_ya("AGENT_VERIFIKASI_JAWABAN", True)
     wajib_cari = ambil_ya("AGENT_WAJIB_CARI", True)
+    paksa_cari = False
+    wajib_alat = False
+    model_cepat, model_tamu, model_cadangan = ambil("LLM_MODEL_CEPAT"), ambil("LLM_MODEL_TAMU"), ambil("LLM_MODEL_CADANGAN")
+    model_periksa, model_gambar = ambil("LLM_MODEL_PERIKSA"), ambil("LLM_MODEL_GAMBAR")
     if provider == "local":
         # model di laptop lebih lambat, jadi jumlah langkah dan halaman yang dibaca dibatasi tersendiri
         maks_langkah = ambil_angka("LOCAL_MAKS_LANGKAH", 3)
         maks_baca_url = ambil_angka("LOCAL_MAKS_BACA_URL", 1)
-        # verifikasi menambah satu panggilan LLM, jadi di model lokal bawaannya mati
-        verifikasi = ambil_ya("LOCAL_VERIFIKASI_JAWABAN", False)
+        # verifikasi tanpa LLM (hanya mencocokkan angka dan sitasi dengan sumber), jadi tetap aktif di model lokal
+        verifikasi = ambil_ya("LOCAL_VERIFIKASI_JAWABAN", True)
         wajib_cari = ambil_ya("LOCAL_WAJIB_CARI", False)
+        # Ollama mengabaikan "wajib memakai alat", jadi agent sendiri yang memastikan cari_web dipanggil
+        paksa_cari = ambil_ya("LOCAL_PAKSA_CARI", True)
+        # pertanyaan hitungan, tanggal, kurs, atau lokasi wajib memakai alat walau ada data internal
+        wajib_alat = ambil_ya("LOCAL_WAJIB_ALAT", True)
+        # nama model AWS tidak dikenal Ollama, jadi model tambahan dibaca dari LOCAL_MODEL_*; kosong = LOCAL_MODEL
+        model_cepat, model_tamu, model_cadangan = ambil("LOCAL_MODEL_CEPAT"), ambil("LOCAL_MODEL_TAMU"), ambil("LOCAL_MODEL_CADANGAN")
+        model_periksa, model_gambar = ambil("LOCAL_MODEL_PERIKSA"), ambil("LOCAL_MODEL_GAMBAR")
 
     kurs_provider = "exchangerate" if ambil("KURS_PROVIDER", "frankfurter").lower() == "exchangerate" else "frankfurter"
     alat = PengaturanAlat(
@@ -194,15 +209,17 @@ def muat():
         aws_secret_access_key=ambil("AWS_SECRET_ACCESS_KEY"),
         aws_region=ambil("AWS_REGION", "ap-southeast-3"),
         llm_model=ambil("LLM_MODEL"),
-        llm_model_cepat=ambil("LLM_MODEL_CEPAT"),
-        llm_model_tamu=ambil("LLM_MODEL_TAMU"),
-        llm_model_cadangan=ambil("LLM_MODEL_CADANGAN"),
+        llm_model_cepat=model_cepat,
+        llm_model_tamu=model_tamu,
+        llm_model_cadangan=model_cadangan,
         api_url=ambil("API_URL"),
         api_key_llm=ambil("API_KEY"),
         api_model=ambil("API_MODEL"),
         local_url=ambil("LOCAL_URL", "http://127.0.0.1:11434/v1"),
         local_model=ambil("LOCAL_MODEL"),
         local_api_key=ambil("LOCAL_API_KEY"),
+        local_penalaran=ambil("LOCAL_PENALARAN"),
+        local_batas_waktu=ambil_angka("LOCAL_BATAS_WAKTU_DETIK", 180),
         tavily_api_key=ambil("TAVILY_API_KEY"),
         maks_langkah=maks_langkah,
         maks_baca_url=maks_baca_url,
@@ -214,7 +231,7 @@ def muat():
         # model cepat memeriksa logika draf jawaban mode mendalam; ada masalah = model utama menulis ulang sekali
         periksa_logika=ambil_ya("AGENT_PERIKSA_LOGIKA", provider != "local"),
         # kosong = LLM_MODEL_CEPAT (atau LLM_MODEL jika itu juga kosong)
-        llm_model_periksa=ambil("LLM_MODEL_PERIKSA"),
+        llm_model_periksa=model_periksa,
         periksa_huruf_sumber=ambil_angka("AGENT_PERIKSA_HURUF_SUMBER", 12000),
         wajib_cari=wajib_cari,
         tavily_kedalaman="basic" if ambil("TAVILY_KEDALAMAN", "advanced").lower() == "basic" else "advanced",
@@ -227,6 +244,8 @@ def muat():
         cuplikan_maks_huruf=ambil_angka("AGENT_MAKS_HURUF_CUPLIKAN", 1000),
         halaman_maks_huruf=ambil_angka("AGENT_MAKS_HURUF_HALAMAN", 8000),
         # sapaan dan ucapan terima kasih dijawab tanpa alat dan dengan instruksi pendek
+        paksa_cari=paksa_cari,
+        wajib_alat=wajib_alat,
         hemat_obrolan=ambil_ya("AGENT_HEMAT_OBROLAN", True),
         # pencarian makna pengetahuan; EMBED_PROVIDER kosong = mati
         embed_provider=penyedia_embed,
@@ -244,7 +263,7 @@ def muat():
         # foto soal atau rumus dibaca model vision menjadi teks dan LaTeX; fotonya sendiri tidak disimpan
         baca_gambar=ambil_ya("BACA_GAMBAR", True),
         # kosong = LLM_MODEL; model harus bisa membaca gambar
-        model_gambar=ambil("LLM_MODEL_GAMBAR"),
+        model_gambar=model_gambar,
         # asal foto anime, game, atau ilustrasi dicari dulu sebelum dibaca model; kosong atau mati = langsung dibaca model
         cari_gambar_penyedia=ambil("CARI_GAMBAR_PENYEDIA").lower(),
         saucenao_api_key=ambil("SAUCENAO_API_KEY"),

@@ -5,11 +5,12 @@ from llm.client import GalatLLM, buka, kirim_json
 
 
 class KlienAPI:
-    def __init__(self, alamat, api_key, model, batas_waktu=60):
+    def __init__(self, alamat, api_key, model, batas_waktu=60, penalaran=""):
         self.alamat = alamat.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.batas_waktu = batas_waktu
+        self.penalaran = penalaran
 
     def kirim(self, instruksi_sistem, isi_percakapan, deklarasi_alat=None, wajib_alat=False, saat_teks=None):
         """Mengirim percakapan ke layanan berformat OpenAI (chat/completions) dan mengembalikan pesan balasan model.
@@ -19,6 +20,8 @@ class KlienAPI:
             pesan.extend(ke_format_api(giliran))
 
         badan = {"model": self.model, "messages": pesan}
+        if self.penalaran:
+            badan["reasoning_effort"] = self.penalaran
         if deklarasi_alat:
             badan["tools"] = [{"type": "function", "function": d} for d in deklarasi_alat]
             if wajib_alat:

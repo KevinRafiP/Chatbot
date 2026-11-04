@@ -193,6 +193,10 @@ class AlatTambahan:
                 continue
             hasil.append(DEKLARASI[nama])
         return hasil
+    
+    def cocok(self, teks):
+        """Nama alat khusus yang aktif dan kata kuncinya ada di teks; alat baru yang punya pola di POLA_ALAT otomatis ikut."""
+        return [nama for nama in self.alat if nama in POLA_ALAT and POLA_ALAT[nama].search(teks)]
 
     def punya(self, nama):
         return nama in self.alat

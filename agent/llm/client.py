@@ -92,6 +92,6 @@ def buat_klien(cfg, model=""):
         model = model or cfg.local_model
         if not cfg.local_url or not model:
             raise ValueError("LOCAL_URL dan LOCAL_MODEL wajib diisi di .env")
-        return KlienAPI(cfg.local_url, cfg.local_api_key, model, batas_waktu=180), model
+        return KlienAPI(cfg.local_url, cfg.local_api_key, model, cfg.local_batas_waktu, cfg.local_penalaran), model
 
     raise ValueError("LLM_PROVIDER harus salah satu dari: aws, api, local")

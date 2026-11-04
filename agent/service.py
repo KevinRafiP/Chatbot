@@ -25,7 +25,7 @@ class Agen:
         """Menyusun simpul dan sisi. Tambah agent/simpul baru cukup di sini."""
         graf = Graf()
         graf.tambah_simpul("siapkan", buat_siapkan(kotak_alat))
-        graf.tambah_simpul("pikir", buat_pikir(klien, self.instruksi))
+        graf.tambah_simpul("pikir", buat_pikir(klien, self.instruksi, kotak_alat.cfg.paksa_cari))
         graf.tambah_simpul("aksi", buat_aksi(kotak_alat, self.maks_langkah))
         graf.tambah_simpul("verifikasi", verifikasi)
         if self.pemeriksa:

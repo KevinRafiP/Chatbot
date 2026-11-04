@@ -1,4 +1,5 @@
 import logging
+import re
 
 from alat.baca import baca
 from alat.cache_cari import CacheCari
@@ -9,10 +10,13 @@ from alat.tingkat import tingkat_sumber
 from pengaman.aturan import GalatPengaman, potong
 
 BATAS_BUKTI = 12000
+# pertanyaan yang berisi hitungan: persen, operasi antarangka, atau kata hitung
+POLA_HITUNG = re.compile(r"\d\s*%|\d\s*[-+*/x×÷:^]\s*\d|\b(persen|diskon|ppn|rata-rata|rerata|jumlahkan|dikurangi|ditambah|dikali|dibagi|"
+                         r"faktorial|kombinasi|permutasi)\b", re.IGNORECASE)
 
 DEKLARASI_CARI = {
     "name": "cari_web",
-    "description": "Mencari informasi di internet. Pakai untuk pertanyaan fakta yang tidak terjawab oleh Data internal, atau jika pengguna meminta mencari.",
+    "description": "Mencari informasi di internet. Pakai untuk pertanyaan fakta yang tidak terjawab oleh Data internal, atau jika pengguna meminta mencari. Kueri memakai nama dan kata kunci dari pertanyaan; jangan menambahkan judul atau topik dari riwayat dan ingatan kecuali pertanyaan merujuknya.",
     "parameters": {
         "type": "object",
         "properties": {"kueri": {"type": "string", "description": "Kata kunci pencarian yang singkat dan jelas"}},
@@ -63,6 +67,14 @@ class KotakAlat:
     def wajib_cari(self, paksa=False):
         """Pencarian hanya bisa diwajibkan jika cari_web tersedia dan fiturnya dinyalakan, atau dipaksa (pengguna minta cari ulang)."""
         return bool(self.cfg.tavily_api_key) and (self.cfg.wajib_cari or paksa)
+        
+    def wajib_alat_khusus(self, teks, perlu_cari):
+        """Model lokal sering menghitung di kepala, jadi alat wajib dipakai walau ada data internal jika pertanyaan berisi hitungan,
+        atau jika pertanyaan fakta cocok dengan kata kunci alat khusus."""
+        if not self.cfg.wajib_alat:
+            return False
+        cocok = self.tambahan.cocok(teks)
+        return bool(POLA_HITUNG.search(teks) or "kalkulus" in cocok or (perlu_cari and cocok))
 
     def jalankan(self, nama, argumen, catatan):
         """Menjalankan satu alat dan selalu mengembalikan dict (hasil atau galat)."""

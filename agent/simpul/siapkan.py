@@ -58,7 +58,8 @@ def buat_siapkan(kotak_alat):
         # permintaan cari ulang selalu dicari, pertanyaan selera tidak perlu dicari
         perlu_cari = segarkan or (butuh_cari(pertanyaan) and not selera)
         langsung_cari = segarkan or minta_internet(pertanyaan) or not keadaan.get("konteks")
-        keadaan["wajib_cari"] = langsung_cari and kotak_alat.wajib_cari(segarkan) and perlu_cari
+        keadaan["wajib_cari"] = ((langsung_cari and kotak_alat.wajib_cari(segarkan) and perlu_cari)
+                                 or kotak_alat.wajib_alat_khusus(pertanyaan, perlu_cari))
         # jika ada data internal, model yang memutuskan; jawaban "tidak ada informasi" tanpa mencari diulang di simpul pikir
         keadaan["cari_cadangan"] = perlu_cari and not keadaan["wajib_cari"] and kotak_alat.wajib_cari(paksa=True)
         keadaan["isi"] = susun_isi(keadaan.get("riwayat"), pesan, kotak_alat.cfg.riwayat_pesan, kotak_alat.cfg.riwayat_huruf_terbaru,
