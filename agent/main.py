@@ -11,7 +11,7 @@ from llm.client import CekLLM, KlienCadangan, buat_klien
 from llm.cari_gambar import buat_pencari_gambar
 from llm.embedding import buat_pembuat_embedding
 from llm.gambar import PembacaGambar
-from prompt import INSTRUKSI_CEPAT, INSTRUKSI_MENDALAM, INSTRUKSI_SISTEM, INSTRUKSI_TAMU
+from prompt import INSTRUKSI_BACA_BANYAK, INSTRUKSI_CEPAT, INSTRUKSI_MENDALAM, INSTRUKSI_SISTEM, INSTRUKSI_TAMU
 from service import Agen
 
 
@@ -49,7 +49,8 @@ def main():
     pemeriksa = (klien_periksa, cfg.periksa_huruf_sumber) if cfg.periksa_logika else None
     logging.info("pemeriksa logika mode mendalam: %s", "aktif" if pemeriksa else "mati")
     daftar_agen = {
-        "mendalam": Agen(klien, KotakAlat(cfg, cache, tambahan), cfg.maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_MENDALAM,
+        "mendalam": Agen(klien, KotakAlat(cfg, cache, tambahan), cfg.maks_langkah, cfg.verifikasi_jawaban,
+                         INSTRUKSI_SISTEM + INSTRUKSI_MENDALAM + (INSTRUKSI_BACA_BANYAK if cfg.baca_banyak else ""),
                          pemeriksa),
         "cepat": Agen(klien_cepat, KotakAlat(cfg_cepat, cache, tambahan), cfg.cepat_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_CEPAT),
         "tamu": Agen(klien_tamu, KotakAlat(cfg_tamu, cache, tambahan), cfg.tamu_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_TAMU),

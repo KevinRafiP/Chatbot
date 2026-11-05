@@ -35,6 +35,8 @@ func main() {
 	var klienAgen *agen.Klien
 	if cfg.AgentURL != "" {
 		klienAgen = agen.BaruKlien(cfg.AgentURL, cfg.AgentAPIKey)
+		// model lokal yang membaca banyak halaman bisa butuh lebih dari 5 menit
+		agen.BatasWaktuStream = time.Duration(cfg.AgentStreamMenit) * time.Minute
 		log.Println("agent aktif:", cfg.AgentURL)
 	} else {
 		log.Println("AGENT_URL kosong: chatbot menjawab dari database saja")

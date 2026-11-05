@@ -138,6 +138,11 @@ Mode mendalam:
 - Boleh mencari dan membuka beberapa sumber jika perlu, lalu bandingkan isinya.
 - Ketelitian ada di proses berpikir, bukan di panjang jawaban. Jawaban tetap ringkas dan langsung ke inti."""
 
+# ditambahkan di belakang instruksi mode mendalam jika LOCAL_BACA_BANYAK aktif (model lokal tidak membayar token)
+INSTRUKSI_BACA_BANYAK = """
+- Untuk pertanyaan daftar, rincian, perbandingan, atau yang meminta beberapa sumber, jangan hanya mengandalkan cuplikan hasil cari_web. Buka beberapa halaman paling relevan dengan baca_url (sampai batas yang tersedia) dalam satu giliran sekaligus, lalu gabungkan isinya.
+- Masukkan semua item yang ditemukan di halaman yang dibuka, jangan hanya beberapa contoh. Item yang tidak disebut di halaman mana pun jangan ditambahkan."""
+
 # ditambahkan di belakang INSTRUKSI_SISTEM untuk pengguna tamu
 INSTRUKSI_TAMU = """
 

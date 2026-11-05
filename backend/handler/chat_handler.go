@@ -41,10 +41,11 @@ func ChatTamu(chatbot *service.ChatbotService) http.HandlerFunc {
 		if mintaStream(r) {
 			sse = &penulisSSE{w: w}
 			kabar = sse.kabar
+			defer sse.jaga()()
 		}
 
 		hasil, err := chatbot.JawabTamu(r.Context(), permintaan.Pertanyaan, permintaan.Riwayat, permintaan.Lampiran, kabar)
-		if sse != nil && sse.mulai {
+		if sse != nil && sse.sudahMulai() {
 			if err != nil {
 				log.Println("error chatbot tamu (stream):", err)
 				sse.kirim("galat", Response{Status: "gagal", Message: "chatbot sedang bermasalah"})

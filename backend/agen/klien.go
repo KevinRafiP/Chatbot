@@ -155,7 +155,8 @@ type Klien struct {
 
 // BatasWaktuStream adalah waktu paling lama satu jawaban stream; client stream tidak memakai Timeout
 // karena Timeout ikut memotong body yang masih mengalir
-const BatasWaktuStream = 5 * time.Minute
+// diubah dari AGENT_BATAS_STREAM_MENIT di main.go
+var BatasWaktuStream = 5 * time.Minute
 
 // Kabar menerima kabar dari agent selama jawaban dibuat: jenis "status", "teks", atau "ulang"
 type Kabar func(jenis string, data json.RawMessage)

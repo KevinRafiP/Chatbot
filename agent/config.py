@@ -68,6 +68,8 @@ class Config:
     wajib_cari: bool
     paksa_cari: bool
     wajib_alat: bool
+    ingatan_rujukan: bool
+    baca_banyak: bool
     tavily_kedalaman: str
     batas_waktu: int
     domain_diblokir: list
@@ -151,6 +153,7 @@ def muat():
     verifikasi = ambil_ya("AGENT_VERIFIKASI_JAWABAN", True)
     wajib_cari = ambil_ya("AGENT_WAJIB_CARI", True)
     paksa_cari = False
+    baca_banyak = False
     wajib_alat = False
     model_cepat, model_tamu, model_cadangan = ambil("LLM_MODEL_CEPAT"), ambil("LLM_MODEL_TAMU"), ambil("LLM_MODEL_CADANGAN")
     model_periksa, model_gambar = ambil("LLM_MODEL_PERIKSA"), ambil("LLM_MODEL_GAMBAR")
@@ -165,6 +168,8 @@ def muat():
         paksa_cari = ambil_ya("LOCAL_PAKSA_CARI", True)
         # pertanyaan hitungan, tanggal, kurs, atau lokasi wajib memakai alat walau ada data internal
         wajib_alat = ambil_ya("LOCAL_WAJIB_ALAT", True)
+        # model lokal tidak membayar token, jadi mode mendalam diminta membuka beberapa halaman, bukan hanya cuplikan
+        baca_banyak = ambil_ya("LOCAL_BACA_BANYAK", True)
         # nama model AWS tidak dikenal Ollama, jadi model tambahan dibaca dari LOCAL_MODEL_*; kosong = LOCAL_MODEL
         model_cepat, model_tamu, model_cadangan = ambil("LOCAL_MODEL_CEPAT"), ambil("LOCAL_MODEL_TAMU"), ambil("LOCAL_MODEL_CADANGAN")
         model_periksa, model_gambar = ambil("LOCAL_MODEL_PERIKSA"), ambil("LOCAL_MODEL_GAMBAR")
@@ -246,6 +251,9 @@ def muat():
         # sapaan dan ucapan terima kasih dijawab tanpa alat dan dengan instruksi pendek
         paksa_cari=paksa_cari,
         wajib_alat=wajib_alat,
+        # ya = minat atau proyek di ingatan hanya dipakai jika pertanyaan merujuk percakapan sebelumnya ("yang tadi", "lanjutkan")
+        ingatan_rujukan=ambil_ya("AGENT_INGATAN_RUJUKAN", True),
+        baca_banyak=baca_banyak,
         hemat_obrolan=ambil_ya("AGENT_HEMAT_OBROLAN", True),
         # pencarian makna pengetahuan; EMBED_PROVIDER kosong = mati
         embed_provider=penyedia_embed,

@@ -7,7 +7,7 @@ $port = if ($isiEnv["GERBANG_LOCAL_PORT"]) { $isiEnv["GERBANG_LOCAL_PORT"] } els
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PSScriptRoot\backend'; go run ./cmd/gerbang-local"
 $tunnel = if ($isiEnv["TUNNEL_PENYEDIA"]) { $isiEnv["TUNNEL_PENYEDIA"] } else { "ngrok" }
 if ($tunnel -eq "tailscale") {
-    & $tailscale funnel $port
+    & $tailscale funnel --bg $port
 } else {
     & $ngrok http --url=$($isiEnv["NGROK_DOMAIN"]) $port
 }

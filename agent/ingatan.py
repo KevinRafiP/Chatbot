@@ -15,6 +15,10 @@ KATA_UMUM = {
     "apakah", "bisa", "tolong", "jelaskan", "lebih", "detail", "sudah", "belum", "akan", "juga", "karena", "seperti",
 }
 
+# pertanyaan yang merujuk percakapan sebelumnya; hanya pertanyaan seperti ini yang memakai butir minat, proyek, atau tujuan yang cocok
+POLA_MERUJUK = re.compile(r"\b(tadi|kemarin|sebelumnya|waktu itu|yang itu|yang pernah|lanjut\w*|seperti biasa|terakhir kali|"
+                          r"yang (saya|aku|ku) (suka\w*|bilang|tanya\w*|sebut\w*|mainkan|tonton))\b", re.IGNORECASE)
+                          
 POLA_KOSONG = re.compile(r"belum disebut|tidak disebut|tidak diketahui|\(belum|\(tidak|^-\s*[\w /]+:\s*-?\s*$", re.IGNORECASE)
 
 INSTRUKSI_RINGKAS = """Kamu mencatat ingatan jangka panjang tentang seorang pengguna chatbot Vokapas.
@@ -59,8 +63,10 @@ def cocok(kata_butir, kata_tanya):
     return any(a.startswith(b) or b.startswith(a) for a in kata_butir for b in kata_tanya)
 
 
-def pilih_ingatan(ingatan, pertanyaan, riwayat=None):
-    """Memilih butir ingatan yang relevan dengan pertanyaan (RAG sederhana berbasis kata), agar token tidak terbuang."""
+def pilih_ingatan(ingatan, pertanyaan, riwayat=None, hanya_rujukan=True):
+    """Memilih butir ingatan yang relevan dengan pertanyaan (RAG sederhana berbasis kata), agar token tidak terbuang.
+    hanya_rujukan=True: butir selain nama dan gaya hanya dikirim jika pertanyaan merujuk percakapan sebelumnya,
+    agar pertanyaan baru (misalnya tentang satu seri) tidak dipersempit ke judul yang pernah dibahas."""
     semua = bersihkan(ingatan)
     if not semua:
         return ""
@@ -71,6 +77,9 @@ def pilih_ingatan(ingatan, pertanyaan, riwayat=None):
             teks_tanya += " " + str(pesan.get("teks", ""))[:500]
     if any(kata in teks_tanya.lower() for kata in KATA_SEMUA_INGATAN):
         return "\n".join(semua)[:BATAS_INGATAN]
+
+    if hanya_rujukan and not POLA_MERUJUK.search(str(pertanyaan or "")):
+        return "\n".join(b for b in semua if b.lstrip("- ").split(":", 1)[0].strip().lower().startswith(KATEGORI_SELALU))[:BATAS_INGATAN]
 
     kata_tanya = kata_penting(teks_tanya)
     dipilih = []

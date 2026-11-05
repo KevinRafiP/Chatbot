@@ -21,6 +21,7 @@ type Config struct {
 	DBSSLMode           string
 	AgentURL            string
 	AgentAPIKey         string
+	AgentStreamMenit    int
 	SesiHari            int
 	BatasTamuPerJam     int
 	BatasPesanPerMenit  int
@@ -65,6 +66,7 @@ func Muat() Config {
 		DBSSLMode:           ambil("DB_SSLMODE", "disable"),
 		AgentURL:            ambil("AGENT_URL", ""),
 		AgentAPIKey:         ambil("AGENT_API_KEY", ""),
+		AgentStreamMenit:    ambilAngka("AGENT_BATAS_STREAM_MENIT", 5),
 		IngestionPort:       ambil("INGESTION_PORT", "8081"),
 		IngestionAPIKey:     ambil("INGESTION_API_KEY", ""),
 		WorkerIntervalMenit: ambilAngka("WORKER_INTERVAL_MENIT", 1),

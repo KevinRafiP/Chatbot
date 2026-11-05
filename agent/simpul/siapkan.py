@@ -41,7 +41,7 @@ def buat_siapkan(kotak_alat):
         selera = tanya_selera(pertanyaan)
         minimal, maksimal = batas_sumber(pertanyaan)
         pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal,
-                            pilih_ingatan(keadaan.get("ingatan"), pertanyaan, keadaan.get("riwayat")), selera,
+                            pilih_ingatan(keadaan.get("ingatan"), pertanyaan, keadaan.get("riwayat"), kotak_alat.cfg.ingatan_rujukan), selera,
                             keadaan.get("lampiran"))
 
         # alat internet selalu diberikan, karena data internal bisa cocok sebagian saja (misalnya hanya nama gamenya);

@@ -40,6 +40,9 @@ def buka(alamat, badan, header, batas_waktu, nama):
 # galat yang layak diulang ke model cadangan: tidak terhubung atau timeout (0), jawaban kosong (204), antrean penuh, dan gangguan server
 KODE_PAKAI_CADANGAN = {0, 204, 408, 429}
 
+# jumlah cek gagal berturut-turut sebelum model dianggap tidak terhubung
+BATAS_GAGAL_CEK = 2
+
 class CekLLM:
     """Mengecek apakah model utama bisa dihubungi; hasilnya disimpan sebentar agar pengecekan dari frontend tidak membebani layanan LLM.
     Klien tanpa metode sehat (misalnya AWS) selalu dianggap terhubung."""
@@ -47,14 +50,16 @@ class CekLLM:
     def __init__(self, klien, simpan_detik=20):
         self.cek = getattr(klien, "sehat", None)
         self.simpan_detik = simpan_detik
-        self.hasil, self.waktu = True, float("-inf")
+        self.gagal, self.waktu = 0, float("-inf")
 
     def __call__(self):
         if self.cek is None:
             return True
         if time.monotonic() - self.waktu >= self.simpan_detik:
-            self.hasil, self.waktu = self.cek(), time.monotonic()
-        return self.hasil
+            # satu kali gagal belum dianggap terputus, karena laptop yang sedang sibuk menjawab bisa lambat membalas
+            self.gagal = 0 if self.cek() else self.gagal + 1
+            self.waktu = time.monotonic()
+        return self.gagal < BATAS_GAGAL_CEK
 
 
 class KlienCadangan:

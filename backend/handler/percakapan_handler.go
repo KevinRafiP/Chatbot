@@ -114,10 +114,11 @@ func KirimPesan(percakapan *service.PercakapanService) http.HandlerFunc {
 		if mintaStream(r) {
 			sse = &penulisSSE{w: w}
 			kabar = sse.kabar
+			defer sse.jaga()()
 		}
 
 		hasil, err := percakapan.Kirim(r.Context(), id, middleware.PenggunaDari(r.Context()), permintaan.Pertanyaan, permintaan.Mode, permintaan.Lampiran, kabar)
-		if sse != nil && sse.mulai {
+		if sse != nil && sse.sudahMulai() {
 			if err != nil {
 				log.Println("error kirim pesan (stream):", err)
 				sse.kirim("galat", Response{Status: "gagal", Message: "chatbot sedang bermasalah"})

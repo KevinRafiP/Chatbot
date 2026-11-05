@@ -1,4 +1,5 @@
 import json
+import logging
 import urllib.error
 import urllib.request
 
@@ -15,13 +16,14 @@ class KlienAPI:
         self.penalaran = penalaran
 
 
-    def sehat(self, batas_waktu=3):
+    def sehat(self, batas_waktu=5):
         """True jika layanan LLM bisa dihubungi (GET /models); dipakai untuk status agent di frontend."""
         header = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         try:
             with urllib.request.urlopen(urllib.request.Request(f"{self.alamat}/models", headers=header), timeout=batas_waktu) as respon:
                 return respon.status == 200
-        except (urllib.error.URLError, OSError, ValueError):
+        except (urllib.error.URLError, OSError, ValueError) as galat:
+            logging.warning("cek LLM gagal: %s", galat)
             return False
 
     def kirim(self, instruksi_sistem, isi_percakapan, deklarasi_alat=None, wajib_alat=False, saat_teks=None):
