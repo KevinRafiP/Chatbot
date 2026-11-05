@@ -80,8 +80,19 @@ POLA_MINTA_EMAIL = re.compile(r"\b(kirim\w*|send|email\w*)\b.{0,80}\b(e-?mail|su
 
 POLA_KATA_SUMBER = re.compile(r"\b(sumber|referensi|rujukan|link|tautan)")
 # kata pembuka pesan lanjutan; pesan seperti ini dibaca bersama pertanyaan pengguna sebelumnya
-POLA_LANJUTAN = re.compile(r"^(kalau|kalo|klo|terus|trus|lalu|lantas|bagaimana|gimana|gmn|yang|dan|atau|versi|bahasa|dalam|pakai|kenapa|mengapa|kok)\b")
+POLA_LANJUTAN = re.compile(r"^(kalau|kalo|klo|terus|trus|lalu|lantas)\b")
+# pembuka yang juga sering dipakai untuk topik baru ("kenapa langit biru?"), jadi kata topiknya dibatasi
+POLA_LANJUTAN_SAMBUNG = re.compile(r"^(yang|dan|atau|versi|bahasa|dalam|pakai)\b")
+POLA_LANJUTAN_TANYA = re.compile(r"^(bagaimana|gimana|gmn|kenapa|mengapa|kok)\b")
+# kata rujuk tanpa nama ("dia", "game itu", "skillnya") berarti pesan merujuk topik sebelumnya
+POLA_KATA_RUJUK = re.compile(r"\b(dia|ia|beliau|mereka|tersebut|itu|ini|tadi|\w{3,}nya)\b")
+POLA_APA_ITU = re.compile(r"\b(apa|apakah|siapa)\s+(itu|ini)\s+(?=\w)")
+KATA_NYA_UMUM = {"caranya", "sebenarnya", "biasanya", "akhirnya", "katanya", "rasanya", "misalnya", "seharusnya", "sepertinya",
+                 "selanjutnya", "lainnya", "semuanya", "sebaiknya", "sebelumnya", "sesudahnya", "setelahnya", "bertanya", "ditanya"}
+KATA_BUKAN_TOPIK = {"kalau", "kalo", "terus", "lalu", "yang", "dan", "atau", "dalam", "pakai", "bagaimana", "gimana", "gmn", "kenapa",
+                    "mengapa", "kok", "apa", "siapa", "berapa", "kapan", "mana", "dimana", "bisa", "sih", "dong", "itu", "ini", "ada", "dari"}
 MAKS_KATA_LANJUTAN = 6
+MAKS_KATA_RUJUK = 12
 POLA_MINIMAL = re.compile(r"\b(?:minimal|minimum|min|paling sedikit|setidaknya|sedikitnya)\.?\s*(\d{1,2})\b")
 POLA_MAKSIMAL = re.compile(r"\b(?:maksimal|maksimum|maks|max|paling banyak)\.?\s*(\d{1,2})\b")
 POLA_JUMLAH = re.compile(r"\b(\d{1,2})\s*(?:sumber|referensi|rujukan|link|tautan)")
@@ -170,11 +181,21 @@ def tanya_selera(teks):
     return any(pola.search(kecil) for pola in POLA_SELERA)
 
 def lanjutan(teks, riwayat):
-    """True jika pesan pendek kemungkinan besar melanjutkan pertanyaan sebelumnya, misalnya "kalau inggris?" atau "terus yang kedua?"."""
-    kata = " ".join(str(teks or "").lower().split()).strip(" ?!.").split()
-    if not riwayat or not kata or len(kata) > MAKS_KATA_LANJUTAN:
+    """True jika pesan kemungkinan besar melanjutkan pertanyaan sebelumnya, misalnya "kalau inggris?", "terus yang kedua?",
+    atau "ada berapa versi dia?"."""
+    kalimat = " ".join(re.sub(r"[^\w\s-]", " ", str(teks or "").lower()).split())
+    kata = kalimat.split()
+    if not riwayat or not kata or len(kata) > MAKS_KATA_RUJUK or obrolan_ringan(str(teks), riwayat):
         return False
-    return len(kata) <= 2 or bool(POLA_LANJUTAN.search(" ".join(kata)))
+    rujuk = [k for k in POLA_KATA_RUJUK.findall(POLA_APA_ITU.sub(" ", kalimat)) if k not in KATA_NYA_UMUM]
+    if rujuk:
+        return True
+    if len(kata) > MAKS_KATA_LANJUTAN:
+        return False
+    topik = [k for k in kata if len(k) >= 3 and k not in KATA_BUKAN_TOPIK]
+    return (len(kata) <= 2 or bool(POLA_LANJUTAN.search(kalimat))
+            or (bool(POLA_LANJUTAN_SAMBUNG.search(kalimat)) and len(topik) <= 2)
+            or (bool(POLA_LANJUTAN_TANYA.search(kalimat)) and len(topik) <= 1))
 
 def obrolan_ringan(teks, riwayat=None):
     """True jika pesan hanya sapaan, ucapan terima kasih, atau tanggapan singkat seperti "oke makasih".

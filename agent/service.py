@@ -12,8 +12,10 @@ from simpul.verifikasi import verifikasi
 
 
 class Agen:
-    def __init__(self, klien, kotak_alat, maks_langkah, verifikasi=True, instruksi=INSTRUKSI_SISTEM, pemeriksa=None):
-        """pemeriksa = (klien model pemeriksa, batas huruf sumber) untuk simpul periksa logika; None = tanpa pemeriksa."""
+    def __init__(self, klien, kotak_alat, maks_langkah, verifikasi=True, instruksi=INSTRUKSI_SISTEM, pemeriksa=None, penulis=None):
+        """pemeriksa = (klien model pemeriksa, batas huruf sumber) untuk simpul periksa logika; None = tanpa pemeriksa.
+        penulis(riwayat, pertanyaan) menulis ulang pesan lanjutan menjadi pertanyaan lengkap."""
+        self.penulis = penulis
         self.maks_langkah = maks_langkah
         self.verifikasi = verifikasi
         self.pemeriksa = pemeriksa
@@ -24,7 +26,7 @@ class Agen:
     def rakit(self, klien, kotak_alat):
         """Menyusun simpul dan sisi. Tambah agent/simpul baru cukup di sini."""
         graf = Graf()
-        graf.tambah_simpul("siapkan", buat_siapkan(kotak_alat))
+        graf.tambah_simpul("siapkan", buat_siapkan(kotak_alat, self.penulis))
         graf.tambah_simpul("pikir", buat_pikir(klien, self.instruksi, kotak_alat.cfg.paksa_cari))
         graf.tambah_simpul("aksi", buat_aksi(kotak_alat, self.maks_langkah))
         graf.tambah_simpul("verifikasi", verifikasi)

@@ -1,4 +1,5 @@
 import dataclasses
+import functools
 import logging
 import sys
 from http.server import ThreadingHTTPServer
@@ -14,7 +15,7 @@ from llm.embedding import buat_pembuat_embedding
 from llm.gambar import PembacaGambar
 from prompt import INSTRUKSI_BACA_BANYAK, INSTRUKSI_CEPAT, INSTRUKSI_MENDALAM, INSTRUKSI_SISTEM, INSTRUKSI_TAMU
 from service import Agen
-
+from tulis_ulang import tulis_ulang
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -28,6 +29,9 @@ def main():
         klien_tamu, nama_tamu = buat_klien(cfg, cfg.llm_model_tamu) if cfg.llm_model_tamu else (klien_cepat, nama_cepat)
         klien_gambar = buat_klien(cfg, cfg.model_gambar)[0] if cfg.model_gambar else klien
         klien_periksa = buat_klien(cfg, cfg.llm_model_periksa)[0] if cfg.llm_model_periksa else klien_cepat
+        # penulis ulang pertanyaan lanjutan memakai model utama kecuali LLM_MODEL_TULIS_ULANG diisi, dengan batas waktu sendiri
+        klien_tulis = buat_klien(cfg, cfg.llm_model_tulis)[0]
+        klien_tulis.batas_waktu = cfg.tulis_batas_detik
         if cfg.llm_model_cadangan:
             cadangan, _ = buat_klien(cfg, cfg.llm_model_cadangan)
             klien, klien_cepat, klien_tamu = (KlienCadangan(k, cadangan) for k in (klien, klien_cepat, klien_tamu))
@@ -53,12 +57,13 @@ def main():
     # pemeriksa logika hanya untuk mode mendalam, karena menambah satu panggilan model
     pemeriksa = (klien_periksa, cfg.periksa_huruf_sumber) if cfg.periksa_logika else None
     logging.info("pemeriksa logika mode mendalam: %s", "aktif" if pemeriksa else "mati")
+    penulis = functools.partial(tulis_ulang, klien_tulis)
     daftar_agen = {
         "mendalam": Agen(klien, KotakAlat(cfg, cache, tambahan, pencari), cfg.maks_langkah, cfg.verifikasi_jawaban,
                          INSTRUKSI_SISTEM + INSTRUKSI_MENDALAM + (INSTRUKSI_BACA_BANYAK if cfg.baca_banyak else ""),
-                         pemeriksa),
-        "cepat": Agen(klien_cepat, KotakAlat(cfg_cepat, cache, tambahan, pencari), cfg.cepat_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_CEPAT),
-        "tamu": Agen(klien_tamu, KotakAlat(cfg_tamu, cache, tambahan, pencari), cfg.tamu_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_TAMU),
+                         pemeriksa, penulis),
+        "cepat": Agen(klien_cepat, KotakAlat(cfg_cepat, cache, tambahan, pencari), cfg.cepat_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_CEPAT, penulis=penulis),
+        "tamu": Agen(klien_tamu, KotakAlat(cfg_tamu, cache, tambahan, pencari), cfg.tamu_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_TAMU, penulis=penulis),
     }
 
     pembuat_embedding = buat_pembuat_embedding(cfg)

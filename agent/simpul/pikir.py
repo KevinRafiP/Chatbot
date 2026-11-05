@@ -139,7 +139,7 @@ def paksa_panggil_cari(klien, sistem, keadaan, harus_web=False):
 
 def kueri_sendiri(keadaan):
     """Pertanyaan terakhir tanpa kata perintah sebagai kueri; jika sisanya terlalu pendek, pesan pengguna sebelumnya ikut dipakai."""
-    asli = " ".join(str(keadaan.get("pertanyaan", "")).split())
+    asli = " ".join(str(keadaan.get("pertanyaan_lengkap") or keadaan.get("pertanyaan", "")).split())
     kueri = bersihkan_kueri(asli)
     if keadaan.get("rujukan"):
         return f"{bersihkan_kueri(keadaan['rujukan'])} {kueri}".strip()[:300]
@@ -155,6 +155,8 @@ def luruskan_kueri(konten, keadaan):
     pengganti = kueri_sendiri(keadaan)
     topik = kata_topik(pengganti)
     rujukan = bersihkan_kueri(keadaan.get("rujukan", ""))
+    # nama yang muncul dari tulis ulang ("Eiichiro Oda" untuk "umurnya berapa?") wajib ada di kueri model
+    nama = kata_nama(keadaan.get("pertanyaan_lengkap", "")) - kata_topik(str(keadaan.get("pertanyaan", "")))
     for blok in konten.get("content", []):
         panggilan = blok.get("toolUse")
         if not panggilan or panggilan.get("name") != "cari_web":
@@ -163,9 +165,13 @@ def luruskan_kueri(konten, keadaan):
         if rujukan:
             # pesan lanjutan: kueri model tetap dipakai (bisa sudah memuat nama dari jawaban sebelumnya),
             # hanya ditambah topik pertanyaan sebelumnya jika belum ada
-            if kata_topik(rujukan) & kata_topik(kueri):
+            # kueri dibiarkan jika memuat topik sebelumnya atau nama dari riwayat yang tidak ada di pesan ini (misalnya nama dari jawaban sebelumnya)
+            baru_dari_model = kata_topik(kueri) - kata_topik(str(keadaan.get("pertanyaan", "")))
+            if kata_topik(rujukan) & kata_topik(kueri) or baru_dari_model & kata_riwayat(keadaan.get("riwayat")):
                 continue
             baru = f"{rujukan} {kueri}"[:300]
+        elif nama and not nama & kata_topik(kueri):
+            baru = pengganti
         elif topik and not topik & kata_topik(kueri):
             baru = pengganti
         else:
@@ -175,6 +181,13 @@ def luruskan_kueri(konten, keadaan):
         fungsi = (panggilan.get("asli") or {}).get("function")
         if isinstance(fungsi, dict):
             fungsi["arguments"] = json.dumps(panggilan["input"], ensure_ascii=False)
+
+def kata_nama(teks):
+    """Kata topik berhuruf awal kapital, selain kata pertama kalimat."""
+    return kata_topik(" ".join(re.findall(r"(?<=\s)[A-Z]\w*", str(teks or ""))))
+
+def kata_riwayat(riwayat):
+    return kata_topik(" ".join(str(p.get("teks", "")) for p in (riwayat or []) if isinstance(p, dict)))
 
 def kata_topik(teks):
     return {kata for kata in re.findall(r"\w+", teks.lower()) if len(kata) >= 3 and kata not in KATA_UMUM}
