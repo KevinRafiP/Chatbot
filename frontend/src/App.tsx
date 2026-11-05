@@ -59,7 +59,7 @@ if (VERIFY_CODE !== null || RESET_CODE !== null) {
   window.history.replaceState(null, "", window.location.pathname);
 }
 const TOAST_MS = 2000;
-const AGENT_CHECK_MS = 30_000;
+const AGENT_CHECK_MS = 10_000;
 const HIGHLIGHT_MS = 4000;
 const INPUT_MAX_HEIGHT = 200;
 // closer than this to the bottom counts as reading the newest message
@@ -254,7 +254,7 @@ function App() {
     return () => onServerWaking(null);
   }, []);
   
-  // Checks every 30 seconds whether the AI can answer, so people do not keep sending messages while it is offline
+  // Checks every 10 seconds, and when the tab gets focus again, whether the AI can answer, so people do not keep sending messages while it is offline
   useEffect(() => {
     let active = true;
     const check = () => {
@@ -265,10 +265,12 @@ function App() {
       });
     };
     check();
-    const timer = window.setInterval(check, AGENT_CHECK_MS);
+        const timer = window.setInterval(check, AGENT_CHECK_MS);
+    window.addEventListener("focus", check);
     return () => {
       active = false;
       window.clearInterval(timer);
+      window.removeEventListener("focus", check);
     };
   }, []);
 
@@ -1015,7 +1017,7 @@ function App() {
         )}
         {view === "chat" && agentOffline && (
           <p className="agent-offline" role="status">
-            AI sedang tidak terhubung, jadi pesan belum bisa dijawab. Coba lagi beberapa saat lagi.
+            AI sedang tidak terhubung. Coba lagi beberapa saat.
           </p>
         )}
 

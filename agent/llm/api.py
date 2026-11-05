@@ -6,23 +6,43 @@ import urllib.request
 from llm import denyut, pemakaian
 from llm.client import GalatLLM, buka, kirim_json
 
+# perkiraan kasar agar aman: satu token rata-rata 3 huruf (teks Indonesia dan JSON hasil alat)
+HURUF_PER_TOKEN = 3
+MIN_HURUF_ALAT = 1500
+SISA_RIWAYAT = 4
+TANDA_POTONG = " ...(dipotong agar muat di konteks model)"
 
 class KlienAPI:
-    def __init__(self, alamat, api_key, model, batas_waktu=60, penalaran=""):
+    def __init__(self, alamat, api_key, model, batas_waktu=60, penalaran="", batas_konteks=0):
+        """batas_konteks = token prompt terbanyak; 0 = tidak dipangkas (penyedia API memberi galat sendiri jika penuh)."""
         self.alamat = alamat.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.batas_waktu = batas_waktu
         self.penalaran = penalaran
+        self.batas_konteks = batas_konteks
 
 
     def sehat(self, batas_waktu=5):
-        """True jika layanan LLM bisa dihubungi (GET /models); dipakai untuk status agent di frontend."""
+        """Cek GET /models untuk status AI di frontend: True = terhubung; False = pasti mati (koneksi ditolak,
+        alamat tidak ditemukan, atau gerbang/tunnel membalas galat); None = hanya lambat membalas, misalnya laptop sedang sibuk."""
         header = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         try:
             with urllib.request.urlopen(urllib.request.Request(f"{self.alamat}/models", headers=header), timeout=batas_waktu) as respon:
                 return respon.status == 200
-        except (urllib.error.URLError, OSError, ValueError) as galat:
+        except TimeoutError:
+            logging.warning("cek LLM lambat: lebih dari %s detik", batas_waktu)
+            return None
+        except urllib.error.HTTPError as galat:
+            logging.warning("cek LLM gagal: kode %s", galat.code)
+            return False
+        except urllib.error.URLError as galat:
+            if isinstance(galat.reason, TimeoutError):
+                logging.warning("cek LLM lambat: lebih dari %s detik", batas_waktu)
+                return None
+            logging.warning("cek LLM gagal: %s", galat.reason)
+            return False
+        except (OSError, ValueError) as galat:
             logging.warning("cek LLM gagal: %s", galat)
             return False
 
@@ -40,6 +60,8 @@ class KlienAPI:
             badan["tools"] = [{"type": "function", "function": d} for d in deklarasi_alat]
             if wajib_alat:
                 badan["tool_choice"] = "required"
+        if self.batas_konteks:
+            muat_konteks(pesan, badan.get("tools"), self.batas_konteks)
 
         header = {"Content-Type": "application/json"}
         if self.api_key:
@@ -47,6 +69,9 @@ class KlienAPI:
         alamat = f"{self.alamat}/chat/completions"
         if saat_teks:
             badan["stream"] = True
+            if self.batas_konteks:
+                # Ollama baru mengirim jumlah token di akhir stream jika diminta; dipakai halaman kinerja
+                badan["stream_options"] = {"include_usage": True}
             with buka(alamat, json.dumps(badan).encode("utf-8"), header, self.batas_waktu, "Layanan LLM") as respon:
                 balasan, alasan = rakit_pesan_stream(respon, saat_teks)
             pakai = None
@@ -62,6 +87,64 @@ class KlienAPI:
         except GalatLLM as galat:
             # info tambahan untuk melacak balasan kosong, misalnya prompt terpotong karena konteks model penuh
             raise GalatLLM(f"{galat} (finish_reason={alasan}, usage={pakai})", galat.kode)
+
+def panjang(pesan):
+    isi = pesan.get("content")
+    if isinstance(isi, list):
+        isi = " ".join(b.get("text", "") for b in isi if b.get("type") == "text")
+    return len(isi or "") + (len(json.dumps(pesan["tool_calls"], ensure_ascii=False)) if pesan.get("tool_calls") else 0)
+
+
+def jatah_rata(daftar_panjang, total):
+    """Batas huruf yang sama untuk semua hasil alat agar jumlahnya muat di total; hasil yang pendek tidak dipotong."""
+    sisa = len(daftar_panjang)
+    for n in sorted(daftar_panjang):
+        rata = total // sisa
+        if n > rata:
+            return rata
+        total -= n
+        sisa -= 1
+    return max(daftar_panjang)
+
+
+def muat_konteks(pesan, alat, batas_token):
+    """Ollama membuang awal percakapan tanpa pemberitahuan jika prompt melebihi konteksnya, sehingga riwayat hilang.
+    Agar itu tidak terjadi: riwayat paling lama dibuang berpasangan dulu, lalu hasil alat dipendekkan rata,
+    terakhir pesan terpanjang diambil awal dan akhirnya saja."""
+    lebih = sum(panjang(p) for p in pesan) + len(json.dumps(alat or [], ensure_ascii=False)) - batas_token * HURUF_PER_TOKEN
+    if lebih <= 0:
+        return
+    awal_lebih, dibuang = lebih, 0
+
+    # riwayat = pesan sebelum pertanyaan sekarang; empat pesan terakhirnya tetap dikirim agar rujukan seperti "game itu" terbaca
+    mulai_alat = next((i for i, p in enumerate(pesan) if p.get("role") == "tool" or p.get("tool_calls")), len(pesan))
+    sekarang = max((i for i in range(1, mulai_alat) if pesan[i].get("role") == "user"), default=1)
+    while lebih > 0 and sekarang - 1 > SISA_RIWAYAT:
+        lebih -= panjang(pesan[1]) + panjang(pesan[2])
+        del pesan[1:3]
+        sekarang -= 2
+        dibuang += 2
+
+    hasil_alat = [p for p in pesan if p.get("role") == "tool" and isinstance(p.get("content"), str)]
+    if lebih > 0 and hasil_alat:
+        total = sum(len(p["content"]) for p in hasil_alat)
+        jatah = max(jatah_rata([len(p["content"]) for p in hasil_alat], total - lebih - len(TANDA_POTONG) * len(hasil_alat)), MIN_HURUF_ALAT)
+        for p in hasil_alat:
+            if len(p["content"]) > jatah:
+                lebih -= len(p["content"]) - jatah - len(TANDA_POTONG)
+                p["content"] = p["content"][:jatah] + TANDA_POTONG
+
+    while lebih > 0:
+        terpanjang = max((p for p in pesan[1:] if isinstance(p.get("content"), str)), key=panjang, default=None)
+        isi = terpanjang["content"] if terpanjang else ""
+        sisa = max(len(isi) - lebih - len(TANDA_POTONG), MIN_HURUF_ALAT * 2)
+        if len(isi) <= sisa + len(TANDA_POTONG):
+            break
+        terpanjang["content"] = isi[:sisa - MIN_HURUF_ALAT] + TANDA_POTONG + isi[-MIN_HURUF_ALAT:]
+        lebih -= len(isi) - len(terpanjang["content"])
+    logging.warning("prompt melebihi konteks model sekitar %d token dan dipangkas, %d pesan riwayat lama dibuang%s",
+                    awal_lebih // HURUF_PER_TOKEN, dibuang, "" if lebih <= 0 else ", masih terlalu panjang")
+
 
 def catat_token(usage):
     """Format OpenAI melaporkan token sebagai prompt_tokens dan completion_tokens; tanpa usage tetap dihitung satu panggilan."""

@@ -3,6 +3,7 @@ import logging
 import sys
 from http.server import ThreadingHTTPServer
 from alat.cache_cari import CacheCari
+from alat.cari import PencariBerantai
 from alat.daftar import KotakAlat
 from alat.tambahan import AlatTambahan
 from config import muat
@@ -34,13 +35,17 @@ def main():
         sys.exit(str(galat))
     if not cfg.api_key:
         sys.exit("AGENT_API_KEY wajib diisi di .env")
-    if not cfg.tavily_api_key:
-        logging.warning("TAVILY_API_KEY kosong: agent hanya bisa membaca URL, tidak bisa mencari")
+    # satu pencari dipakai bersama semua profil agar penyedia yang habis tidak dicoba ulang oleh profil lain
+    pencari = PencariBerantai(cfg.penyedia_cari, cfg.cari_jeda_detik)
+    if pencari.ada():
+        logging.info("urutan penyedia cari: %s", ", ".join(pencari.nama()))
+    else:
+        logging.warning("CARI_PENYEDIA atau kuncinya kosong: agent hanya bisa membaca URL, tidak bisa mencari")
 
     # mendalam = model utama dengan langkah penuh; cepat = tanpa wajib cari, langkah lebih sedikit, Tavily basic;
     # tamu = seperti cepat ditambah jawaban lebih singkat
-    cfg_cepat = dataclasses.replace(cfg, wajib_cari=False, tavily_kedalaman="basic", maks_baca_url=cfg.cepat_maks_baca_url)
-    cfg_tamu = dataclasses.replace(cfg, tavily_kedalaman="basic", maks_baca_url=cfg.tamu_maks_baca_url)
+    cfg_cepat = dataclasses.replace(cfg, wajib_cari=cfg.wajib_cari and cfg.cepat_wajib_cari, cari_kedalaman="basic", maks_baca_url=cfg.cepat_maks_baca_url)
+    cfg_tamu = dataclasses.replace(cfg, cari_kedalaman="basic", maks_baca_url=cfg.tamu_maks_baca_url)
     # satu cache dipakai bersama semua profil agar kueri yang sama tidak memakai kredit Tavily dua kali
     cache = CacheCari(cfg.cache_cari_detik, cfg.cache_cari_maks)
     tambahan = AlatTambahan(cfg.alat)
@@ -49,11 +54,11 @@ def main():
     pemeriksa = (klien_periksa, cfg.periksa_huruf_sumber) if cfg.periksa_logika else None
     logging.info("pemeriksa logika mode mendalam: %s", "aktif" if pemeriksa else "mati")
     daftar_agen = {
-        "mendalam": Agen(klien, KotakAlat(cfg, cache, tambahan), cfg.maks_langkah, cfg.verifikasi_jawaban,
+        "mendalam": Agen(klien, KotakAlat(cfg, cache, tambahan, pencari), cfg.maks_langkah, cfg.verifikasi_jawaban,
                          INSTRUKSI_SISTEM + INSTRUKSI_MENDALAM + (INSTRUKSI_BACA_BANYAK if cfg.baca_banyak else ""),
                          pemeriksa),
-        "cepat": Agen(klien_cepat, KotakAlat(cfg_cepat, cache, tambahan), cfg.cepat_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_CEPAT),
-        "tamu": Agen(klien_tamu, KotakAlat(cfg_tamu, cache, tambahan), cfg.tamu_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_TAMU),
+        "cepat": Agen(klien_cepat, KotakAlat(cfg_cepat, cache, tambahan, pencari), cfg.cepat_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_CEPAT),
+        "tamu": Agen(klien_tamu, KotakAlat(cfg_tamu, cache, tambahan, pencari), cfg.tamu_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_TAMU),
     }
 
     pembuat_embedding = buat_pembuat_embedding(cfg)

@@ -47,7 +47,7 @@ class CekLLM:
     """Mengecek apakah model utama bisa dihubungi; hasilnya disimpan sebentar agar pengecekan dari frontend tidak membebani layanan LLM.
     Klien tanpa metode sehat (misalnya AWS) selalu dianggap terhubung."""
 
-    def __init__(self, klien, simpan_detik=20):
+    def __init__(self, klien, simpan_detik=10):
         self.cek = getattr(klien, "sehat", None)
         self.simpan_detik = simpan_detik
         self.gagal, self.waktu = 0, float("-inf")
@@ -56,8 +56,10 @@ class CekLLM:
         if self.cek is None:
             return True
         if time.monotonic() - self.waktu >= self.simpan_detik:
-            # satu kali gagal belum dianggap terputus, karena laptop yang sedang sibuk menjawab bisa lambat membalas
-            self.gagal = 0 if self.cek() else self.gagal + 1
+            # mati pasti (None bukan) langsung dianggap terputus; lambat membalas baru dianggap terputus setelah 2 kali berturut-turut,
+            # karena laptop yang sedang sibuk menjawab bisa lambat membalas
+            hasil = self.cek()
+            self.gagal = 0 if hasil else BATAS_GAGAL_CEK if hasil is False else self.gagal + 1
             self.waktu = time.monotonic()
         return self.gagal < BATAS_GAGAL_CEK
 
@@ -114,6 +116,8 @@ def buat_klien(cfg, model=""):
         model = model or cfg.local_model
         if not cfg.local_url or not model:
             raise ValueError("LOCAL_URL dan LOCAL_MODEL wajib diisi di .env")
-        return KlienAPI(cfg.local_url, cfg.local_api_key, model, cfg.local_batas_waktu, cfg.local_penalaran), model
+        # sebagian konteks disisakan untuk jawaban model
+        batas = cfg.local_konteks - min(cfg.maks_token_jawaban, cfg.local_konteks // 4) if cfg.local_konteks else 0
+        return KlienAPI(cfg.local_url, cfg.local_api_key, model, cfg.local_batas_waktu, cfg.local_penalaran, batas), model
 
     raise ValueError("LLM_PROVIDER harus salah satu dari: aws, api, local")

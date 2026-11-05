@@ -8,7 +8,7 @@ MAKS_RIWAYAT_RINGKAS = 12
 KATEGORI_SELALU = ("nama", "gaya")
 
 # pertanyaan yang memuat kata ini butuh seluruh ingatan, misalnya "kamu ingat aku?" atau minta rekomendasi
-KATA_SEMUA_INGATAN = ("ingat", "tentang aku", "tentang saya", "kesukaan", "favorit", "rekomendasi", "saran", "cocok")
+POLA_SEMUA_INGATAN = re.compile(r"\b(ingat\w*|tentang (aku|saya)|kesukaan\w*|favorit\w*|rekomendasi\w*|saran\w*|cocok\w*)\b", re.IGNORECASE)
 
 KATA_UMUM = {
     "yang", "dengan", "untuk", "dari", "atau", "saya", "kamu", "anda", "bagaimana", "tentang", "kalau", "jika",
@@ -18,7 +18,7 @@ KATA_UMUM = {
 # pertanyaan yang merujuk percakapan sebelumnya; hanya pertanyaan seperti ini yang memakai butir minat, proyek, atau tujuan yang cocok
 POLA_MERUJUK = re.compile(r"\b(tadi|kemarin|sebelumnya|waktu itu|yang itu|yang pernah|lanjut\w*|seperti biasa|terakhir kali|"
                           r"yang (saya|aku|ku) (suka\w*|bilang|tanya\w*|sebut\w*|mainkan|tonton))\b", re.IGNORECASE)
-                          
+
 POLA_KOSONG = re.compile(r"belum disebut|tidak disebut|tidak diketahui|\(belum|\(tidak|^-\s*[\w /]+:\s*-?\s*$", re.IGNORECASE)
 
 INSTRUKSI_RINGKAS = """Kamu mencatat ingatan jangka panjang tentang seorang pengguna chatbot Vokapas.
@@ -75,7 +75,10 @@ def pilih_ingatan(ingatan, pertanyaan, riwayat=None, hanya_rujukan=True):
     for pesan in (riwayat or [])[-2:]:
         if isinstance(pesan, dict):
             teks_tanya += " " + str(pesan.get("teks", ""))[:500]
-    if any(kata in teks_tanya.lower() for kata in KATA_SEMUA_INGATAN):
+    # hanya kalimat pengguna yang diperiksa, karena jawaban asisten sering memuat kata seperti "disarankan" atau "cocok"
+    teks_pengguna = " ".join([str(pertanyaan or "")] + [str(p.get("teks", "")) for p in (riwayat or [])[-2:]
+                                                         if isinstance(p, dict) and p.get("peran") != "asisten"])
+    if POLA_SEMUA_INGATAN.search(teks_pengguna):
         return "\n".join(semua)[:BATAS_INGATAN]
 
     if hanya_rujukan and not POLA_MERUJUK.search(str(pertanyaan or "")):

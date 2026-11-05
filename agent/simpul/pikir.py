@@ -141,6 +141,8 @@ def kueri_sendiri(keadaan):
     """Pertanyaan terakhir tanpa kata perintah sebagai kueri; jika sisanya terlalu pendek, pesan pengguna sebelumnya ikut dipakai."""
     asli = " ".join(str(keadaan.get("pertanyaan", "")).split())
     kueri = bersihkan_kueri(asli)
+    if keadaan.get("rujukan"):
+        return f"{bersihkan_kueri(keadaan['rujukan'])} {kueri}".strip()[:300]
     if len(kueri.split()) < MIN_KATA_KUERI_SENDIRI:
         sebelumnya = [str(p.get("teks", "")) for p in (keadaan.get("riwayat") or []) if p.get("peran") != "asisten"]
         if sebelumnya:
@@ -152,17 +154,27 @@ def luruskan_kueri(konten, keadaan):
     karena model kecil kadang mencari topik dari ingatan atau Data internal, bukan dari pertanyaan."""
     pengganti = kueri_sendiri(keadaan)
     topik = kata_topik(pengganti)
+    rujukan = bersihkan_kueri(keadaan.get("rujukan", ""))
     for blok in konten.get("content", []):
         panggilan = blok.get("toolUse")
         if not panggilan or panggilan.get("name") != "cari_web":
             continue
         kueri = str((panggilan.get("input") or {}).get("kueri", ""))
-        if topik and not topik & kata_topik(kueri):
-            logging.info("kueri model tidak sesuai pertanyaan (%s), diganti: %s", kueri, pengganti)
-            panggilan["input"] = {**(panggilan.get("input") or {}), "kueri": pengganti}
-            fungsi = (panggilan.get("asli") or {}).get("function")
-            if isinstance(fungsi, dict):
-                fungsi["arguments"] = json.dumps(panggilan["input"], ensure_ascii=False)
+        if rujukan:
+            # pesan lanjutan: kueri model tetap dipakai (bisa sudah memuat nama dari jawaban sebelumnya),
+            # hanya ditambah topik pertanyaan sebelumnya jika belum ada
+            if kata_topik(rujukan) & kata_topik(kueri):
+                continue
+            baru = f"{rujukan} {kueri}"[:300]
+        elif topik and not topik & kata_topik(kueri):
+            baru = pengganti
+        else:
+            continue
+        logging.info("kueri model tidak sesuai pertanyaan (%s), diganti: %s", kueri, baru)
+        panggilan["input"] = {**(panggilan.get("input") or {}), "kueri": baru}
+        fungsi = (panggilan.get("asli") or {}).get("function")
+        if isinstance(fungsi, dict):
+            fungsi["arguments"] = json.dumps(panggilan["input"], ensure_ascii=False)
 
 def kata_topik(teks):
     return {kata for kata in re.findall(r"\w+", teks.lower()) if len(kata) >= 3 and kata not in KATA_UMUM}

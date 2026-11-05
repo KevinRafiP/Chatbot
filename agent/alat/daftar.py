@@ -3,7 +3,7 @@ import re
 
 from alat.baca import baca
 from alat.cache_cari import CacheCari
-from alat.cari import cari
+from alat.cari import GalatHabis, PencariBerantai
 from alat.hitung import hitung
 from alat.tambahan import AlatTambahan
 from alat.tingkat import tingkat_sumber
@@ -45,8 +45,10 @@ DEKLARASI_HITUNG = {
 }
 
 class KotakAlat:
-    def __init__(self, cfg, cache=None, tambahan=None):
+    def __init__(self, cfg, cache=None, tambahan=None, pencari=None):
         self.cfg = cfg
+        # pencari dipakai bersama agar penyedia yang habis tercatat untuk semua profil
+        self.pencari = pencari or PencariBerantai(cfg.penyedia_cari, cfg.cari_jeda_detik)
         # cache boleh dipakai bersama oleh beberapa KotakAlat; None berarti tanpa cache
         self.cache = cache or CacheCari(0, 0)
         # alat tambahan juga boleh dipakai bersama agar cache kurs dan wilayahnya satu
@@ -57,7 +59,7 @@ class KotakAlat:
         daftar = [DEKLARASI_HITUNG]
         if internet:
             daftar.insert(0, DEKLARASI_BACA)
-            if self.cfg.tavily_api_key:
+            if self.pencari.ada():
                 daftar.insert(0, DEKLARASI_CARI)
         return daftar + self.tambahan.deklarasi(email, teks)
 
@@ -66,7 +68,7 @@ class KotakAlat:
 
     def wajib_cari(self, paksa=False):
         """Pencarian hanya bisa diwajibkan jika cari_web tersedia dan fiturnya dinyalakan, atau dipaksa (pengguna minta cari ulang)."""
-        return bool(self.cfg.tavily_api_key) and (self.cfg.wajib_cari or paksa)
+        return self.pencari.ada() and (self.cfg.wajib_cari or paksa)
         
     def wajib_alat_khusus(self, teks, perlu_cari):
         """Model lokal sering menghitung di kepala, jadi alat wajib dipakai walau ada data internal jika pertanyaan berisi hitungan,
@@ -85,15 +87,15 @@ class KotakAlat:
                     return {"ekspresi": ekspresi, "hasil": hitung(ekspresi)}
                 except (ValueError, ArithmeticError, TypeError) as galat:
                     return {"ekspresi": ekspresi, "galat": f"tidak bisa dihitung: {galat}"}
-            if nama == "cari_web" and self.cfg.tavily_api_key:
+            if nama == "cari_web" and self.pencari.ada():
                 kueri = str(argumen.get("kueri", ""))
                 maks_hasil = min(catatan["maks_sumber_luar"] + 2, 10)
                 # jika pengguna bilang salah atau minta cari ulang, cache dilewati dan isinya diganti hasil baru
-                hasil = None if catatan.get("segarkan") else self.cache.ambil(kueri, self.cfg.tavily_kedalaman, maks_hasil)
+                hasil = None if catatan.get("segarkan") else self.cache.ambil(kueri, self.cfg.cari_kedalaman, maks_hasil)
                 if hasil is None:
-                    hasil = cari(kueri, self.cfg.tavily_api_key, self.cfg.domain_diblokir, self.cfg.batas_waktu,
-                                 maks_hasil=maks_hasil, kedalaman=self.cfg.tavily_kedalaman)
-                    self.cache.simpan(kueri, self.cfg.tavily_kedalaman, maks_hasil, hasil)
+                    hasil = self.pencari.cari(kueri, self.cfg.domain_diblokir, self.cfg.batas_waktu,
+                                              maks_hasil=maks_hasil, kedalaman=self.cfg.cari_kedalaman)
+                    self.cache.simpan(kueri, self.cfg.cari_kedalaman, maks_hasil, hasil)
                 else:
                     logging.info("cari_web memakai cache: %s", kueri)
                 for item in hasil:
@@ -118,6 +120,9 @@ class KotakAlat:
             return {"galat": f"alat {nama} tidak tersedia"}
         except GalatPengaman as galat:
             return {"galat": f"ditolak pengaman: {galat}"}
+        except GalatHabis as galat:
+            logging.warning("cari_web gagal: %s", galat)
+            return {"galat": str(galat)}
         except Exception as galat:
             logging.warning("alat %s gagal: %s", nama, galat)
             return {"galat": "gagal mengakses internet"}

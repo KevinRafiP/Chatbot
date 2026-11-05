@@ -124,5 +124,7 @@ def rapikan_sitasi(teks, semua, maks_sumber_luar):
         return f" [{dipakai.index(nomor) + 1}]"
 
     teks = POLA_SITASI.sub(ganti, teks).strip()
+    # sitasi yang sama berturut-turut, misalnya "[1] [1]", cukup ditulis sekali
+    teks = re.sub(r"( \[\d+\])(?:\1)+", r"\1", teks)
     # jawaban tanpa nomor sumber (selera, opini santai, logika) tidak menampilkan daftar sumber walaupun sempat mencari
     return teks, [semua[nomor - 1] for nomor in dipakai]

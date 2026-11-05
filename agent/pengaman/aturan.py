@@ -79,6 +79,9 @@ POLA_TAWA = re.compile(r"(ha|he|hi|wk)+")
 POLA_MINTA_EMAIL = re.compile(r"\b(kirim\w*|send|email\w*)\b.{0,80}\b(e-?mail|surel|inbox)\b|\b(ke|di|lewat|via)\s+(e-?mail|surel)\b")
 
 POLA_KATA_SUMBER = re.compile(r"\b(sumber|referensi|rujukan|link|tautan)")
+# kata pembuka pesan lanjutan; pesan seperti ini dibaca bersama pertanyaan pengguna sebelumnya
+POLA_LANJUTAN = re.compile(r"^(kalau|kalo|klo|terus|trus|lalu|lantas|bagaimana|gimana|gmn|yang|dan|atau|versi|bahasa|dalam|pakai|kenapa|mengapa|kok)\b")
+MAKS_KATA_LANJUTAN = 6
 POLA_MINIMAL = re.compile(r"\b(?:minimal|minimum|min|paling sedikit|setidaknya|sedikitnya)\.?\s*(\d{1,2})\b")
 POLA_MAKSIMAL = re.compile(r"\b(?:maksimal|maksimum|maks|max|paling banyak)\.?\s*(\d{1,2})\b")
 POLA_JUMLAH = re.compile(r"\b(\d{1,2})\s*(?:sumber|referensi|rujukan|link|tautan)")
@@ -166,6 +169,13 @@ def tanya_selera(teks):
     kecil = " ".join(teks.lower().split())
     return any(pola.search(kecil) for pola in POLA_SELERA)
 
+def lanjutan(teks, riwayat):
+    """True jika pesan pendek kemungkinan besar melanjutkan pertanyaan sebelumnya, misalnya "kalau inggris?" atau "terus yang kedua?"."""
+    kata = " ".join(str(teks or "").lower().split()).strip(" ?!.").split()
+    if not riwayat or not kata or len(kata) > MAKS_KATA_LANJUTAN:
+        return False
+    return len(kata) <= 2 or bool(POLA_LANJUTAN.search(" ".join(kata)))
+
 def obrolan_ringan(teks, riwayat=None):
     """True jika pesan hanya sapaan, ucapan terima kasih, atau tanggapan singkat seperti "oke makasih".
     Jika jawaban terakhir Vokapas bertanya atau menawarkan sesuatu, "oke" bisa berarti setuju, jadi tidak dihitung."""
@@ -205,10 +215,13 @@ def varian_teks(teks):
     return varian
 
 
-def batas_sumber(teks):
-    """Membaca permintaan jumlah sumber luar dan mengembalikan (minimal, maksimal)."""
+def batas_sumber(teks, minimal_bawaan=0):
+    """Membaca permintaan jumlah sumber luar dan mengembalikan (minimal, maksimal).
+    minimal_bawaan dipakai jika pengguna tidak menyebut jumlah sumber."""
     kecil = teks.lower()
     if not POLA_KATA_SUMBER.search(kecil):
+        if minimal_bawaan:
+            return minimal_bawaan, min(minimal_bawaan + TAMBAHAN_DARI_MINIMAL, SUMBER_TERBANYAK)
         return 0, SUMBER_BAWAAN
 
     minimal = angka_pertama(POLA_MINIMAL, kecil)

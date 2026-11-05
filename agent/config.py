@@ -6,6 +6,7 @@ FOLDER_AGENT = Path(__file__).resolve().parent
 # model dan kemiripan minimal bawaan per EMBED_PROVIDER; angka kemiripan masih perkiraan, sesuaikan dari log backend
 MODEL_EMBED_BAWAAN = {"aws": "cohere.embed-multilingual-v3", "api": "gemini-embedding-2", "local": "bge-m3"}
 SKOR_EMBED_BAWAAN = {"aws": 0.35, "api": 0.55, "local": 0.45}
+MAKS_PENYEDIA_CARI = 10
 
 @dataclass
 class PengaturanAlat:
@@ -52,9 +53,11 @@ class Config:
     local_url: str
     local_model: str
     local_api_key: str
-    local_penalaran: str 
+    local_penalaran: str
+    local_konteks: int
     local_batas_waktu: int
-    tavily_api_key: str
+    penyedia_cari: list
+    cari_jeda_detik: int
     maks_langkah: int
     maks_baca_url: int
     cepat_maks_langkah: int
@@ -66,11 +69,14 @@ class Config:
     llm_model_periksa: str
     periksa_huruf_sumber: int
     wajib_cari: bool
+    cari_walau_data: bool
+    cepat_wajib_cari: bool
+    min_sumber: int
     paksa_cari: bool
     wajib_alat: bool
     ingatan_rujukan: bool
     baca_banyak: bool
-    tavily_kedalaman: str
+    cari_kedalaman: str
     batas_waktu: int
     domain_diblokir: list
     cache_cari_detik: int
@@ -140,6 +146,17 @@ def ambil_ya(kunci, bawaan):
         return bawaan
     return nilai in ("1", "ya", "true", "on")
 
+def ambil_penyedia_cari():
+    """Urutan penyedia dari CARI_PENYEDIA (paling banyak 10); kunci tiap penyedia di NAMA_API_KEY, contoh exa_2 = EXA_2_API_KEY.
+    Penyedia tanpa kunci dilewati."""
+    daftar = []
+    for nama in ambil("CARI_PENYEDIA", "tavily").lower().split(","):
+        nama = nama.strip()
+        kunci = ambil(f"{nama.upper()}_API_KEY")
+        if nama and kunci and nama not in [n for n, _ in daftar]:
+            daftar.append((nama, kunci))
+    return daftar[:MAKS_PENYEDIA_CARI]
+
 def muat():
     """Membaca .env lalu mengisi Config."""
     baca_env(FOLDER_AGENT / ".env")
@@ -163,7 +180,10 @@ def muat():
         maks_baca_url = ambil_angka("LOCAL_MAKS_BACA_URL", 1)
         # verifikasi tanpa LLM (hanya mencocokkan angka dan sitasi dengan sumber), jadi tetap aktif di model lokal
         verifikasi = ambil_ya("LOCAL_VERIFIKASI_JAWABAN", True)
-        wajib_cari = ambil_ya("LOCAL_WAJIB_CARI", False)
+        wajib_cari = ambil_ya("LOCAL_WAJIB_CARI", True)
+        # model lokal sering mengarang dari ingatannya sendiri, jadi pertanyaan fakta tetap dicari walau ada data internal, juga di mode cepat
+        cari_walau_data = ambil_ya("LOCAL_CARI_WALAU_ADA_DATA", True)
+        cepat_wajib_cari = ambil_ya("LOCAL_CEPAT_WAJIB_CARI", True)
         # Ollama mengabaikan "wajib memakai alat", jadi agent sendiri yang memastikan cari_web dipanggil
         paksa_cari = ambil_ya("LOCAL_PAKSA_CARI", True)
         # pertanyaan hitungan, tanggal, kurs, atau lokasi wajib memakai alat walau ada data internal
@@ -212,6 +232,8 @@ def muat():
         aws_auth_mode=ambil("AWS_AUTH_MODE", "iam").lower(),
         aws_access_key_id=ambil("AWS_ACCESS_KEY_ID"),
         aws_secret_access_key=ambil("AWS_SECRET_ACCESS_KEY"),
+        # samakan dengan OLLAMA_CONTEXT_LENGTH di laptop; 0 = prompt tidak dipangkas agent
+        local_konteks=0 if ambil("LOCAL_KONTEKS_TOKEN") == "0" else ambil_angka("LOCAL_KONTEKS_TOKEN", 32768),
         aws_region=ambil("AWS_REGION", "ap-southeast-3"),
         llm_model=ambil("LLM_MODEL"),
         llm_model_cepat=model_cepat,
@@ -225,7 +247,9 @@ def muat():
         local_api_key=ambil("LOCAL_API_KEY"),
         local_penalaran=ambil("LOCAL_PENALARAN"),
         local_batas_waktu=ambil_angka("LOCAL_BATAS_WAKTU_DETIK", 180),
-        tavily_api_key=ambil("TAVILY_API_KEY"),
+        penyedia_cari=ambil_penyedia_cari(),
+        # penyedia yang kreditnya habis dicoba lagi setelah jeda ini
+        cari_jeda_detik=ambil_angka("CARI_JEDA_HABIS_MENIT", 60) * 60,
         maks_langkah=maks_langkah,
         maks_baca_url=maks_baca_url,
         cepat_maks_langkah=ambil_angka("CEPAT_MAKS_LANGKAH", 3),
@@ -239,7 +263,11 @@ def muat():
         llm_model_periksa=model_periksa,
         periksa_huruf_sumber=ambil_angka("AGENT_PERIKSA_HURUF_SUMBER", 12000),
         wajib_cari=wajib_cari,
-        tavily_kedalaman="basic" if ambil("TAVILY_KEDALAMAN", "advanced").lower() == "basic" else "advanced",
+        cari_walau_data=cari_walau_data,
+        cepat_wajib_cari=cepat_wajib_cari,
+        # minimal sumber luar untuk pertanyaan fakta jika pengguna tidak menyebut jumlahnya; 0 = tanpa minimal
+        min_sumber=0 if ambil("AGENT_MIN_SUMBER") == "0" else ambil_angka("AGENT_MIN_SUMBER", 4),
+        cari_kedalaman="basic" if ambil("CARI_KEDALAMAN", ambil("TAVILY_KEDALAMAN", "advanced")).lower() == "basic" else "advanced",
         batas_waktu=ambil_angka("AGENT_BATAS_WAKTU_DETIK", 15),
         domain_diblokir=diblokir,
         # CACHE_CARI=tidak mematikan cache hasil pencarian
