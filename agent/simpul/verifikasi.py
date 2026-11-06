@@ -6,6 +6,10 @@ POLA_ANGKA = re.compile(r"\d+(?:[.,]\d+)*")
 POLA_NAMA = re.compile(r"\b[A-Z][\w-]{2,}")
 POLA_AWAL_BARIS = re.compile(r"^(\s*(?:-|\d+[.)])\s+)")
 POLA_PISAH_KALIMAT = re.compile(r"(?<=[.!?])((?:\s*\[\d+\])*)\s+(?=\S)")
+POLA_BARIS_TABEL = re.compile(r"^\s*\|")
+POLA_RUMUS = re.compile(r"\$\$.+?\$\$|\\\[.+?\\\]|\\\(.+?\\\)|\$(?=\S)[^$\n]+?(?<=\S)\$")
+# hitungan seperti "7,5 mg/kg × 15 kg = 112,5 mg": hasilnya dihitung model, jadi wajar tidak ada di sumber
+POLA_OPERASI = re.compile(r"[×÷]|\d\s*[*/+^−]\s*[\w(\\]|\d\s*-\s*\(?\d")
 
 # jika lebih dari separuh kalimat harus dibuang, jawaban dipakai utuh dengan catatan agar tidak tersisa potongan
 RASIO_BUANG_MAKSIMAL = 0.5
@@ -31,7 +35,7 @@ def verifikasi(keadaan):
     }
 
     baris_baru, jumlah, dibuang = [], 0, []
-    di_kode = False
+    di_kode = di_rumus = False
     for baris in draf.split("\n"):
         # blok kode dan grafik (```) dibiarkan utuh, karena membuang sebagian barisnya membuat grafik rusak
         if baris.lstrip().startswith("```"):
@@ -41,13 +45,23 @@ def verifikasi(keadaan):
         if di_kode:
             baris_baru.append(baris)
             continue
+        # rumus $$ beberapa baris dan baris tabel dibiarkan utuh, karena membuang satu barisnya membuat rumus atau tabel rusak
+        ganti_rumus = baris.count("$$") % 2 == 1 or ("\\[" in baris) != ("\\]" in baris)
+        if di_rumus or ganti_rumus:
+            di_rumus = di_rumus != ganti_rumus
+            baris_baru.append(baris)
+            continue
+        if POLA_BARIS_TABEL.match(baris):
+            angka, nama = fakta(baris)
+            baris_baru.append(periksa_sitasi(baris, angka | nama, isi_sumber))
+            continue
         awal = POLA_AWAL_BARIS.match(baris)
         pembuka = awal.group(1) if awal else ""
         kalimat_baru = []
         for kalimat in pecah_kalimat(baris[len(pembuka):]):
             jumlah += 1
             angka, nama = fakta(kalimat)
-            if any(not ada_di_rujukan(a, angka_rujukan) for a in angka):
+            if not hitungan(kalimat) and any(not ada_di_rujukan(a, angka_rujukan) for a in angka):
                 dibuang.append(kalimat)
                 continue
             kalimat_baru.append(periksa_sitasi(kalimat, angka | nama, isi_sumber))
@@ -92,12 +106,16 @@ def pecah_kalimat(teks):
 
 
 def fakta(kalimat):
-    """Angka minimal dua digit, dan nama berhuruf kapital yang bukan kata pertama kalimat."""
-    polos = POLA_SITASI.sub("", kalimat).strip()
+    """Angka minimal dua digit, dan nama berhuruf kapital yang bukan kata pertama kalimat; isi rumus LaTeX tidak dihitung."""
+    polos = POLA_RUMUS.sub(" ", POLA_SITASI.sub("", kalimat)).strip()
     angka = {a for a in POLA_ANGKA.findall(rapikan_angka(polos)) if len(a) >= 2}
     nama = {m.group(0).lower() for m in POLA_NAMA.finditer(polos) if m.start() > 0}
     return angka, nama
 
+def hitungan(kalimat):
+    """Kalimat berisi hitungan dengan tanda sama dengan, misalnya "Dosis = 7,5 mg/kg × 15 kg = 112,5 mg"."""
+    polos = POLA_SITASI.sub("", kalimat)
+    return "=" in polos and bool(POLA_OPERASI.search(polos))
 
 def periksa_sitasi(kalimat, kunci, isi_sumber):
     """Sitasi [n] yang sumbernya tidak memuat satu pun angka atau nama di kalimat dipindah ke sumber yang memuatnya, atau dibuang."""

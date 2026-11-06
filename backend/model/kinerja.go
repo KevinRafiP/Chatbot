@@ -14,6 +14,10 @@ type Kinerja struct {
 	Alat           []string  `json:"alat"`
 	PanjangJawaban int       `json:"panjang_jawaban"`
 	DibuatPada     time.Time `json:"dibuat_pada"`
+	PenggunaID     string    `json:"-"`
+	JenisAkun      string    `json:"-"`
+	Akun           string    `json:"akun"`      // kunci akun, lihat KinerjaAkun
+	NamaAkun       string    `json:"nama_akun"` // kosong untuk tamu dan catatan tanpa akun
 }
 
 // StatistikKinerja adalah rangkuman banyak catatan kinerja; Profil kosong berarti semua profil
@@ -49,13 +53,39 @@ type JawabanDinilai struct {
 	DinilaiPada time.Time `json:"dinilai_pada"`
 }
 
-// LaporanKinerja adalah isi halaman kinerja admin untuk beberapa hari terakhir
+// LaporanKinerja adalah isi halaman kinerja admin untuk satu rentang waktu
 type LaporanKinerja struct {
-	Hari         int                `json:"hari"`
+	Hari         int                `json:"hari"` // 0 berarti rentang tanggal pilihan sendiri
+	Dari         time.Time          `json:"dari"`
+	Sampai       time.Time          `json:"sampai"`
 	Semua        StatistikKinerja   `json:"semua"` // semua jawaban, tanpa peringkasan percakapan
 	PerProfil    []StatistikKinerja `json:"per_profil"`
 	Alat         []PemakaianAlat    `json:"alat"`
-	Terbaru      []Kinerja          `json:"terbaru"`
+	PerAkun      []KinerjaAkun      `json:"per_akun"`      // selalu semua akun, walau laporan disaring satu akun
+	Akun         string             `json:"akun"`          // akun yang sedang disaring; kosong = semua akun
 	Penilaian    []PenilaianJawaban `json:"penilaian"`     // baris pertama adalah total
 	TidakDisukai []JawabanDinilai   `json:"tidak_disukai"` // kosong bila KINERJA_TAMPILKAN_ISI=tidak
+}
+
+// HalamanKinerja adalah satu halaman tabel "Terbaru"; Total adalah jumlah semua catatan di rentang waktu
+type HalamanKinerja struct {
+	Baris      []Kinerja `json:"baris"`
+	Total      int       `json:"total"`
+	Halaman    int       `json:"halaman"`
+	PerHalaman int       `json:"per_halaman"`
+}
+
+// KinerjaAkun adalah rangkuman jawaban untuk satu akun. Akun berisi id akun terdaftar, "tamu" untuk semua tamu,
+// atau "lain" untuk catatan sebelum fitur ini dan akun yang sudah dihapus
+type KinerjaAkun struct {
+	Akun        string    `json:"akun"`
+	Nama        string    `json:"nama"`
+	Email       string    `json:"email,omitempty"`
+	Jenis       string    `json:"jenis"`
+	Jumlah      int       `json:"jumlah"`
+	Gagal       int       `json:"gagal"`
+	RataLamaMs  int64     `json:"rata_lama_ms"`
+	TokenMasuk  int64     `json:"token_masuk"`
+	TokenKeluar int64     `json:"token_keluar"`
+	Terakhir    time.Time `json:"terakhir"`
 }

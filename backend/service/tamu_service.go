@@ -19,7 +19,7 @@ type RiwayatTamu struct {
 
 // JawabTamu menjawab pertanyaan tamu memakai riwayat dari browser-nya, tanpa menyimpan apa pun.
 // lampiran juga dikirim browser setiap pesan, karena percakapan tamu tidak disimpan
-func (s *ChatbotService) JawabTamu(ctx context.Context, pertanyaan string, riwayat []RiwayatTamu, lampiran *model.Lampiran, kabar agen.Kabar) (HasilChat, error) {
+func (s *ChatbotService) JawabTamu(ctx context.Context, pengguna model.Pengguna, pertanyaan string, riwayat []RiwayatTamu, lampiran *model.Lampiran, kabar agen.Kabar) (HasilChat, error) {
 	pertanyaan = strings.TrimSpace(pertanyaan)
 	if pertanyaan == "" || len(pertanyaan) > BatasPertanyaan {
 		return HasilChat{}, ErrDataTidakValid
@@ -36,5 +36,5 @@ func (s *ChatbotService) JawabTamu(ctx context.Context, pertanyaan string, riway
 		bersih = append(bersih, agen.Riwayat{Peran: r.Peran, Teks: potong(strings.TrimSpace(r.Teks), BatasTeksRiwayatTamu)})
 	}
 	tambahan := agen.Tambahan{Lampiran: lampiranAgen(bersihkanLampiran(lampiran))}
-	return s.Jawab(ctx, pertanyaan, bersih, "", agen.ProfilTamu, tambahan, kabar)
+	return s.Jawab(ctx, pengguna, pertanyaan, bersih, "", agen.ProfilTamu, tambahan, kabar)
 }

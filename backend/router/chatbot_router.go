@@ -97,6 +97,7 @@ func BuatChatbot(
 	mux.Handle("POST /admin/pengetahuan", admin(handler.IngestSatu(ingestionService)))
 	mux.Handle("POST /admin/admin", admin(handler.JadikanAdmin(akunService)))
 	mux.Handle("GET /admin/kinerja", admin(handler.LaporanKinerja(kinerjaService)))
+	mux.Handle("GET /admin/kinerja/terbaru", admin(handler.TerbaruKinerja(kinerjaService)))
 
 	mux.Handle("GET /percakapan", akun(handler.DaftarPercakapan(percakapanService)))
 	mux.Handle("POST /percakapan", akun(handler.BuatPercakapan(percakapanService)))

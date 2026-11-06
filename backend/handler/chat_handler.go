@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"chatbot/backend/agen"
+	"chatbot/backend/middleware"
 	"chatbot/backend/model"
 	"chatbot/backend/service"
 )
@@ -44,7 +45,7 @@ func ChatTamu(chatbot *service.ChatbotService) http.HandlerFunc {
 			defer sse.jaga()()
 		}
 
-		hasil, err := chatbot.JawabTamu(r.Context(), permintaan.Pertanyaan, permintaan.Riwayat, permintaan.Lampiran, kabar)
+		hasil, err := chatbot.JawabTamu(r.Context(), middleware.PenggunaDari(r.Context()), permintaan.Pertanyaan, permintaan.Riwayat, permintaan.Lampiran, kabar)
 		if sse != nil && sse.sudahMulai() {
 			if err != nil {
 				log.Println("error chatbot tamu (stream):", err)

@@ -43,7 +43,8 @@ func main() {
 	}
 	// pengaturan embedding (penyedia, model, kemiripan minimal) ada di agent/.env
 	embeddingService := service.BaruEmbeddingService(repository.BaruEmbeddingRepository(db), klienAgen)
-	kinerjaService := service.BaruKinerjaService(repository.BaruKinerjaRepository(db), cfg.KinerjaSimpanHari, cfg.KinerjaTampilkanIsi)
+	kinerjaService := service.BaruKinerjaService(repository.BaruKinerjaRepository(db), cfg.KinerjaSimpanHari, cfg.KinerjaTampilkanIsi,
+		cfg.KinerjaPerHalaman, cfg.KinerjaBarisAlat)
 	chatbotService := service.BaruChatbotService(pengetahuanRepo, klienAgen, embeddingService, kinerjaService)
 
 	sesiRepo := repository.BaruSesiRepository(db)

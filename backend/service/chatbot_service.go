@@ -42,8 +42,8 @@ func BaruChatbotService(repo *repository.PengetahuanRepository, klienAgen *agen.
 
 // Jawab mencari data di database, lalu meminta agent menyusun jawaban; jika agent gagal, pakai jawaban database.
 // Jika kabar diisi, jawaban agent diterima sebagai stream dan setiap status atau potongan teks diteruskan ke kabar
-// tambahan berisi lampiran berkas dan izin mengirim email; boleh kosong
-func (s *ChatbotService) Jawab(ctx context.Context, pertanyaan string, riwayat []agen.Riwayat, ingatan, profil string, tambahan agen.Tambahan, kabar agen.Kabar) (HasilChat, error) {
+// tambahan berisi lampiran berkas dan izin mengirim email; boleh kosong. pengguna dicatat di halaman kinerja admin
+func (s *ChatbotService) Jawab(ctx context.Context, pengguna model.Pengguna, pertanyaan string, riwayat []agen.Riwayat, ingatan, profil string, tambahan agen.Tambahan, kabar agen.Kabar) (HasilChat, error) {
 	mulai := time.Now()
 	daftar, err := s.cariData(ctx, pertanyaan)
 	if err != nil {
@@ -52,7 +52,7 @@ func (s *ChatbotService) Jawab(ctx context.Context, pertanyaan string, riwayat [
 
 	if s.agen != nil {
 		hasil, pakai, err := s.tanyaAgen(ctx, pertanyaan, daftar, riwayat, ingatan, profil, tambahan, kabar)
-		s.kinerja.CatatPanggilan(ctx, profil, mulai, pakai, hasil.Jawaban, err)
+		s.kinerja.CatatPanggilan(ctx, pengguna, profil, mulai, pakai, hasil.Jawaban, err)
 		if err != nil {
 			log.Println("agent gagal:", err)
 			return HasilChat{}, fmt.Errorf("%w: %w", ErrAgentGagal, err)

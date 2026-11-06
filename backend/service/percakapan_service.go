@@ -133,7 +133,7 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 	ingatan, waktunya := s.ingatan.Ambil(penggunaID)
 	tambahan := agen.Tambahan{Lampiran: lampiranAgen(&berkas), BisaEmail: s.email.Bisa(pengguna), Ringkasan: ringkasan}
 	profil := profilPengguna(mode)
-	hasil, err := s.chatbot.Jawab(ctx, pertanyaan, riwayat, ingatan, profil, tambahan, kabar)
+	hasil, err := s.chatbot.Jawab(ctx, pengguna, pertanyaan, riwayat, ingatan, profil, tambahan, kabar)
 	if err != nil {
 		return HasilPesan{}, err
 	}
@@ -153,7 +153,7 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 		terbaru := append(riwayat, agen.Riwayat{Peran: "user", Teks: pertanyaan}, agen.Riwayat{Peran: "asisten", Teks: hasil.Jawaban})
 		s.ingatan.PerbaruiNanti(penggunaID, ingatan, terbaru)
 	}
-	s.ringkasan.PerbaruiNanti(id, len(lama)+2)
+	s.ringkasan.PerbaruiNanti(id, pengguna, len(lama)+2)
 
 	judul := ""
 	if sampai == 0 && len(lama) == 0 {

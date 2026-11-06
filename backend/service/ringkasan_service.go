@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"chatbot/backend/agen"
+	"chatbot/backend/model"
 	"chatbot/backend/repository"
 )
 
@@ -59,7 +60,8 @@ func (s *RingkasanService) Ambil(id string) (string, int64) {
 }
 
 // PerbaruiNanti meringkas pesan lama di latar belakang bila pesan yang belum diringkas sudah mencapai batas
-func (s *RingkasanService) PerbaruiNanti(id string, belumDiringkas int) {
+// pengguna adalah pemilik percakapan, dicatat di halaman kinerja admin
+func (s *RingkasanService) PerbaruiNanti(id string, pengguna model.Pengguna, belumDiringkas int) {
 	if s == nil || belumDiringkas < s.setelah {
 		return
 	}
@@ -69,13 +71,13 @@ func (s *RingkasanService) PerbaruiNanti(id string, belumDiringkas int) {
 	}
 	go func() {
 		defer s.sedang.Delete(id)
-		if err := s.perbarui(id); err != nil {
+		if err := s.perbarui(id, pengguna); err != nil {
 			log.Println("gagal meringkas percakapan:", err)
 		}
 	}()
 }
 
-func (s *RingkasanService) perbarui(id string) error {
+func (s *RingkasanService) perbarui(id string, pengguna model.Pengguna) error {
 	lama, sampai, err := s.repo.Ringkasan(id)
 	if err != nil {
 		return err
@@ -98,7 +100,7 @@ func (s *RingkasanService) perbarui(id string) error {
 	defer batal()
 	mulai := time.Now()
 	baru, pakai, err := s.agen.RingkasPercakapan(ctx, lama, riwayat)
-	s.kinerja.CatatPanggilan(ctx, ProfilRingkasan, mulai, pakai, baru, err)
+	s.kinerja.CatatPanggilan(ctx, pengguna, ProfilRingkasan, mulai, pakai, baru, err)
 	if err != nil {
 		return err
 	}

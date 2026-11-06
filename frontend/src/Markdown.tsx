@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Chart } from "./Chart";
 import { CodeBlock } from "./CodeBlock";
 import { MathText } from "./MathText";
+import { closeMarkdown } from "./markdownPartial";
 import { FORMULA } from "./mathPlain";
 
 const FENCE = /^\s*(`{3,}|~{3,})\s*([\w-]*)\s*$/;
@@ -236,7 +237,7 @@ function renderBlocks(text: string, prefix = "b"): ReactNode[] {
 }
 
 // An answer written in Markdown: headings, bold and italic text, lists, tables, code, formulas, and ```chart blocks.
-// Text that is still arriving is fine too: an unfinished table, list, or chart is simply shown as far as it has come
-export function Markdown({ text }: { text: string }) {
-  return <div className="markdown">{renderBlocks(text)}</div>;
+// partial is for text that is still arriving: its open marks are closed first, so no raw "**" or "|" shows while typing
+export function Markdown({ text, partial = false }: { text: string; partial?: boolean }) {
+  return <div className="markdown">{renderBlocks(partial ? closeMarkdown(text) : text)}</div>;
 }

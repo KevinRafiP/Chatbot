@@ -53,20 +53,46 @@ export type PerformanceEntry = {
   modelCalls: number;
   tools: string[];
   createdAt: string;
+  // see PerformanceAccount.key; accountName is empty for guests and logs without an account
+  account: string;
+  accountName: string;
+};
+// Answers asked by one account. key is the account id, "tamu" for all guests together,
+// or "lain" for logs from before accounts were recorded and from deleted accounts
+export type PerformanceAccount = {
+  key: string;
+  name: string;
+  email: string;
+  role: string;
+  count: number;
+  failed: number;
+  avgMs: number;
+  tokensIn: number;
+  tokensOut: number;
+  lastAt: string;
 };
 // Likes and dislikes from users; profile is empty for the total
 export type RatingStats = { profile: string; likes: number; dislikes: number };
 // A disliked answer with the question before it, both cut short; empty when the server hides message text
 export type DislikedAnswer = { profile: string; question: string; answer: string; ratedAt: string };
+// The last 1, 7, or 30 days, or dates the admin picked (YYYY-MM-DD in the browser's time zone, both days included)
+export type PerformanceRange = { days: number } | { from: string; to: string };
 export type PerformanceReport = {
   days: number;
+  from: string;
+  to: string;
   total: PerformanceStats;
   byProfile: PerformanceStats[];
   tools: { name: string; count: number }[];
-  recent: PerformanceEntry[];
+  // every account in the period, even when the report is filtered to one account
+  byAccount: PerformanceAccount[];
+  account: string;
   ratings: RatingStats[];
   disliked: DislikedAnswer[];
 };
+
+// One page of the newest performance logs; total counts every log in the period
+export type PerformanceRecentPage = { entries: PerformanceEntry[]; total: number; page: number; perPage: number };
 
 type ApiResponse<T> = { status: string; message: string; data: T };
 type RawConversation = { id: string; judul: string; disematkan?: boolean };
@@ -108,16 +134,35 @@ type RawPerformanceEntry = {
   panggilan_llm: number;
   alat: string[] | null;
   dibuat_pada: string;
+  akun?: string;
+  nama_akun?: string;
+};
+type RawAccountStats = {
+  akun: string;
+  nama: string;
+  email?: string;
+  jenis: string;
+  jumlah: number;
+  gagal: number;
+  rata_lama_ms: number;
+  token_masuk: number;
+  token_keluar: number;
+  terakhir: string;
 };
 type RawPerformance = {
   hari: number;
+  dari: string;
+  sampai: string;
   semua: RawStats;
   per_profil: RawStats[];
   alat: { nama: string; jumlah: number }[];
-  terbaru: RawPerformanceEntry[];
+  per_akun?: RawAccountStats[];
+  akun?: string;
   penilaian?: { profil: string; suka: number; tidak_suka: number }[];
   tidak_disukai?: { profil: string; pertanyaan: string; jawaban: string; dinilai_pada: string }[];
 };
+
+type RawRecentPage = { baris: RawPerformanceEntry[]; total: number; halaman: number; per_halaman: number };
 
 // Render free puts the backend to sleep; these are the waits before each new try while it wakes up (about 2.5 minutes in total)
 const RETRY_DELAYS_MS = [5000, 10000, 15000, 20000, 30000, 30000, 40000];
@@ -570,25 +615,45 @@ export async function makeAdmin(email: string): Promise<void> {
   await request<unknown>("POST", "/admin/admin", { email });
 }
 
-// Admin only: answer speed, token use, and tool use over the last 1, 7, or 30 days
-export async function getPerformance(days: number): Promise<PerformanceReport> {
-  const data = await request<RawPerformance>("GET", `/admin/kinerja?hari=${days}`);
+// Midnight at the start of a YYYY-MM-DD day in the browser's time zone, moved by extraDays, as an RFC 3339 time
+function startOfDay(date: string, extraDays = 0): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(year, month - 1, day + extraDays).toISOString();
+}
+
+// account is empty for all accounts
+function rangeQuery(range: PerformanceRange, account: string): string {
+  const period =
+    "days" in range
+      ? `hari=${range.days}`
+      : `dari=${encodeURIComponent(startOfDay(range.from))}&sampai=${encodeURIComponent(startOfDay(range.to, 1))}`;
+  return account === "" ? period : `${period}&akun=${encodeURIComponent(account)}`;
+}
+
+// Admin only: answer speed, token use, and tool use over the last 1, 7, or 30 days, or between two picked dates,
+// for every account or for one account
+export async function getPerformance(range: PerformanceRange, account = ""): Promise<PerformanceReport> {
+  const data = await request<RawPerformance>("GET", `/admin/kinerja?${rangeQuery(range, account)}`)
   return {
     days: data.hari,
+    from: data.dari,
+    to: data.sampai,
     total: toStats(data.semua),
     byProfile: data.per_profil.map(toStats),
     tools: data.alat.map((tool) => ({ name: tool.nama, count: tool.jumlah })),
-    recent: data.terbaru.map((entry) => ({
-      profile: entry.profil,
-      ok: entry.berhasil,
-      error: entry.galat ?? "",
-      durationMs: entry.lama_ms,
-      tokensIn: entry.token_masuk,
-      tokensOut: entry.token_keluar,
-      modelCalls: entry.panggilan_llm,
-      tools: entry.alat ?? [],
-      createdAt: entry.dibuat_pada,
+    byAccount: (data.per_akun ?? []).map((row) => ({
+      key: row.akun,
+      name: row.nama,
+      email: row.email ?? "",
+      role: row.jenis,
+      count: row.jumlah,
+      failed: row.gagal,
+      avgMs: row.rata_lama_ms,
+      tokensIn: row.token_masuk,
+      tokensOut: row.token_keluar,
+      lastAt: row.terakhir,
     })),
+    account: data.akun ?? "",
     ratings: (data.penilaian ?? []).map((row) => ({ profile: row.profil, likes: row.suka, dislikes: row.tidak_suka })),
     disliked: (data.tidak_disukai ?? []).map((row) => ({
       profile: row.profil,
@@ -596,6 +661,29 @@ export async function getPerformance(days: number): Promise<PerformanceReport> {
       answer: row.jawaban,
       ratedAt: row.dinilai_pada,
     })),
+  };
+}
+
+// Admin only: one page of the newest performance logs in the period; the server moves a page past the end to the last one
+export async function getPerformanceRecent(range: PerformanceRange, account: string, page: number): Promise<PerformanceRecentPage> {
+  const data = await request<RawRecentPage>("GET", `/admin/kinerja/terbaru?${rangeQuery(range, account)}&halaman=${page}`);
+  return {
+    entries: data.baris.map((entry) => ({
+      profile: entry.profil,
+      ok: entry.berhasil,
+      error: entry.galat ?? "",
+      durationMs: entry.lama_ms,
+      tokensIn: entry.token_masuk,
+      tokensOut: entry.token_keluar,
+      modelCalls: entry.panggilan_llm,
+      account: entry.akun ?? "",
+      accountName: entry.nama_akun ?? "",
+      tools: entry.alat ?? [],
+      createdAt: entry.dibuat_pada,
+    })),
+    total: data.total,
+    page: data.halaman,
+    perPage: data.per_halaman,
   };
 }
 

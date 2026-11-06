@@ -209,7 +209,7 @@ export function MessageItemView(props: MessageItemProps) {
               </span>
             )}
             {message.sender === "bot" || looksFormatted(message.text) ? (
-              <Markdown text={message.text.slice(0, length)} />
+              <Markdown text={message.text.slice(0, length)} partial={typing} />
             ) : (
               message.text.slice(0, length)
             )}
@@ -323,7 +323,7 @@ export function TypingItem({ status, text, onGrow }: { status: string; text: str
       <div className="message-body">
         {shown !== "" ? (
           <div className="bubble bot streaming">
-            <Markdown text={shown} />
+            <Markdown text={shown} partial />
           </div>
         ) : (
           <div className="bubble bot typing">{status || "Mengetik"}</div>
