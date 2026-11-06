@@ -2,6 +2,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from alat.sumber_utama import domain_bawaan
+
 FOLDER_AGENT = Path(__file__).resolve().parent
 # model dan kemiripan minimal bawaan per EMBED_PROVIDER; angka kemiripan masih perkiraan, sesuaikan dari log backend
 MODEL_EMBED_BAWAAN = {"aws": "cohere.embed-multilingual-v3", "api": "gemini-embedding-2", "local": "bge-m3"}
@@ -32,6 +34,10 @@ class PengaturanAlat:
     kalkulus_batas_detik: int
     berkas_maks_huruf: int
     pilih_otomatis: bool
+    kode_runtime: list
+    kode_batas_detik: int
+    kode_api_url: str
+    kode_api_key: str
 
 @dataclass
 class Config:
@@ -68,6 +74,9 @@ class Config:
     periksa_logika: bool
     llm_model_periksa: str
     llm_model_tulis: str
+    baca_isi_halaman: int
+    baca_isi_huruf: int
+    sumber_utama: dict
     tulis_batas_detik: int
     periksa_huruf_sumber: int
     wajib_cari: bool
@@ -121,6 +130,11 @@ def baca_env(path):
 def ambil(kunci, bawaan=""):
     return os.environ.get(kunci, "") or bawaan
 
+def ambil_domain(kunci, bawaan):
+    nilai = ambil(kunci).strip()
+    if nilai.lower() in ("tidak", "mati"):
+        return []
+    return [d.strip().lower() for d in nilai.split(",") if d.strip()] or list(bawaan)
 
 def ambil_angka(kunci, bawaan):
     try:
@@ -228,6 +242,11 @@ def muat():
         berkas_maks_huruf=ambil_angka("BERKAS_MAKS_HURUF", 20000),
         # alat khusus (waktu, kurs, keuangan, dan lainnya) hanya dikirim ke model jika pertanyaannya cocok, agar token hemat
         pilih_otomatis=ambil_ya("ALAT_SESUAI_PERTANYAAN", True),
+        # tempat menjalankan kode Python dari model, dipisah koma sesuai urutan; kosong = alat jalankan_python mati
+        kode_runtime=[n.strip().lower() for n in ambil("KODE_RUNTIME").split(",") if n.strip()],
+        kode_batas_detik=ambil_angka("KODE_BATAS_DETIK", 15),
+        kode_api_url=ambil_url("KODE_API_URL", ""),
+        kode_api_key=ambil("KODE_API_KEY"),
     )  
 
     return Config(
@@ -269,6 +288,11 @@ def muat():
         llm_model_periksa=model_periksa,
         # penulis ulang pertanyaan lanjutan; kosong = LLM_MODEL (atau LOCAL_MODEL); lewat batas waktu = pakai pola kata
         llm_model_tulis=model_tulis,
+        # halaman teratas hasil cari_web yang dibuka otomatis (minimal 1), dan panjang bagian relevan per halaman
+        baca_isi_halaman=ambil_angka("CARI_BACA_ISI", 3),
+        baca_isi_huruf=ambil_angka("CARI_ISI_HURUF", 2000),
+        # domain yang diutamakan per topik; isi "tidak" untuk mematikan satu topik
+        sumber_utama={topik: ambil_domain(f"SUMBER_UTAMA_{topik.upper()}", domain) for topik, domain in domain_bawaan().items()},
         tulis_batas_detik=ambil_angka("TULIS_ULANG_BATAS_DETIK", 20),
         periksa_huruf_sumber=ambil_angka("AGENT_PERIKSA_HURUF_SUMBER", 12000),
         wajib_cari=wajib_cari,

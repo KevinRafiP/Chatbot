@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler
 
 from alat.berkas import baca_berkas
 from alat.jaringan import GalatAlat
+from alat.kode import terima_hasil
 from llm import denyut
 from llm.client import GalatLLM
 from llm.embedding import MAKS_TEKS
@@ -31,7 +32,8 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berka
             self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
 
         def do_POST(self):
-            if self.path not in ("/jawab", "/jawab-stream", "/ringkas", "/ringkas-percakapan", "/embed", "/embed-info", "/baca-berkas"):
+            if self.path not in ("/jawab", "/jawab-stream", "/ringkas", "/ringkas-percakapan", "/embed", "/embed-info", "/baca-berkas",
+                                 "/hasil-kode"):
                 self.kirim_json(404, {"status": "gagal", "message": "alamat tidak ditemukan"})
                 return
 
@@ -58,6 +60,13 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berka
                 return
             if self.path == "/embed":
                 self.embed(data)
+                return
+            if self.path == "/hasil-kode":
+                # hasil jalankan_python dari browser pengguna, diteruskan backend; id hanya dikenal browser yang menerima kodenya
+                if terima_hasil(data.get("id"), data):
+                    self.kirim_json(200, {"status": "sukses", "message": "hasil kode diterima", "data": {}})
+                else:
+                    self.kirim_json(404, {"status": "gagal", "message": "kode ini tidak sedang ditunggu"})
                 return
             if self.path == "/baca-berkas":
                 self.baca_berkas(data)

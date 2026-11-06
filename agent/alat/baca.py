@@ -3,7 +3,7 @@ import urllib.request
 from html.parser import HTMLParser
 from urllib.parse import urljoin
 
-from pengaman.aturan import GalatPengaman, periksa_url, potong
+from pengaman.aturan import BATAS_TEKS_WEB, GalatPengaman, periksa_url, potong
 
 BATAS_BYTE = 1_000_000
 MAKS_PENGALIHAN = 3
@@ -48,8 +48,8 @@ class PengambilTeks(HTMLParser):
 pembuka = urllib.request.build_opener(TanpaPengalihanOtomatis)
 
 
-def baca(url, daftar_blokir, batas_waktu):
-    """Membuka satu halaman web dengan pemeriksaan keamanan di setiap pengalihan."""
+def baca(url, daftar_blokir, batas_waktu, batas_huruf=BATAS_TEKS_WEB):
+    """Membuka satu halaman web dengan pemeriksaan keamanan di setiap pengalihan; teksnya dipotong di batas_huruf."""
     for _ in range(MAKS_PENGALIHAN + 1):
         periksa_url(url, daftar_blokir)
         permintaan = urllib.request.Request(url, headers={"User-Agent": "LatihanChatbotAgent/1.0"})
@@ -73,12 +73,12 @@ def baca(url, daftar_blokir, batas_waktu):
 
     teks = mentah.decode(kode_huruf, "replace")
     if jenis == "text/plain":
-        return {"url": url, "judul": "", "teks": potong(teks)}
+        return {"url": url, "judul": "", "teks": potong(teks, batas_huruf)}
 
     pengambil = PengambilTeks()
     pengambil.feed(teks)
     return {
         "url": url,
         "judul": " ".join(pengambil.judul.split()),
-        "teks": potong(" ".join(pengambil.potongan)),
+        "teks": potong(" ".join(pengambil.potongan), batas_huruf),
     }

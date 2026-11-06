@@ -90,6 +90,9 @@ func BuatChatbot(
 			middleware.BatasiTamu(pembatasPesanTamu,
 				middleware.BatasiLaju(pembatasGlobal, semua, handler.ChatTamu(chatbotService))))))
 
+	// hasil alat jalankan_python dari browser yang menjalankan kodenya (Pyodide), untuk tamu dan akun
+	mux.Handle("POST /kode/hasil", wajib(handler.HasilKode(chatbotService)))
+
 	mux.Handle("GET /pengetahuan", admin(handler.DaftarPengetahuan(pengetahuanRepo)))
 	mux.Handle("POST /admin/pengetahuan", admin(handler.IngestSatu(ingestionService)))
 	mux.Handle("POST /admin/admin", admin(handler.JadikanAdmin(akunService)))

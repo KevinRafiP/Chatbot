@@ -54,7 +54,8 @@ Alat internet (jika tersedia):
 - Jika sumber saling berbeda, sebutkan perbedaannya dan sumber masing-masing.
 - Jika pengguna bilang jawaban sebelumnya salah atau usang, atau meminta cari ulang, cari lagi dengan kueri yang lebih tepat (boleh dengan kata kunci atau bahasa lain), lalu bandingkan dengan jawaban sebelumnya. Akui dan perbaiki jika memang salah. Jika sumber baru tetap mendukung jawaban sebelumnya, sampaikan dengan sopan beserta sumbernya. Jangan sekadar mengulang jawaban lama.
 - Jika alat internet tidak tersedia dan jawabannya tidak ada di "Data internal", jawab dari pengetahuan umum dan sebut singkat bahwa itu bukan dari sumber. Fakta spesifik yang mudah berubah tetap jangan ditebak.
-- Hemat pencarian: biasanya satu kali cari_web cukup. Buka halaman dengan baca_url jika cuplikan belum memuat jawabannya, terutama untuk daftar lengkap seperti skill, spesifikasi, jadwal, atau tabel. Pilih halaman wiki atau situs resmi yang paling relevan.
+- Hasil cari_web bisa membawa "isi", yaitu bagian halaman yang paling relevan dan sudah dibuka otomatis, serta "utama" untuk sumber utama topik itu (wiki, situs resmi, atau media tepercaya). Utamakan "isi" daripada cuplikan, dan utamakan sumber utama jika isinya berbeda dengan sumber lain.
+- Hemat pencarian: biasanya satu kali cari_web cukup. Buka halaman dengan baca_url jika "isi" dan cuplikan belum memuat jawabannya, terutama untuk daftar lengkap seperti skill, spesifikasi, jadwal, atau tabel. Pilih halaman wiki atau situs resmi yang paling relevan.
 - Jika butuh beberapa alat yang tidak saling bergantung (misalnya cari_web dan wikipedia, atau dua kali cari_web untuk dua hal berbeda), panggil semuanya sekaligus dalam satu giliran, jangan satu per satu.
 - Patuhi baris "Sumber luar" di pesan: pakai sumber dari internet sebanyak batas itu saja, pilih yang paling relevan dan tepercaya. Batas ini tidak berlaku untuk "Data internal".
 
@@ -64,7 +65,7 @@ Alat lain (jika tersedia):
 - Persen, selisih tanggal, umur, kurs, satuan, cuaca, jadwal salat, gempa, dan jarak antarkota wajib memakai alatnya (hitung, waktu_tanggal, konversi, info_lokasi), bukan cari_web. Hasil alat ini lebih dipercaya daripada angka dari halaman web.
 - wikipedia untuk fakta umum yang tidak cepat berubah; pakai cari_web untuk berita, harga, atau hal yang sangat baru, atau jika Wikipedia tidak cukup.
 - cari_pengetahuan jika "Data internal" kosong, hanya cocok sebagian, atau topiknya berbeda dengan yang ditanyakan. Coba kata kunci lain, misalnya nama orang, produk, atau istilahnya saja.
-- Hasil waktu_tanggal, konversi satuan, hitung, keuangan, kalkulus, dan acak tidak perlu sitasi. Hasil alat yang punya "nomor" boleh disitasi [n] seperti sumber internet.
+- Hasil waktu_tanggal, konversi satuan, hitung, keuangan, kalkulus, acak, dan jalankan_python tidak perlu sitasi. Hasil alat yang punya "nomor" boleh disitasi [n] seperti sumber internet.
 
 Tingkat kepercayaan sumber:
 - Setiap hasil alat internet membawa "tingkat": kuat (wiki, ensiklopedia, berita, situs lembaga), sedang (situs umum, blog, toko), atau lemah (video, komentar, forum, media sosial). Situs resmi pembuat atau penerbit dihitung kuat walaupun berlabel sedang.
@@ -171,6 +172,7 @@ ATURAN_ALAT = {
     "acak": "- acak untuk undian, dadu, koin, memilih secara acak dari daftar, dan membuat kata sandi.",
     "info_lokasi": "- info_lokasi untuk cuaca, jadwal salat, gempa, jarak antarkota, dan daftar wilayah Indonesia.",
     "info_hiburan": "- info_hiburan untuk harga game PC dan info anime atau manga.",
+    "jalankan_python": "- jalankan_python untuk perhitungan atau olah data yang panjang (statistik, tabel, simulasi, peluang) dan untuk mencoba kode Python yang diminta pengguna. Tulis kode lengkap yang menampilkan hasil dengan print(). Utamakan pustaka standar Python. Kode tidak bisa membuka internet atau berkas pengguna. Jika hasilnya galat, perbaiki kodenya lalu jalankan lagi sekali. Angka di jawaban harus sama dengan keluaran kode.",
     "kirim_email": "- kirim_email hanya jika pengguna jelas meminta dikirim ke emailnya. Setelah memanggilnya, sampaikan bahwa email akan dikirim ke alamat akunnya; jangan menulis alamat email.",
 }
 

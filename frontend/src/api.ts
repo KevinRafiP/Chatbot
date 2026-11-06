@@ -1,3 +1,5 @@
+import { runPython } from "./pythonRunner";
+
 const API_URL = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replace(/\/$/, "");
 const ACCOUNT_TOKEN_KEY = "chatbot_token";
 const GUEST_TOKEN_KEY = "chatbot_guest_token";
@@ -336,7 +338,20 @@ async function streamRequest<T>(
       if (name === "status") onUpdate({ kind: "status", text: payload.teks ?? "" });
       if (name === "teks") onUpdate({ kind: "text", text: payload.teks ?? "" });
       if (name === "ulang") onUpdate({ kind: "reset" });
+      if (name === "jalankan_kode") void runAgentCode(payload);
     }
+  }
+}
+
+// Runs the Python code the agent asked for on this device, then sends the result back so the answer can continue.
+// The agent stops waiting by itself, so a failed send is only logged
+async function runAgentCode(payload: { id?: string; kode?: string; batas_detik?: number }): Promise<void> {
+  if (typeof payload.id !== "string" || typeof payload.kode !== "string") return;
+  const result = await runPython(payload.kode, payload.batas_detik ?? 15);
+  try {
+    await request("POST", "/kode/hasil", { id: payload.id, keluaran: result.output, galat: result.error, hasil: result.result });
+  } catch (err) {
+    console.warn("Python result was not sent", err);
   }
 }
 

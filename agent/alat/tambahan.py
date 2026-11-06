@@ -6,6 +6,7 @@ from alat.hiburan import AlatHiburan
 from alat.jaringan import GalatAlat
 from alat.kalkulus import AlatKalkulus, sympy_tersedia
 from alat.keuangan import AlatKeuangan
+from alat.kode import AlatKode
 from alat.konversi import AlatKonversi
 from alat.lokasi import AlatLokasi
 from alat.pengetahuan import AlatPengetahuan
@@ -126,6 +127,13 @@ DEKLARASI = {
         "Mencari lagi di data internal dengan kata kunci lain jika data internal di pesan belum menjawab pertanyaan.",
         {"kueri": teks("Kata kunci singkat, misalnya nama orang, produk, atau istilah")},
         ("kueri",)),
+    "jalankan_python": deklarasi(
+        "jalankan_python",
+        "Menjalankan kode Python 3 tanpa internet untuk hitungan panjang atau berulang, statistik, simulasi, olah data tabel atau CSV "
+        "dari berkas pengguna, dan algoritma. Tampilkan hasil dengan print(). Modul bawaan Python selalu ada; numpy dan pandas "
+        "biasanya tersedia. Tidak bisa membaca berkas atau internet, jadi data ditulis di dalam kode.",
+        {"kode": teks("Kode Python lengkap yang mencetak hasilnya dengan print()")},
+        ("kode",)),
     "kirim_email": deklarasi(
         "kirim_email",
         "Mengirim ringkasan atau jawaban ke email akun pengguna sendiri. Hanya pakai jika pengguna jelas meminta dikirim ke email.",
@@ -136,7 +144,7 @@ DEKLARASI = {
 KETERANGAN = {
     "waktu_tanggal": "Menghitung waktu", "konversi": "Mengonversi", "keuangan": "Menghitung keuangan", "kalkulus": "Menghitung kalkulus",
     "acak": "Mengacak", "info_lokasi": "Mengambil data lokasi", "info_hiburan": "Mencari info hiburan", "wikipedia": "Membaca Wikipedia",
-    "cari_pengetahuan": "Mencari data", "kirim_email": "Menyiapkan email",
+    "cari_pengetahuan": "Mencari data", "kirim_email": "Menyiapkan email", "jalankan_python": "Menjalankan kode Python",
 }
 MAKS_ISI_EMAIL = 20_000
 
@@ -157,6 +165,9 @@ POLA_ALAT = {nama: re.compile(pola, re.IGNORECASE) for nama, pola in {
                    r"maghrib|isya|adzan|azan|gempa|bmkg|tsunami|jarak|rute|perjalanan|tempuh|provinsi|kabupaten|kota|kecamatan|kelurahan|desa|"
                    r"wilayah|koordinat|lokasi|letak|peta)\b",
     "info_hiburan": r"\b(anime|manga|myanimelist|mal|musim ini|season|game|gim|steam|gog|diskon|donghua|manhwa|light novel)\b",
+    "jalankan_python": r"\b(python|kode|koding|coding|script|skrip|program|algoritma|simulasi|monte carlo|statistik\w*|regresi|korelasi|"
+                       r"standar deviasi|simpangan baku|varians|median|modus|kuartil|persentil|distribusi|probabilitas|peluang|csv|excel|"
+                       r"spreadsheet|dataset|olah data|analisis data|data tabel|fibonacci|bilangan prima|jalankan|run)\b",
 }.items()}
 
 class AlatTambahan:
@@ -172,6 +183,7 @@ class AlatTambahan:
             "wikipedia": lambda: AlatWikipedia(p) if p.wikipedia_bahasa else None,
             "cari_pengetahuan": lambda: AlatPengetahuan(p) if p.backend_url else None,
             "kirim_email": lambda: "email",
+            "jalankan_python": lambda: AlatKode(p) if AlatKode(p).ada() else None,
         }
         for nama, buat in calon.items():
             if nama in p.mati:
@@ -182,11 +194,14 @@ class AlatTambahan:
                 continue
             self.alat[nama] = alat
 
-    def deklarasi(self, email=False, teks=None):
-        """teks berisi pertanyaan dan pesan terakhir pengguna; None berarti semua alat dikirim."""
+    def deklarasi(self, email=False, teks=None, stream=False):
+        """teks berisi pertanyaan dan pesan terakhir pengguna; None berarti semua alat dikirim.
+        stream False berarti tidak ada browser yang bisa menjalankan kode, jadi jalankan_python hanya dikirim jika ada runtime api."""
         hasil = []
         for nama in self.alat:
             if nama == "kirim_email" and not email:
+                continue
+            if nama == "jalankan_python" and not self.alat[nama].bisa(stream):
                 continue
             pola = POLA_ALAT.get(nama)
             if teks is not None and self.p.pilih_otomatis and pola and not pola.search(teks):
@@ -209,7 +224,7 @@ class AlatTambahan:
         try:
             if nama in ("info_lokasi", "info_hiburan", "wikipedia"):
                 return alat.jalankan(argumen, catatan, tambah_sumber)
-            if nama == "cari_pengetahuan":
+            if nama in ("cari_pengetahuan", "jalankan_python"):
                 return alat.jalankan(argumen, catatan)
             if nama == "kirim_email":
                 return siapkan_email(argumen, catatan)

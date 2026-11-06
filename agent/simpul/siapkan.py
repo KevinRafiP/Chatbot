@@ -67,7 +67,7 @@ def buat_siapkan(kotak_alat, penulis=None):
         # kirim_email hanya diberikan jika pengguna memintanya dan akunnya bisa menerima email
         bisa_email = bool(keadaan.get("bisa_email")) and minta_email(pertanyaan)
         teks_pilih = teks_pilih_alat(maksud, keadaan.get("riwayat"), keadaan.get("lampiran"))
-        keadaan["deklarasi"] = kotak_alat.deklarasi(email=bisa_email, teks=teks_pilih)
+        keadaan["deklarasi"] = kotak_alat.deklarasi(email=bisa_email, teks=teks_pilih, stream=bool(keadaan.get("kabar")))
         # aturan grafik, rumus, selera, berkas, dan alat khusus hanya ditambahkan jika dibutuhkan pertanyaan ini
         keadaan["instruksi_tambahan"] = instruksi_tambahan({d["name"] for d in keadaan["deklarasi"]}, teks_pilih, selera,
                                                            bool(keadaan.get("lampiran")), not kotak_alat.cfg.alat.pilih_otomatis)
@@ -90,6 +90,9 @@ def buat_siapkan(kotak_alat, penulis=None):
             "maks_sumber_luar": maksimal,
             "segarkan": segarkan,
             "bisa_email": bisa_email,
+            # maksud dipakai memilih bagian halaman yang relevan; kabar dipakai alat yang berjalan di browser pengguna
+            "maksud": maksud,
+            "kabar": keadaan.get("kabar"),
         }
         keadaan["putaran_llm"] = 0
         return keadaan

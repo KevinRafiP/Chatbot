@@ -324,6 +324,25 @@ func (k *Klien) BacaBerkas(ctx context.Context, nama string, isi []byte) (Berkas
 	return hasil, err
 }
 
+// HasilKode adalah hasil kode Python dari alat jalankan_python yang dijalankan browser pengguna (Pyodide)
+type HasilKode struct {
+	ID       string `json:"id"`
+	Keluaran string `json:"keluaran"`
+	Galat    string `json:"galat"`
+	Hasil    string `json:"hasil"`
+}
+
+// KirimHasilKode meneruskan hasil kode dari browser ke agent yang sedang menunggunya; tidak diulang
+// karena agent yang menunggu pasti sedang bangun
+func (k *Klien) KirimHasilKode(ctx context.Context, hasil HasilKode) error {
+	badan, err := json.Marshal(hasil)
+	if err != nil {
+		return err
+	}
+	var kosong struct{}
+	return k.kirim(ctx, "/hasil-kode", badan, &kosong)
+}
+
 // kirimUlang mengirim permintaan ke agent dan mengulang selama agent masih bangun dari tidur
 func (k *Klien) kirimUlang(ctx context.Context, jalur string, isi any, tujuan any) error {
 	badan, err := json.Marshal(isi)

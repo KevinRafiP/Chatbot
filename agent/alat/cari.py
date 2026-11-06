@@ -37,14 +37,21 @@ def kirim(alamat, badan, kepala, batas_waktu):
         return json.load(respon)
 
 
-def cari_tavily(kueri, kunci, maks_hasil, kedalaman, batas_waktu):
+def dengan_situs(kueri, domain):
+    """Penyedia tanpa filter domain memakai operator site: di kuerinya."""
+    return f"{kueri} ({' OR '.join(f'site:{d}' for d in domain)})" if domain else kueri
+
+
+def cari_tavily(kueri, kunci, maks_hasil, kedalaman, batas_waktu, domain=None):
     """basic = 1 kredit, advanced = 2 kredit."""
-    data = kirim(ALAMAT_TAVILY, {"query": kueri, "max_results": maks_hasil, "search_depth": kedalaman},
-                 {"Authorization": f"Bearer {kunci}"}, batas_waktu)
+    badan = {"query": kueri, "max_results": maks_hasil, "search_depth": kedalaman}
+    if domain:
+        badan["include_domains"] = list(domain)
+    data = kirim(ALAMAT_TAVILY, badan, {"Authorization": f"Bearer {kunci}"}, batas_waktu)
     return [(item.get("url", ""), item.get("title", ""), item.get("content", "")) for item in data.get("results", [])]
 
 
-def cari_exa(kueri, kunci, maks_hasil, kedalaman, batas_waktu):
+def cari_exa(kueri, kunci, maks_hasil, kedalaman, batas_waktu, domain=None):
     """Cuplikan diambil dari highlights, yaitu bagian halaman yang paling cocok dengan kueri."""
     badan = {
         "query": kueri,
@@ -52,24 +59,27 @@ def cari_exa(kueri, kunci, maks_hasil, kedalaman, batas_waktu):
         "type": "auto" if kedalaman == "advanced" else "lite",
         "contents": {"highlights": {"maxCharacters": MAKS_HURUF_CUPLIKAN}},
     }
+    if domain:
+        badan["includeDomains"] = list(domain)
     data = kirim(ALAMAT_EXA, badan, {"x-api-key": kunci}, batas_waktu)
     return [(item.get("url", ""), item.get("title") or "", " ... ".join(item.get("highlights") or []) or item.get("text") or "")
             for item in data.get("results", [])]
 
 
-def cari_langsearch(kueri, kunci, maks_hasil, kedalaman, batas_waktu):
-    data = kirim(ALAMAT_LANGSEARCH, {"query": kueri, "count": maks_hasil}, {"Authorization": f"Bearer {kunci}"}, batas_waktu)
+def cari_langsearch(kueri, kunci, maks_hasil, kedalaman, batas_waktu, domain=None):
+    data = kirim(ALAMAT_LANGSEARCH, {"query": dengan_situs(kueri, domain), "count": maks_hasil}, {"Authorization": f"Bearer {kunci}"}, batas_waktu)
     halaman = ((data.get("data") or {}).get("webPages") or {}).get("value") or []
     return [(item.get("url", ""), item.get("name", ""), item.get("snippet", "")) for item in halaman]
 
 
-def cari_serper(kueri, kunci, maks_hasil, kedalaman, batas_waktu):
+def cari_serper(kueri, kunci, maks_hasil, kedalaman, batas_waktu, domain=None):
     """Hasil Google lewat Serper; cuplikannya pendek (sekitar satu kalimat), jadi model lebih sering perlu baca_url."""
-    data = kirim(ALAMAT_SERPER, {"q": kueri}, {"X-API-KEY": kunci}, batas_waktu)
+    data = kirim(ALAMAT_SERPER, {"q": dengan_situs(kueri, domain)}, {"X-API-KEY": kunci}, batas_waktu)
     return [(item.get("link", ""), item.get("title", ""), item.get("snippet", "")) for item in (data.get("organic") or [])[:maks_hasil]]
 
 
-# penyedia baru cukup ditambah di sini: fungsi(kueri, kunci, maks_hasil, kedalaman, batas_waktu) -> [(url, judul, cuplikan)]
+# penyedia baru cukup ditambah di sini: fungsi(kueri, kunci, maks_hasil, kedalaman, batas_waktu, domain=None) -> [(url, judul, cuplikan)];
+# domain = daftar situs yang boleh muncul (sumber utama), None = semua situs
 PENYEDIA = {"tavily": cari_tavily, "exa": cari_exa, "langsearch": cari_langsearch, "serper": cari_serper}
 
 
@@ -98,13 +108,13 @@ class PencariBerantai:
     def nama(self):
         return [nama for nama, _ in self.daftar]
 
-    def cari(self, kueri, daftar_blokir, batas_waktu, maks_hasil=5, kedalaman="advanced"):
+    def cari(self, kueri, daftar_blokir, batas_waktu, maks_hasil=5, kedalaman="advanced", domain=None):
         for nama, kunci in self.daftar:
             with self.gembok:
                 if time.monotonic() < self.habis_sampai.get(nama, 0):
                     continue
             try:
-                mentah = PENYEDIA[jenis_penyedia(nama)](kueri[:300], kunci, maks_hasil, kedalaman, batas_waktu)
+                mentah = PENYEDIA[jenis_penyedia(nama)](kueri[:300], kunci, maks_hasil, kedalaman, batas_waktu, domain)
             except urllib.error.HTTPError as galat:
                 if galat.code in KODE_HABIS | KODE_HABIS_LAIN.get(jenis_penyedia(nama), set()):
                     logging.warning("penyedia cari %s habis atau kuncinya salah (kode %s), pindah ke berikutnya", nama, galat.code)

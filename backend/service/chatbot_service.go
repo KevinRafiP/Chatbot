@@ -87,6 +87,14 @@ func (s *ChatbotService) BacaBerkas(ctx context.Context, nama string, isi []byte
 	return s.agen.BacaBerkas(ctx, nama, isi)
 }
 
+// KirimHasilKode meneruskan hasil kode Python yang dijalankan browser pengguna ke agent
+func (s *ChatbotService) KirimHasilKode(ctx context.Context, hasil agen.HasilKode) error {
+	if s.agen == nil {
+		return ErrAgentMati
+	}
+	return s.agen.KirimHasilKode(ctx, hasil)
+}
+
 // cariData menggabungkan pencarian makna (embedding) dengan pencarian kata kunci; hasil makna didahulukan
 // dan data yang sama tidak diambil dua kali. Jika pencarian makna gagal, kata kunci tetap dipakai
 func (s *ChatbotService) cariData(ctx context.Context, pertanyaan string) ([]model.Pengetahuan, error) {
