@@ -1,4 +1,5 @@
 import random
+import re
 from datetime import datetime, timedelta, timezone
 
 from ingatan import pilih_ingatan
@@ -27,6 +28,8 @@ JUMLAH_RIWAYAT_OBROLAN = 2
 # pertanyaan lanjutan berantai paling banyak dirangkai sejumlah ini
 MAKS_RUJUKAN = 3
 MAKS_HURUF_RUJUKAN = 200
+# menandai bagian tengah pesan lama yang dilewati saat riwayat dipersingkat
+TANDA_DIPERSINGKAT = "[...]"
 
 def buat_siapkan(kotak_alat, penulis=None):
     """Simpul pertama: memeriksa pertanyaan dan menyusun pesan untuk LLM.
@@ -148,11 +151,14 @@ def susun_isi(riwayat, pesan_baru, maks_pesan=20, huruf_terakhir=4000, ringkasan
     return hasil
 
 def ringkas_teks(teks, batas):
-    """Teks yang terlalu panjang diambil awal dan akhirnya, karena kesimpulan dan daftar sumber jawaban biasanya di akhir."""
+    """Teks yang terlalu panjang diambil awal dan akhirnya, karena kesimpulan dan daftar sumber jawaban biasanya di akhir.
+    Potongan berhenti di batas kata, dan tanda [...] menandai bagian yang dilewati."""
     if len(teks) <= batas:
         return teks
     akhir = batas // 3
-    return f"{teks[:batas - akhir]}\n[...]\n{teks[-akhir:]}"
+    awal = re.sub(r"\S*$", "", teks[:batas - akhir]).rstrip()
+    ujung = re.sub(r"^\S*", "", teks[-akhir:]).lstrip()
+    return f"{awal}\n{TANDA_DIPERSINGKAT}\n{ujung}"
 
 
 def sumber_internal(konteks):

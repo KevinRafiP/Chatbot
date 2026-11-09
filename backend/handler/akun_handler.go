@@ -100,6 +100,8 @@ func gagalAkun(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusForbidden, Response{Status: "gagal", Message: err.Error()})
 	case errors.Is(err, service.ErrGagalKirimEmail), errors.Is(err, service.ErrGagalKirimAturUlang):
 		writeJSON(w, http.StatusInternalServerError, Response{Status: "gagal", Message: err.Error()})
+	case errors.Is(err, service.ErrTerlaluBanyakGagal):
+		writeJSON(w, http.StatusTooManyRequests, Response{Status: "gagal", Message: err.Error()})
 	case errors.Is(err, service.ErrEmailTidakAktif):
 		writeJSON(w, http.StatusServiceUnavailable, Response{Status: "gagal", Message: err.Error()})
 	default:

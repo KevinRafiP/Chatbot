@@ -1,4 +1,4 @@
-import { runPython } from "./pythonRunner";
+import { runPython } from "./pythonRunner"; import { getCaptchaToken } from "./captcha";
 
 const API_URL = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replace(/\/$/, "");
 const ACCOUNT_TOKEN_KEY = "chatbot_token";
@@ -550,9 +550,13 @@ export async function getAccount(): Promise<Account> {
   return account;
 }
 
-// Sends one of the account forms with the current token, if any
-async function postAccount<T>(path: string, body: unknown): Promise<T> {
+// Sends one of the account forms with the current token, if any; captcha adds a Turnstile token first (login only)
+async function postAccount<T>(path: string, body: unknown, captcha = false): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const captchaToken = captcha ? await getCaptchaToken() : null;
+  if (captchaToken !== null) {
+    headers["X-Captcha-Token"] = captchaToken;
+  }
   if (token !== null) {
     headers.Authorization = `Bearer ${token}`;
   }
@@ -567,7 +571,7 @@ async function postAccount<T>(path: string, body: unknown): Promise<T> {
 // Registers or logs in; the guest chat on screen is not carried into the account.
 // Returns null when a new account has to confirm its email first; remember=false keeps the login only until the tab closes
 export async function signIn(mode: "masuk" | "daftar", email: string, password: string, remember: boolean): Promise<Account | null> {
-  const data = await postAccount<RawSignIn>(`/akun/${mode}`, { email, password, ingat: remember });
+  const data = await postAccount<RawSignIn>(`/akun/${mode}`, { email, password, ingat: remember }, mode === "masuk");
   if ("perlu_verifikasi" in data) {
     return null;
   }

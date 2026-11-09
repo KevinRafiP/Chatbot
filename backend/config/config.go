@@ -51,6 +51,12 @@ type Config struct {
 	KinerjaBarisAlat    int
 	RingkasanSetelah    int
 	RingkasanSisa       int
+	TurnstileRahasia    string
+	TurnstileURL        string
+	BatasGagalMasuk     int
+	JedaGagalMenit      int
+	TokenHarianAkun     int
+	TokenHarianSemua    int
 }
 
 func Muat() Config {
@@ -98,6 +104,12 @@ func Muat() Config {
 		KinerjaBarisAlat:    ambilAngka("KINERJA_BARIS_ALAT", 15),
 		RingkasanSetelah:    ambilAngkaBolehNol("RINGKASAN_SETELAH_PESAN", 20),
 		RingkasanSisa:       ambilAngkaBolehNol("RINGKASAN_SISA_PESAN", 10),
+		TurnstileRahasia:    ambil("TURNSTILE_SECRET", ""),
+		TurnstileURL:        ambil("TURNSTILE_URL", ""),
+		BatasGagalMasuk:     ambilAngkaBolehNol("BATAS_GAGAL_MASUK", 5),
+		JedaGagalMenit:      ambilAngka("JEDA_GAGAL_MASUK_MENIT", 15),
+		TokenHarianAkun:     ambilAngkaBolehNol("BATAS_TOKEN_HARIAN_AKUN", 1000000),
+		TokenHarianSemua:    ambilAngkaBolehNol("BATAS_TOKEN_HARIAN_SEMUA", 0),
 	}
 }
 

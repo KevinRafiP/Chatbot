@@ -3848,3 +3848,12 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Holds the Cloudflare check; it stays empty unless the visitor has to click it */
+.captcha-box {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 50;
+}

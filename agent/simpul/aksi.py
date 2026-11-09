@@ -2,6 +2,8 @@ import json
 import logging
 import urllib.parse
 
+from pengaman.teks import bersihkan_data
+
 # hasil pencarian sering berbahasa lain; pengingat pendek ini menjaga bahasa jawaban tetap mengikuti pertanyaan
 ALAT_BACA_WEB = {"cari_web", "baca_url", "wikipedia"}
 PENGINGAT_BAHASA = ("Pengingat: tulis seluruh jawaban, termasuk judul bagian dan isi tabel, dengan bahasa pertanyaan terakhir pengguna; "
@@ -28,7 +30,7 @@ def buat_aksi(kotak_alat, maks_langkah):
             balasan.append({
                 "toolResult": {
                     "toolUseId": p.get("toolUseId", ""),
-                    "content": [{"text": json.dumps(hasil, ensure_ascii=False)}],
+                    "content": [{"text": json.dumps(bersihkan_data(hasil), ensure_ascii=False)}],
                 }
             })
 

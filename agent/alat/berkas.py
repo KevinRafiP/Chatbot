@@ -5,6 +5,7 @@ import zipfile
 from html import unescape
 
 from alat.jaringan import GalatAlat
+from pengaman.teks import bersihkan_tak_terlihat
 
 MAKS_HALAMAN_PDF = 60
 MAKS_XML_DOCX = 20_000_000
@@ -43,6 +44,7 @@ def baca_berkas(nama, isi, maks_huruf, pembaca_gambar=None):
     else:
         raise GalatAlat(f"jenis berkas belum didukung; yang didukung: {', '.join(jenis_didukung(bool(pembaca_gambar)))}")
 
+    teks = bersihkan_tak_terlihat(teks)
     if akhiran not in JENIS_GAMBAR:
         teks = re.sub(r"[ \t]+", " ", teks)    
     teks = re.sub(r"\n\s*\n\s*\n+", "\n\n", teks).strip()

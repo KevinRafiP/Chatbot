@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"chatbot/backend/captcha"
 	"chatbot/backend/handler"
 	"chatbot/backend/middleware"
 	"chatbot/backend/repository"
@@ -31,6 +32,8 @@ func BuatChatbot(
 	akunService *service.AkunService,
 	ingestionService *service.IngestionService,
 	kinerjaService *service.KinerjaService,
+	jatahService *service.JatahService,
+	turnstile *captcha.Turnstile,
 	corsOrigin []string,
 	kunciAgent string,
 	batas Batas,
@@ -48,6 +51,15 @@ func BuatChatbot(
 	// admin membungkus handler agar hanya bisa dipakai akun admin
 	admin := func(h http.Handler) http.Handler {
 		return middleware.WajibSesi(sesiService, middleware.WajibAdmin(h))
+	}
+
+	// captcha hanya di masuk akun, agar bot tidak bisa menebak password; tanpa TURNSTILE_SECRET handler diteruskan apa adanya
+	captchaWajib := func(h http.Handler) http.Handler {
+		return middleware.WajibCaptcha(turnstile, h)
+	}
+	// jatah token harian per akun dan untuk semua pengguna, dicek sebelum pesan diteruskan ke agent
+	jatah := func(h http.Handler) http.Handler {
+		return middleware.BatasiJatah(jatahService.Cek, h)
 	}
 
 	pembatasTamu := middleware.BaruPembatas(batas.TamuPerJam, time.Hour)
@@ -78,7 +90,7 @@ func BuatChatbot(
 	mux.Handle("DELETE /sesi", wajib(handler.Keluar(sesiService)))
 
 	mux.Handle("POST /akun/daftar", middleware.BatasiLaju(pembatasAkun, perIP, handler.Daftar(akunService)))
-	mux.Handle("POST /akun/masuk", middleware.BatasiLaju(pembatasAkun, perIP, handler.Masuk(akunService)))
+	mux.Handle("POST /akun/masuk", middleware.BatasiLaju(pembatasAkun, perIP, captchaWajib(handler.Masuk(akunService))))
 	mux.Handle("POST /akun/verifikasi", middleware.BatasiLaju(pembatasAkun, perIP, handler.VerifikasiEmail(akunService)))
 	mux.Handle("POST /akun/kirim-ulang", middleware.BatasiLaju(pembatasAkun, perIP, handler.KirimUlangVerifikasi(akunService)))
 	mux.Handle("POST /akun/lupa-password", middleware.BatasiLaju(pembatasAkun, perIP, handler.LupaPassword(akunService)))
@@ -88,7 +100,7 @@ func BuatChatbot(
 	mux.Handle("POST /tamu/pesan", wajib(
 		middleware.BatasiLaju(pembatasPesan, perPengguna,
 			middleware.BatasiTamu(pembatasPesanTamu,
-				middleware.BatasiLaju(pembatasGlobal, semua, handler.ChatTamu(chatbotService))))))
+				jatah(middleware.BatasiLaju(pembatasGlobal, semua, handler.ChatTamu(chatbotService)))))))
 
 	// hasil alat jalankan_python dari browser yang menjalankan kodenya (Pyodide), untuk tamu dan akun
 	mux.Handle("POST /kode/hasil", wajib(handler.HasilKode(chatbotService)))
@@ -110,7 +122,7 @@ func BuatChatbot(
 	mux.Handle("PATCH /pesan/{id}/penilaian", akun(handler.NilaiPesan(percakapanService)))
 	mux.Handle("POST /percakapan/{id}/pesan",
 		akun(middleware.BatasiLaju(pembatasPesan, perPengguna,
-			middleware.BatasiLaju(pembatasGlobal, semua, handler.KirimPesan(percakapanService)))))
+			jatah(middleware.BatasiLaju(pembatasGlobal, semua, handler.KirimPesan(percakapanService))))))
 
 	// dipanggil alat cari_pengetahuan di agent; tanpa AGENT_API_KEY jalurnya tidak dibuka
 	if kunciAgent != "" {

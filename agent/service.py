@@ -1,6 +1,7 @@
 from graf import SELESAI, Graf
 from ingatan import ringkas
 from llm import pemakaian
+from pengaman.teks import bersihkan_data
 from ringkasan import BATAS_RINGKASAN, ringkas_percakapan
 from simpul.aksi import buat_aksi
 from prompt import INSTRUKSI_SISTEM
@@ -70,6 +71,7 @@ class Agen:
         lampiran {"nama", "teks"} adalah berkas dari pengguna; bisa_email True jika akun pengguna bisa menerima email.
         ringkasan adalah ringkasan pesan lama percakapan ini yang tidak lagi dikirim utuh di riwayat."""
         pemakaian.mulai()
+        pertanyaan, konteks, riwayat, lampiran = bersihkan_data((pertanyaan, konteks, riwayat, lampiran))
         keadaan = self.graf.jalankan({
             "pertanyaan": pertanyaan, "konteks": konteks, "riwayat": riwayat, "ingatan": ingatan, "kabar": kabar,
             "lampiran": lampiran if isinstance(lampiran, dict) else None, "bisa_email": bisa_email is True,
@@ -80,10 +82,10 @@ class Agen:
 
     def ringkas(self, ingatan_lama, riwayat):
         """Memperbarui ingatan jangka panjang pengguna dari percakapan terbaru."""
-        return ringkas(self.klien, ingatan_lama, riwayat)
+        return ringkas(self.klien, ingatan_lama, bersihkan_data(riwayat))
 
     def ringkas_percakapan(self, ringkasan_lama, riwayat):
         """Meringkas pesan lama satu percakapan; pemakaian tokennya ikut dilaporkan."""
         pemakaian.mulai()
-        teks = ringkas_percakapan(self.klien, ringkasan_lama, riwayat)
+        teks = ringkas_percakapan(self.klien, ringkasan_lama, bersihkan_data(riwayat))
         return {"ringkasan": teks, "kinerja": {**pemakaian.ambil(), "alat": []}}

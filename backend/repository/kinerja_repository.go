@@ -229,3 +229,11 @@ func (r *KinerjaRepository) TidakDisukai(sejak, sampai time.Time, akun string, b
 	}
 	return daftar, rows.Err()
 }
+
+// TokenSejak menjumlahkan token masuk dan keluar sejak waktu itu; penggunaID kosong berarti semua pengguna
+func (r *KinerjaRepository) TokenSejak(sejak time.Time, penggunaID string) (int64, error) {
+	var jumlah int64
+	err := r.db.QueryRow(`SELECT COALESCE(SUM(token_masuk + token_keluar), 0) FROM kinerja_jawaban
+		WHERE dibuat_pada >= $1 AND ($2 = '' OR pengguna_id = NULLIF($2, '')::uuid)`, sejak, penggunaID).Scan(&jumlah)
+	return jumlah, err
+}

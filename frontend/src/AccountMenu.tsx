@@ -63,6 +63,7 @@ type AuthFormProps = {
 export function AuthForm({ mode, onDone, onSwitch, onForgot }: AuthFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [remember, setRemember] = useState(true);
@@ -146,7 +147,7 @@ export function AuthForm({ mode, onDone, onSwitch, onForgot }: AuthFormProps) {
       <label>
         Password
         <input
-          type="password"
+          type={showPassword ? "text" : "password"}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           autoComplete={mode === "daftar" ? "new-password" : "current-password"}
@@ -160,6 +161,10 @@ export function AuthForm({ mode, onDone, onSwitch, onForgot }: AuthFormProps) {
           Lupa password?
         </button>
       )}
+      <label className="checkbox-row">
+        <input type="checkbox" checked={showPassword} onChange={(event) => setShowPassword(event.target.checked)} />
+        Tampilkan password
+      </label>
       <label className="checkbox-row">
         <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
         Ingat saya
@@ -253,6 +258,7 @@ type ResetFormProps = {
 export function ResetForm({ code, onDone, onRequestNew }: ResetFormProps) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -280,7 +286,7 @@ export function ResetForm({ code, onDone, onRequestNew }: ResetFormProps) {
       <label>
         Password baru
         <input
-          type="password"
+          type={showPassword ? "text" : "password"}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           autoComplete="new-password"
@@ -293,7 +299,7 @@ export function ResetForm({ code, onDone, onRequestNew }: ResetFormProps) {
       <label>
         Ulangi password baru
         <input
-          type="password"
+          type={showPassword ? "text" : "password"}
           value={confirm}
           onChange={(event) => setConfirm(event.target.value)}
           autoComplete="new-password"
@@ -301,6 +307,10 @@ export function ResetForm({ code, onDone, onRequestNew }: ResetFormProps) {
           maxLength={72}
           required  
         />
+      </label>
+      <label className="checkbox-row">
+        <input type="checkbox" checked={showPassword} onChange={(event) => setShowPassword(event.target.checked)} />
+        Tampilkan password
       </label>
       <label className="checkbox-row">
         <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />

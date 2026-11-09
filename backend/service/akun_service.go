@@ -6,6 +6,7 @@ import (
 	"net/mail"
 	"slices"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -27,6 +28,7 @@ type AkunService struct {
 	emailAdmin     []string
 	pengirim       PengirimEmail
 	alamatFrontend string
+	gagal          *pencatatGagal
 }
 
 // pengirim boleh nil: akun baru langsung aktif tanpa verifikasi email
@@ -76,19 +78,31 @@ func (s *AkunService) Daftar(email, password, tokenTamu, perangkat string, ingat
 	return s.bukaSesi(pengguna, tokenTamu, perangkat, ingat)
 }
 
+// BatasiGagalMasuk mengunci masuk ke satu email selama jeda setelah password salah maks kali; maks 0 = mati
+func (s *AkunService) BatasiGagalMasuk(maks int, jeda time.Duration) {
+	s.gagal = baruPencatatGagal(maks, jeda)
+}
+
 // Masuk memeriksa email dan password, lalu membuka sesi baru
 func (s *AkunService) Masuk(email, password, tokenTamu, perangkat string, ingat bool) (string, model.Pengguna, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
+	if s.gagal.terkunci(email) {
+		return "", model.Pengguna{}, ErrTerlaluBanyakGagal
+	}
 	pengguna, hash, err := s.repo.CariEmail(email)
 	if errors.Is(err, sql.ErrNoRows) {
+		// email yang belum terdaftar ikut dihitung, agar penebak tidak bisa membedakannya
+		s.gagal.catat(email)
 		return "", model.Pengguna{}, ErrLoginSalah
 	}
 	if err != nil {
 		return "", model.Pengguna{}, err
 	}
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
+		s.gagal.catat(email)
 		return "", model.Pengguna{}, ErrLoginSalah
 	}
+	s.gagal.hapus(email)
 	if s.pengirim != nil && !pengguna.Terverifikasi {
 		return "", model.Pengguna{}, ErrEmailBelumDiverifikasi
 	}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"chatbot/backend/agen"
+	"chatbot/backend/captcha"
 	"chatbot/backend/config"
 	"chatbot/backend/database"
 	"chatbot/backend/email"
@@ -68,6 +69,7 @@ func main() {
 	}
 	akunService := service.BaruAkunService(repository.BaruAkunRepository(db), sesiService, cfg.EmailAdmin,
 		pengirimEmail, alamatFrontend)
+	akunService.BatasiGagalMasuk(cfg.BatasGagalMasuk, time.Duration(cfg.JedaGagalMenit)*time.Minute)
 	ingestionService := service.BaruIngestionService(pengetahuanRepo)
 	ingatanService := service.BaruIngatanService(repository.BaruIngatanRepository(db), klienAgen)
 	emailJawaban := service.BaruEmailJawabanService(pengirimEmail, cfg.EmailJawabanPerHari)
@@ -95,8 +97,19 @@ func main() {
 		BerkasPerJam:     cfg.BatasBerkasPerJam,
 		BerkasMaks:       int64(cfg.BerkasMaksMB) << 20,
 	}
+
+	// jatah token dihitung dari catatan kinerja, jadi hanya bekerja bila KINERJA_SIMPAN_HARI lebih dari 0
+	jatahService := service.BaruJatahService(repository.BaruKinerjaRepository(db), cfg.TokenHarianAkun, cfg.TokenHarianSemua)
+	if jatahService != nil && kinerjaService == nil {
+		log.Println("BATAS_TOKEN_HARIAN_* tidak bekerja karena KINERJA_SIMPAN_HARI=0")
+	}
+	turnstile := captcha.BaruTurnstile(cfg.TurnstileRahasia, cfg.TurnstileURL)
+	if turnstile != nil {
+		log.Println("captcha Turnstile aktif untuk masuk akun")
+	}
+
 	mux := router.BuatChatbot(pengetahuanRepo, chatbotService, sesiService, percakapanService,
-		akunService, ingestionService, kinerjaService, cfg.CORSOrigin, cfg.AgentAPIKey, batas)
+		akunService, ingestionService, kinerjaService, jatahService, turnstile, cfg.CORSOrigin, cfg.AgentAPIKey, batas)
 
 	// batas waktu membaca request mencegah koneksi lambat (slowloris) menahan server terlalu lama;
 	// WriteTimeout tidak dipasang karena jawaban agent bisa butuh lebih dari satu menit

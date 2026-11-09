@@ -2,6 +2,7 @@ import logging
 import re
 
 from llm.client import GalatLLM
+from simpul.siapkan import TANDA_DIPERSINGKAT
 
 POLA_SITASI = re.compile(r"\s*\[(?:data internal|sumber|source)?\s*(\d+)\]", re.IGNORECASE)
 
@@ -101,6 +102,9 @@ def bersihkan_format(teks):
     for baris in teks.split("\n"):
         if baris.lstrip().startswith("```"):
             di_kode = not di_kode
+        elif not di_kode and baris.strip() == TANDA_DIPERSINGKAT:
+            # tanda dari riwayat yang dipersingkat (siapkan.ringkas_teks) tidak boleh ikut tampil
+            continue
         elif not di_kode:
             baris = re.sub(r"^\s{0,3}#{1,6}\s+", "### ", baris)
             baris = re.sub(r"^(\s*)[*+]\s+", r"\1- ", baris)

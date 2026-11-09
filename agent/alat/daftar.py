@@ -11,6 +11,7 @@ from alat.tambahan import AlatTambahan
 from alat.tingkat import tingkat_sumber
 from llm import denyut
 from pengaman.aturan import GalatPengaman, potong
+from pengaman.teks import bersihkan_tak_terlihat
 
 BATAS_BUKTI = 12000
 # halaman yang dibuka otomatis setelah cari_web tidak boleh menahan jawaban terlalu lama
@@ -167,6 +168,7 @@ class KotakAlat:
 
 def tambah_sumber(catatan, judul, url, isi=""):
     """Mencatat sumber (tanpa dobel) beserta isinya untuk diverifikasi, lalu mengembalikan nomornya untuk sitasi."""
+    judul, isi = bersihkan_tak_terlihat(judul), bersihkan_tak_terlihat(isi)
     nomor = 0
     for i, sumber in enumerate(catatan["sumber"], start=1):
         if sumber["url"] == url:

@@ -19,6 +19,11 @@ TOPIK = {
     "kesehatan": (r"\b(penyakit|gejala|obat|dosis|vaksin|virus|bakteri|infeksi|kesehatan|dokter|diet|gizi|nutrisi|kanker|diabetes|"
                   r"hipertensi|kolesterol|demam|batuk|alergi|kehamilan|hamil)\b",
                   ("who.int", "kemkes.go.id", "alodokter.com", "halodoc.com", "mayoclinic.org", "cdc.gov")),
+    "teknologi": (r"\b(windows|macos|mac os|ubuntu|linux|android|ios|iphone|ipad|whatsapp|telegram|microsoft|office 365|microsoft 365|"
+                  r"ms word|excel|powerpoint|outlook|onedrive|chrome|gmail|google drive|wifi|wi-fi|bluetooth|printer|bios|driver|"
+                  r"zip|rar|7-zip|winrar|file explorer|task manager|pengaturan|settings)\b",
+                  ("support.microsoft.com", "learn.microsoft.com", "support.apple.com", "support.google.com", "faq.whatsapp.com",
+                   "help.ubuntu.com")),
     "berita": (r"\b(berita|terbaru|terkini|hari ini|kemarin|pekan ini|minggu ini|pemilu|pilkada|presiden|menteri|dpr|kebijakan|"
                r"demo|bencana|banjir)\b",
                ("antaranews.com", "kompas.com", "tempo.co", "detik.com", "cnnindonesia.com", "bbc.com", "reuters.com")),
