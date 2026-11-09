@@ -4,7 +4,8 @@ const API_URL = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replac
 const ACCOUNT_TOKEN_KEY = "chatbot_token";
 const GUEST_TOKEN_KEY = "chatbot_guest_token";
 
-export type Conversation = { id: string; title: string; pinned: boolean };
+// answering is true while the server is still making an answer in this conversation
+export type Conversation = { id: string; title: string; pinned: boolean; answering: boolean };
 export type Source = { title: string; url: string };
 export type Message = {
   id: string;
@@ -23,6 +24,8 @@ export type Rating = 1 | -1 | 0;
 export type Attachment = { name: string; text: string; truncated: boolean; pages: number | null };
 export type FavoriteMessage = Message & { conversationId: string; conversationTitle: string };
 export type SendResult = { title: string; question: Message; answer: Message };
+// An answer still being made on the server: the question it answers, and the saved question and answer once it is done
+export type RunningAnswer = { question: Message; result: Promise<SendResult> };
 export type Role = "tamu" | "user" | "admin";
 export type Account = { id: string; name: string; email: string; role: Role };
 
@@ -95,7 +98,8 @@ export type PerformanceReport = {
 export type PerformanceRecentPage = { entries: PerformanceEntry[]; total: number; page: number; perPage: number };
 
 type ApiResponse<T> = { status: string; message: string; data: T };
-type RawConversation = { id: string; judul: string; disematkan?: boolean };
+type RawConversation = { id: string; judul: string; disematkan?: boolean; menjawab?: boolean };
+type RawRunning = { pertanyaan: string; lampiran?: string; dimulai_pada: string };
 type RawSource = { judul: string; url: string };
 type RawMessage = {
   id: string;
@@ -322,29 +326,46 @@ async function request<T>(method: string, path: string, body?: unknown, retry = 
   return result.data;
 }
 
+// Opens a request that answers with Server-Sent Events; an expired token is replaced once like in request
+async function openStream(method: string, path: string, body: unknown, signal?: AbortSignal, retry = true): Promise<Response> {
+  const currentToken = await ensureToken();
+  const headers: Record<string, string> = { Authorization: `Bearer ${currentToken}`, Accept: "text/event-stream" };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  const response = await fetchWithRetry(`${API_URL}${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
+  });
+  if (response.status === 401 && retry) {
+    saveToken(null);
+    return openStream(method, path, body, signal, false);
+  }
+  return response;
+}
+
 // Like request, but asks for the answer as Server-Sent Events and passes every step and piece of text to onUpdate.
-// fetch is used instead of EventSource because EventSource can only send GET requests.
-// A backend that answers with plain JSON (an error, or an answer made without the agent) is handled as well
-// signal stops the answer: the connection is closed, so the backend and agent stop too
+// fetch is used instead of EventSource because EventSource cannot send the token header.
+// signal only stops this page from listening: an account's answer keeps being made on the server until it is stopped
+// with stopServerAnswer, while a guest's answer stops with the connection
 async function streamRequest<T>(
   path: string,
   body: unknown,
   onUpdate: (update: AnswerUpdate) => void,
   signal?: AbortSignal,
-  retry = true,
 ): Promise<T> {
-  const currentToken = await ensureToken();
-  const response = await fetchWithRetry(`${API_URL}${path}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${currentToken}`, "Content-Type": "application/json", Accept: "text/event-stream" },
-    body: JSON.stringify(body),
-    signal,
-  });
+  return readStream<T>(await openStream("POST", path, body, signal), onUpdate);
+}
 
-  if (response.status === 401 && retry) {
-    saveToken(null);
-    return streamRequest<T>(path, body, onUpdate, signal, false);
-  }
+// Reads the events of an answer until it is done. "mulai" comes first when joining an answer that is already running.
+// A backend that answers with plain JSON (an error, or an answer made without the agent) is handled as well
+async function readStream<T>(
+  response: Response,
+  onUpdate: (update: AnswerUpdate) => void,
+  onStart?: (raw: RawRunning) => void,
+): Promise<T> {
   if (!(response.headers.get("Content-Type") ?? "").includes("text/event-stream") || response.body === null) {
     const result: ApiResponse<T> = await response.json();
     if (!response.ok) {
@@ -380,6 +401,7 @@ async function streamRequest<T>(
         await reader.cancel();
         throw new ApiError(500, payload.message ?? "Chatbot sedang bermasalah.");
       }
+      if (name === "mulai") onStart?.(payload);
       if (name === "status") onUpdate({ kind: "status", text: payload.teks ?? "" });
       if (name === "teks") onUpdate({ kind: "text", text: payload.teks ?? "" });
       if (name === "ulang") onUpdate({ kind: "reset" });
@@ -402,7 +424,7 @@ async function runAgentCode(payload: { id?: string; kode?: string; batas_detik?:
 
 // Converts a backend conversation into the shape used by the UI
 function toConversation(raw: RawConversation): Conversation {
-  return { id: raw.id, title: raw.judul, pinned: raw.disematkan === true };
+  return { id: raw.id, title: raw.judul, pinned: raw.disematkan === true, answering: raw.menjawab === true };
 }
 
 // Converts a backend user into the shape used by the UI
@@ -470,8 +492,53 @@ export async function sendMessage(
   signal?: AbortSignal,
 ): Promise<SendResult> {
   const body = { pertanyaan: text, mode: mode === "fast" ? "cepat" : "mendalam", lampiran: attachmentBody(attachment) };
-  const data = await streamRequest<RawSendResult>(`/percakapan/${conversationId}/pesan`, body, onUpdate, signal);
-  return { title: data.judul, question: toMessage(data.pesan), answer: toMessage(data.jawaban) };
+  return toSendResult(await streamRequest<RawSendResult>(`/percakapan/${conversationId}/pesan`, body, onUpdate, signal));
+}
+
+// Joins the answer still being made in a conversation, for example after a refresh or after coming back to it.
+// Every step and piece of text so far is replayed through onUpdate first. Returns null when nothing is running
+export async function resumeAnswer(
+  conversationId: string,
+  onUpdate: (update: AnswerUpdate) => void,
+  signal?: AbortSignal,
+): Promise<RunningAnswer | null> {
+  const response = await openStream("GET", `/percakapan/${conversationId}/jawaban`, undefined, signal);
+  if (response.status === 204) {
+    return null;
+  }
+  return new Promise((resolve, reject) => {
+    const done = readStream<RawSendResult>(response, onUpdate, (raw) => {
+      const result = done.then(toSendResult);
+      // a page that left this chat never waits for the result, so its failure must not show as an uncaught error
+      result.catch(() => undefined);
+      resolve({ question: toRunningQuestion(raw), result });
+    });
+    // without "mulai" the answer cannot be shown; after resolve this does nothing
+    done.then(() => reject(new ApiError(502, "Jawaban terputus sebelum selesai.")), reject);
+  });
+}
+
+// Stops the answer being made in a conversation; closing the connection alone no longer stops it
+export async function stopServerAnswer(conversationId: string): Promise<void> {
+  await request<undefined>("POST", `/percakapan/${conversationId}/berhenti`);
+}
+
+function toSendResult(raw: RawSendResult): SendResult {
+  return { title: raw.judul, question: toMessage(raw.pesan), answer: toMessage(raw.jawaban) };
+}
+
+// The question of a running answer, shown like a question that was just sent
+function toRunningQuestion(raw: RawRunning): Message {
+  return {
+    id: `draft-${Date.parse(raw.dimulai_pada) || Date.now()}`,
+    sender: "user",
+    text: raw.pertanyaan,
+    sources: [],
+    sentAt: raw.dimulai_pada,
+    favorite: false,
+    attachment: raw.lampiran ?? "",
+    rating: 0,
+  };
 }
 
 // Guest chats are not saved, so the messages on screen are sent along as history, and the file of this chat with every question

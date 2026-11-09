@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"chatbot/backend/agen"
 	"chatbot/backend/model"
@@ -40,15 +41,26 @@ type PercakapanService struct {
 	ingatan   *IngatanService
 	email     *EmailJawabanService
 	ringkasan *RingkasanService
+	berjalan  *pengelolaJawaban
 }
 
 // email boleh nil; jawaban lalu tidak bisa dikirim ke email. ringkasan boleh nil; pesan lama lalu tidak diringkas
 func BaruPercakapanService(repo *repository.PercakapanRepository, chatbot *ChatbotService, ingatan *IngatanService, email *EmailJawabanService, ringkasan *RingkasanService) *PercakapanService {
-	return &PercakapanService{repo: repo, chatbot: chatbot, ingatan: ingatan, email: email, ringkasan: ringkasan}
+	return &PercakapanService{repo: repo, chatbot: chatbot, ingatan: ingatan, email: email, ringkasan: ringkasan,
+		berjalan: baruPengelolaJawaban()}
 }
 
+// Daftar mengambil percakapan pengguna dan menandai yang sedang dibuatkan jawaban
 func (s *PercakapanService) Daftar(penggunaID string) ([]model.Percakapan, error) {
-	return s.repo.Semua(penggunaID)
+	daftar, err := s.repo.Semua(penggunaID)
+	if err != nil {
+		return nil, err
+	}
+	menjawab := s.berjalan.menjawab(penggunaID)
+	for i := range daftar {
+		daftar[i].Menjawab = menjawab[daftar[i].ID]
+	}
+	return daftar, nil
 }
 
 func (s *PercakapanService) Buat(penggunaID string) (model.Percakapan, error) {
@@ -63,6 +75,7 @@ func (s *PercakapanService) Hapus(id, penggunaID string) error {
 	if !terhapus {
 		return ErrPercakapanTidakAda
 	}
+	s.berjalan.hentikan(id, penggunaID)
 	return nil
 }
 
@@ -93,6 +106,35 @@ func profilPengguna(mode string) string {
 		return agen.ProfilCepat
 	}
 	return agen.ProfilMendalam
+}
+
+// Mulai memeriksa pertanyaan lalu membuat jawabannya di latar belakang, jadi jawaban tetap dibuat
+// walau browser di-refresh, pindah percakapan, atau ditutup. Satu percakapan hanya boleh punya satu jawaban berjalan
+func (s *PercakapanService) Mulai(id string, pengguna model.Pengguna, pertanyaan, mode string, lampiran *model.Lampiran) (*JawabanBerjalan, error) {
+	bersih := strings.TrimSpace(pertanyaan)
+	if bersih == "" || len(bersih) > BatasPertanyaan {
+		return nil, ErrDataTidakValid
+	}
+	if err := s.pastikanMilik(id, pengguna.ID); err != nil {
+		return nil, err
+	}
+	info := InfoJawaban{Pertanyaan: bersih, Mode: profilPengguna(mode), DimulaiPada: time.Now()}
+	if l := bersihkanLampiran(lampiran); l != nil {
+		info.Lampiran = l.Nama
+	}
+	return s.berjalan.mulai(id, pengguna.ID, info, func(ctx context.Context, kabar agen.Kabar) (HasilPesan, error) {
+		return s.Kirim(ctx, id, pengguna, pertanyaan, mode, lampiran, kabar)
+	})
+}
+
+// JawabanBerjalan mengembalikan jawaban yang sedang dibuat di percakapan milik pengguna, atau nil
+func (s *PercakapanService) JawabanBerjalan(id, penggunaID string) *JawabanBerjalan {
+	return s.berjalan.ambil(id, penggunaID)
+}
+
+// Hentikan membatalkan jawaban yang sedang dibuat; false jika tidak ada yang berjalan
+func (s *PercakapanService) Hentikan(id, penggunaID string) bool {
+	return s.berjalan.hentikan(id, penggunaID)
 }
 
 // Kirim menyimpan pesan pengguna, meminta jawaban dengan riwayat percakapan, lalu menyimpan jawabannya.

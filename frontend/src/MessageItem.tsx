@@ -321,13 +321,16 @@ export function TypingItem({ status, text, onGrow }: { status: string; text: str
     <div className="message bot">
       <span className="bot-avatar" aria-hidden="true" />
       <div className="message-body">
-        {shown !== "" ? (
-          <div className="bubble bot streaming">
+        {/* one bubble for both steps, so it does not pop in again when the first words arrive */}
+        <div className={`bubble bot ${shown !== "" ? "streaming" : "typing"}`}>
+          {shown !== "" ? (
             <Markdown text={shown} partial />
-          </div>
-        ) : (
-          <div className="bubble bot typing">{status || "Mengetik"}</div>
-        )}
+          ) : (
+            <span key={status} className="typing-status">
+              {status || "Mengetik"}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

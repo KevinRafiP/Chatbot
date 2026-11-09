@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
   type ChangeEvent,
@@ -32,10 +33,12 @@ import {
   onServerWaking,
   pinConversation,
   renameConversation,
+  resumeAnswer,
   sendGuestMessage,
   sendMessage,
   setFavorite,
   setRating,
+  stopServerAnswer,
   uploadFile,
   verifyEmail,
   type Account,
@@ -46,6 +49,8 @@ import {
   type FavoriteMessage,
   type Message,
   type Rating,
+  type RunningAnswer,
+  type SendResult,
 } from "./api";
 
 const MOBILE_QUERY = "(max-width: 768px)";
@@ -62,9 +67,14 @@ const TOAST_MS = 2000;
 const AGENT_CHECK_MS = 10_000;
 const HIGHLIGHT_MS = 4000;
 const INPUT_MAX_HEIGHT = 200;
-// closer than this to the bottom counts as reading the newest message
-const FOLLOW_GAP_PX = 80;
+// scrolling down to closer than this to the bottom starts following the answer again
+const FOLLOW_GAP_PX = 24;
+// space kept above the question when following the answer stops at it
+const QUESTION_TOP_GAP_PX = 16;
 const MODE_KEY = "answerMode";
+const CHAT_KEY = "openChat";
+// how often the list is read again while an answer is being made somewhere, so its dot goes away when it is done
+const ANSWERING_CHECK_MS = 5000;
 // must match BERKAS_MAKS_MB on the backend
 const MAX_FILE_MB = Number(import.meta.env.VITE_MAX_FILE_MB ?? 5);
 const FILE_TYPES = ".pdf,.docx,.txt,.md,.csv,.json,.log,.html,.htm,.xml,.py,.go,.js,.ts,.sql,.png,.jpg,.jpeg,.webp,.gif,image/*";
@@ -72,6 +82,23 @@ const FILE_ONLY_QUESTION = "Tolong ringkas isi berkas ini.";
 const IMAGE_ONLY_QUESTION = "Tolong jawab soal atau jelaskan isi gambar ini.";
 // Messages made in this page only (a question being sent, a failed one, a stopped half answer, a guest chat)
 const LOCAL_ID = /^(draft|stopped|question|guest)-/;
+
+// The note under a question whose answer failed; a limit or a chat that is still answering keeps the server's reason
+function failNote(err: unknown): string {
+  if (err instanceof ApiError && (err.status === 429 || err.status === 409)) {
+    return err.message;
+  }
+  return "Jawaban gagal dibuat.";
+}
+
+// The chat that was open in this tab before a refresh, read once when the page opens; null when there was none
+const SAVED_CHAT = (() => {
+  try {
+    return sessionStorage.getItem(CHAT_KEY);
+  } catch {
+    return null;
+  }
+})();
 
 // The last chosen answer mode, kept per browser; "deep" when nothing was saved or storage is blocked
 function readMode(): AnswerMode {
@@ -86,7 +113,6 @@ type ConversationItemProps = {
   conversation: Conversation;
   active: boolean;
   menuOpen: boolean;
-  disabled: boolean;
   onOpen: () => void;
   onToggleMenu: () => void;
   onRename: (title: string) => void;
@@ -112,7 +138,7 @@ function PinIcon() {
 
 // One row in the sidebar: the title opens the chat, the three-dot button opens pin, rename, and delete
 function ConversationItem(props: ConversationItemProps) {
-  const { conversation, active, menuOpen, disabled } = props;
+  const { conversation, active, menuOpen } = props;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(conversation.title);
 
@@ -151,7 +177,8 @@ function ConversationItem(props: ConversationItemProps) {
 
   return (
     <li className={active ? "active" : ""}>
-      <button className="open" onClick={props.onOpen} disabled={disabled} title={conversation.title}>
+      <button className="open" onClick={props.onOpen} title={conversation.title}>
+        {conversation.answering && <span className="answering-dot" role="img" aria-label="Sedang menjawab" />}
         {conversation.pinned && <PinIcon />}
         {conversation.title}
       </button>
@@ -159,7 +186,6 @@ function ConversationItem(props: ConversationItemProps) {
         <button
           className={`more ${menuOpen ? "shown" : ""}`}
           onClick={props.onToggleMenu}
-          disabled={disabled}
           aria-label="Menu percakapan"
           aria-expanded={menuOpen}
         >
@@ -221,43 +247,51 @@ function App() {
   const toastTimer = useRef(0);
   const highlightTimer = useRef(0);
   const followRef = useRef(true);
+  // true after the user scrolls back to the bottom themselves: then the answer is followed to its end
+  const followToEndRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  // the conversation whose answer this page is showing, so "Berhenti" can stop it on the server
+  const streamIdRef = useRef<string | null>(null);
+  // goes up each time another chat is opened, so late results of the chat that was left are ignored
+  const viewRef = useRef(0);
 
-  // Loads who is using this device, then their saved conversations; a guest has none.
-  // Opening the link from the verification email logs into the new account first
-  useEffect(() => {
-    onServerWaking(setWaking);
-    const start =
-      VERIFY_CODE === null
-        ? getAccount()
-        : verifyEmail(VERIFY_CODE).then(
-            (current) => {
-              setToast("Email terverifikasi, selamat datang!");
-              toastTimer.current = window.setTimeout(() => setToast(""), TOAST_MS);
-              return current;
-            },
-            () => {
-              setError("Link verifikasi salah atau sudah kedaluwarsa.");
-              return getAccount();
-            },
-          );
-    start
-      .then(async (current) => {
-        setAccount(current);
-        if (current.role !== "tamu") {
-          setConversations(await listConversations());
-        }
-      })
-      .catch(() => setError("Tidak bisa terhubung ke server."))
-      .finally(() => setListLoading(false));
-
-    return () => onServerWaking(null);
-  }, []);
   
-  // Checks every 10 seconds, and when the tab gets focus again, whether the AI can answer, so people do not keep sending messages while it is offline
+  // Remembers the open chat for this tab, so a refresh opens it again and shows its answer if it is still being made
+  useEffect(() => {
+    try {
+      if (activeId === null) {
+        sessionStorage.removeItem(CHAT_KEY);
+      } else {
+        sessionStorage.setItem(CHAT_KEY, activeId);
+      }
+    } catch {
+      // without storage a refresh opens an empty chat
+    }
+  }, [activeId]);
+
+  // While an answer is being made in any chat, reads the list again every few seconds so its dot goes away when it is done.
+  // A hidden tab does not check
+  const anyAnswering = conversations.some((item) => item.answering);
+  useEffect(() => {
+    if (!anyAnswering) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      if (!document.hidden) {
+        listConversations().then(setConversations, () => undefined);
+      }
+    }, ANSWERING_CHECK_MS);
+    return () => window.clearInterval(timer);
+  }, [anyAnswering]);
+
+  // Checks every 10 seconds, and when the tab gets focus again, whether the AI can answer, so people do not keep sending messages while it is offline.
+  // A hidden tab does not check, so a forgotten tab does not keep the server awake all month
   useEffect(() => {
     let active = true;
     const check = () => {
+      if (document.hidden) {
+        return;
+      }
       getAgentStatus().then((connected) => {
         if (active) {
           setAgentOffline(!connected);
@@ -274,13 +308,40 @@ function App() {
     };
   }, []);
 
+  // Keeps the newest line of the answer in view while it is being written, but stops once the question reaches
+  // the top of the screen, so a long answer is read from its start instead of being pulled down
+  const followAnswer = useCallback(() => {
+    const box = messagesRef.current;
+    if (box === null || !followRef.current || jumpToRef.current !== null) {
+      return;
+    }
+    const questions = box.querySelectorAll<HTMLElement>(".message.user");
+    const question = questions[questions.length - 1];
+    let target = box.scrollHeight - box.clientHeight;
+    if (question !== undefined && !followToEndRef.current) {
+      const questionTop = question.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+      target = Math.min(target, questionTop - QUESTION_TOP_GAP_PX);
+    }
+    if (target > box.scrollTop) {
+      box.scrollTop = target;
+    }
+  }, []);
+
   // Scrolls to the newest message when one is sent or a chat is opened, but not while an answer is being typed out
-  // or a message is starred
+  // or a message is starred. A finished answer keeps the same limit as while it was being written
+  const wasLoadingRef = useRef(false);
   useEffect(() => {
-    if (jumpToRef.current === null && followRef.current) {
+    const finished = wasLoadingRef.current && !loading;
+    wasLoadingRef.current = loading;
+    if (jumpToRef.current !== null || !followRef.current) {
+      return;
+    }
+    if (finished) {
+      followAnswer();
+    } else {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages.length, loading]);
+  }, [messages.length, loading, followAnswer]);
   
   // Following the answer down stops when the user scrolls up to read, and starts again once they are back at the bottom
   useEffect(() => {
@@ -289,26 +350,42 @@ function App() {
       return;
     }
     let lastTop = box.scrollTop;
+    let touchY = 0;
+    const stop = () => {
+      followRef.current = false;
+    };
+    // any move up stops following at once, even a small one near the bottom
+    function wheel(event: WheelEvent) {
+      if (event.deltaY < 0) stop();
+    }
+    function touchStart(event: TouchEvent) {
+      touchY = event.touches[0]?.clientY ?? 0;
+    }
+    function touchMove(event: TouchEvent) {
+      if ((event.touches[0]?.clientY ?? 0) > touchY) stop();
+    }
+    // the scrollbar and keys only show up as scroll events; a few pixels are ignored because the answer can shrink a little while it is formatted
     function track() {
       if (box === null) return;
       const fromBottom = box.scrollHeight - box.scrollTop - box.clientHeight;
-      if (fromBottom < FOLLOW_GAP_PX) {
+      if (box.scrollTop < lastTop - 4) {
+        stop();
+      } else if (box.scrollTop > lastTop && fromBottom < FOLLOW_GAP_PX && !followRef.current) {
         followRef.current = true;
-      } else if (box.scrollTop < lastTop) {
-        followRef.current = false;
+        followToEndRef.current = true;
       }
       lastTop = box.scrollTop;
     }
     box.addEventListener("scroll", track, { passive: true });
-    return () => box.removeEventListener("scroll", track);
-  }, []);
-
-  // Keeps the newest line of the answer in view while it is being written
-  const followAnswer = useCallback(() => {
-    const box = messagesRef.current;
-    if (box !== null && followRef.current && jumpToRef.current === null) {
-      box.scrollTop = box.scrollHeight;
-    }
+    box.addEventListener("wheel", wheel, { passive: true });
+    box.addEventListener("touchstart", touchStart, { passive: true });
+    box.addEventListener("touchmove", touchMove, { passive: true });
+    return () => {
+      box.removeEventListener("scroll", track);
+      box.removeEventListener("wheel", wheel);
+      box.removeEventListener("touchstart", touchStart);
+      box.removeEventListener("touchmove", touchMove);
+    };
   }, []);
 
   // After a starred message is chosen, scrolls to it once it is on screen
@@ -369,8 +446,65 @@ function App() {
     }
   }
 
-  // Opens a saved conversation and loads its messages; gray bubbles stand in until they arrive, then fade into the chat
+  // Stops showing the answer of the chat being left; the server keeps making it
+  function leaveAnswer() {
+    viewRef.current += 1;
+    const current = abortRef.current;
+    abortRef.current = null;
+    streamIdRef.current = null;
+    current?.abort();
+    setLoading(false);
+    setLive({ status: "", text: "" });
+  }
+
+  // Ends the answer this page is showing, unless the page has already moved on to another one
+  function endStream(controller: AbortController) {
+    if (abortRef.current === controller) {
+      abortRef.current = null;
+      streamIdRef.current = null;
+      setLoading(false);
+    }
+  }
+
+  // Shows or hides the dot beside a conversation that is still being answered
+  function markAnswering(id: string, answering: boolean) {
+    setConversations((current) => current.map((item) => (item.id === id ? { ...item, answering } : item)));
+  }
+
+  // Swaps the question on screen for the question and answer saved by the server, without sliding them in again
+  function showSaved(conversationId: string, draftId: string, result: SendResult, streamed: boolean) {
+    const saved = new Set([draftId, result.question.id, result.answer.id]);
+    setQuietIds((current) => new Set(current).add(result.question.id).add(result.answer.id));
+    setMessages((current) => [...current.filter((item) => !saved.has(item.id)), result.question, result.answer]);
+    setTypingId(streamed ? null : result.answer.id);
+    setConversations((current) =>
+      current.map((item) =>
+        item.id === conversationId ? { ...item, answering: false, title: result.title || item.title } : item,
+      ),
+    );
+  }
+
+  // The question stays on screen with a note and "Coba lagi"; a half answer that already arrived stays under it,
+  // marked with an empty note so it is never sent as guest history
+  function keepFailed(draft: Message, file: Attachment | null, partial: string, note: string) {
+    setMessages((current) => {
+      const kept = current.map((item) => (item.id === draft.id ? { ...item, note, retry: { attachment: file } } : item));
+      if (partial.trim() === "") {
+        return kept;
+      }
+      const half: Message = { ...draft, id: `stopped-${draft.id}`, sender: "bot", text: partial, attachment: "", note: "" };
+      return [...kept, half];
+    });
+  }
+
+  // Opens a saved conversation and loads its messages; gray bubbles stand in until they arrive, then fade into the chat.
+  // An answer still being made there (after a refresh, or after visiting another chat) is shown again from its start
   async function openConversation(id: string) {
+    leaveAnswer();
+    const view = viewRef.current;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    streamIdRef.current = id;
     followRef.current = true;
     setActiveId(id);
     setMessages([]);
@@ -382,21 +516,100 @@ function App() {
     setView("chat");
     setError("");
     closeSidebarOnMobile();
+
+    let partial = "";
+    const onUpdate = (update: AnswerUpdate) => {
+      if (update.kind === "text") partial += update.text;
+      if (update.kind === "reset") partial = "";
+      showUpdate(update);
+    };
+    let running: RunningAnswer | null;
     try {
+      // asked before the messages, so an answer that ends in between is already among the loaded messages
+      running = await resumeAnswer(id, onUpdate, controller.signal).catch(() => null);
       const loaded = await listMessages(id);
+      if (view !== viewRef.current) {
+        return;
+      }
+      const question = running?.question;
       withTransition(() => {
-        setMessages(loaded);
+        setMessages(question === undefined ? loaded : [...loaded, question]);
         setOpening(false);
       });
     } catch {
-      jumpToRef.current = null;
-      setOpening(false);
-      setError("Gagal memuat percakapan.");
+      if (view === viewRef.current) {
+        jumpToRef.current = null;
+        setOpening(false);
+        setError("Gagal memuat percakapan.");
+        endStream(controller);
+      }
+      return;
+    }
+    if (running === null) {
+      endStream(controller);
+      markAnswering(id, false);
+      return;
+    }
+
+    followToEndRef.current = false;
+    setLoading(true);
+    markAnswering(id, true);
+    try {
+      showSaved(id, running.question.id, await running.result, true);
+    } catch (err) {
+      if (abortRef.current !== controller) {
+        return;
+      }
+      markAnswering(id, false);
+      keepFailed(running.question, null, partial, controller.signal.aborted ? "Jawaban dihentikan." : failNote(err));
+    } finally {
+      endStream(controller);
     }
   }
 
+  // After a refresh, opens the chat that was open before
+  const restoreChat = useEffectEvent((list: Conversation[]) => {
+    if (SAVED_CHAT !== null && list.some((item) => item.id === SAVED_CHAT)) {
+      void openConversation(SAVED_CHAT);
+    }
+  });
+
+  // Loads who is using this device, then their saved conversations; a guest has none.
+  // Opening the link from the verification email logs into the new account first
+  useEffect(() => {
+    onServerWaking(setWaking);
+    const start =
+      VERIFY_CODE === null
+        ? getAccount()
+        : verifyEmail(VERIFY_CODE).then(
+            (current) => {
+              setToast("Email terverifikasi, selamat datang!");
+              toastTimer.current = window.setTimeout(() => setToast(""), TOAST_MS);
+              return current;
+            },
+            () => {
+              setError("Link verifikasi salah atau sudah kedaluwarsa.");
+              return getAccount();
+            },
+          );
+    start
+      .then(async (current) => {
+        setAccount(current);
+        if (current.role !== "tamu") {
+          const list = await listConversations();
+          setConversations(list);
+          restoreChat(list);
+        }
+      })
+      .catch(() => setError("Tidak bisa terhubung ke server."))
+      .finally(() => setListLoading(false));
+
+    return () => onServerWaking(null);
+  }, []);
+
   // Starts an empty chat; it is saved when the first message is sent
   function startNew() {
+    leaveAnswer();
     followRef.current = true;
     withTransition(() => {
       setActiveId(null);
@@ -721,8 +934,12 @@ function App() {
     void send(message.text, message.retry?.attachment ?? null, true);
   }
 
-  // Stops the answer being made; the question stays on screen with "Coba lagi"
+  // Stops the answer being made, on the server too; the question stays on screen with "Coba lagi"
   function stopAnswer() {
+    const id = streamIdRef.current;
+    if (id !== null && !isGuest) {
+      stopServerAnswer(id).catch(() => setError("Jawaban belum berhenti di server. Coba tekan Berhenti lagi."));
+    }
     abortRef.current?.abort();
   }
 
@@ -743,12 +960,14 @@ function App() {
       rating: 0,
     };
     followRef.current = true;
+    followToEndRef.current = false;
     setMessages((current) => [...current, draft]);
     setError("");
     setLive({ status: "", text: "" });
     setLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
+    let conversationId: string | null = null;
 
     // An answer that already appeared piece by piece is not typed out again; a stopped one keeps what arrived
     let streamed = false;
@@ -769,40 +988,34 @@ function App() {
         return;
       }
 
-      let id = activeId;
-      if (id === null) {
+      if (activeId === null) {
         const created = await createConversation();
-        id = created.id;
-        setActiveId(id);
         setConversations((current) => [created, ...current]);
+        if (abortRef.current !== controller) {
+          return;
+        }
+        setActiveId(created.id);
+        conversationId = created.id;
+      } else {
+        conversationId = activeId;
       }
 
-      const conversationId = id;
-      const result = await sendMessage(conversationId, text, mode, file, onUpdate, controller.signal);
-      setQuietIds((current) => new Set(current).add(result.question.id).add(result.answer.id));
-      setMessages((current) => [
-        ...current.filter((item) => item.id !== draftId),
-        result.question,
-        result.answer,
-      ]);
-      setTypingId(streamed ? null : result.answer.id);
-      if (result.title !== "") {
-        setConversations((current) =>
-          current.map((item) => (item.id === conversationId ? { ...item, title: result.title } : item)),
-        );
+      const id = conversationId;
+      streamIdRef.current = id;
+      markAnswering(id, true);
+      const result = await sendMessage(id, text, mode, file, onUpdate, controller.signal);
+      if (abortRef.current === controller) {
+        showSaved(id, draftId, result, streamed);
       }
     } catch (err) {
-      // the question stays with a note; a half answer that already arrived stays under it, marked with an empty note
-      // so it is never sent as guest history
-      const keep = (note: string) =>
-        setMessages((current) => {
-          const kept = current.map((item) => (item.id === draftId ? { ...item, note, retry: { attachment: file } } : item));
-          if (partial.trim() === "") {
-            return kept;
-          }
-          const half: Message = { ...draft, id: `stopped-${draftId}`, sender: "bot", text: partial, attachment: "", note: "" };
-          return [...kept, half];
-        });
+      // the user went to another chat: the answer keeps being made there and is shown when they come back
+      if (abortRef.current !== controller) {
+        return;
+      }
+      if (conversationId !== null && !(err instanceof ApiError && err.status === 409)) {
+        markAnswering(conversationId, false);
+      }
+      const keep = (note: string) => keepFailed(draft, file, partial, note);
       const giveBack = () => {
         setMessages((current) => current.filter((item) => item.id !== draftId));
         setInput(typed ? text : "");
@@ -817,14 +1030,11 @@ function App() {
       } else if (err instanceof BlockedError) {
         giveBack();
         setError("Pesan ditolak oleh pengaman server karena mirip perintah berbahaya (misalnya kode SQL). Ubah kalimatnya lalu coba lagi.");
-      } else if (err instanceof ApiError && err.status === 429) {
-        keep(err.message);
       } else {
-        keep("Jawaban gagal dibuat.");
+        keep(failNote(err));
       }
     } finally {
-      abortRef.current = null;
-      setLoading(false);
+      endStream(controller);
     }
   }
 
@@ -846,7 +1056,6 @@ function App() {
         conversation={item}
         active={item.id === activeId}
         menuOpen={item.id === menuId}
-        disabled={loading}
         onOpen={() => openConversation(item.id)}
         onToggleMenu={() => setMenuId((current) => (current === item.id ? null : item.id))}
         onRename={(title) => changeTitle(item.id, title)}
@@ -869,7 +1078,7 @@ function App() {
           </button>
         </div>
 
-        <button className="new-chat" onClick={isGuest ? () => openDialog("masuk") : startNew} disabled={loading}>
+        <button className="new-chat" onClick={isGuest ? () => openDialog("masuk") : startNew}>
           + Percakapan baru
         </button>
 

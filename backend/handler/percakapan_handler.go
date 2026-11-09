@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -8,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 
-	"chatbot/backend/agen"
 	"chatbot/backend/middleware"
 	"chatbot/backend/service"
 )
@@ -109,30 +109,106 @@ func KirimPesan(percakapan *service.PercakapanService) http.HandlerFunc {
 			return
 		}
 
-		var sse *penulisSSE
-		var kabar agen.Kabar
-		if mintaStream(r) {
-			sse = &penulisSSE{w: w}
-			kabar = sse.kabar
-			defer sse.jaga()()
-		}
-
-		hasil, err := percakapan.Kirim(r.Context(), id, middleware.PenggunaDari(r.Context()), permintaan.Pertanyaan, permintaan.Mode, permintaan.Lampiran, kabar)
-		if sse != nil && sse.sudahMulai() {
-			if err != nil {
-				log.Println("error kirim pesan (stream):", err)
-				sse.kirim("galat", Response{Status: "gagal", Message: "chatbot sedang bermasalah"})
-				return
-			}
-			sse.kirim("selesai", hasil)
+		jawaban, err := percakapan.Mulai(id, middleware.PenggunaDari(r.Context()), permintaan.Pertanyaan, permintaan.Mode, permintaan.Lampiran)
+		if err != nil {
+			gagalPercakapan(w, err)
 			return
 		}
+		alirkanJawaban(w, r, jawaban, false)
+	}
+}
+
+// SambungJawaban: GET /percakapan/{id}/jawaban; menyambung ke jawaban yang masih dibuat, misalnya setelah refresh.
+// Event pertama "mulai" berisi pertanyaannya, lalu semua kabar dari awal. 204 jika tidak ada jawaban berjalan
+func SambungJawaban(percakapan *service.PercakapanService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := bacaID(w, r)
+		if !ok {
+			return
+		}
+		jawaban := percakapan.JawabanBerjalan(id, middleware.PenggunaDari(r.Context()).ID)
+		if jawaban == nil {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		alirkanJawaban(w, r, jawaban, true)
+	}
+}
+
+// HentikanJawaban: POST /percakapan/{id}/berhenti; jawaban tidak lagi berhenti saat browser memutus koneksi
+func HentikanJawaban(percakapan *service.PercakapanService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := bacaID(w, r)
+		if !ok {
+			return
+		}
+		pesan := "tidak ada jawaban yang sedang dibuat"
+		if percakapan.Hentikan(id, middleware.PenggunaDari(r.Context()).ID) {
+			pesan = "jawaban dihentikan"
+		}
+		writeJSON(w, http.StatusOK, Response{Status: "sukses", Message: pesan})
+	}
+}
+
+// alirkanJawaban mengirim kabar jawaban ke browser sampai selesai atau browser pergi; jawabannya sendiri tetap berjalan.
+// sambung true untuk browser yang datang belakangan: info pertanyaan dikirim dulu, dan kode Python lama tidak dijalankan lagi
+func alirkanJawaban(w http.ResponseWriter, r *http.Request, jawaban *service.JawabanBerjalan, sambung bool) {
+	if !mintaStream(r) {
+		hasil, err := jawaban.Tunggu(r.Context())
 		if err != nil {
 			gagalPercakapan(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, Response{Status: "sukses", Message: "jawaban chatbot", Data: hasil})
+		return
 	}
+
+	sse := &penulisSSE{w: w}
+	defer sse.jaga()()
+	if sambung {
+		sse.kirim("mulai", jawaban.Info)
+	}
+	dari := 0
+	for {
+		k := jawaban.Ambil(dari)
+		for i, p := range k.Peristiwa {
+			// kode yang sudah diikuti kabar lain sudah dijalankan browser sebelumnya; hanya yang terakhir mungkin masih ditunggu
+			if sambung && dari == 0 && p.Jenis == "jalankan_kode" && i < len(k.Peristiwa)-1 {
+				continue
+			}
+			sse.kabar(p.Jenis, p.Data)
+		}
+		dari += len(k.Peristiwa)
+		if k.Selesai {
+			if k.Err == nil {
+				sse.kirim("selesai", k.Hasil)
+			} else if sse.sudahMulai() {
+				if !errors.Is(k.Err, context.Canceled) {
+					log.Println("error kirim pesan (stream):", k.Err)
+				}
+				sse.kirim("galat", Response{Status: "gagal", Message: pesanGalatJawaban(k.Err)})
+			} else {
+				gagalPercakapan(w, k.Err)
+			}
+			return
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-k.Baru:
+		}
+	}
+}
+
+// pesanGalatJawaban memilih pesan yang aman untuk jawaban yang gagal setelah stream dimulai
+func pesanGalatJawaban(err error) string {
+	if errors.Is(err, context.Canceled) {
+		return "jawaban dihentikan"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "jawaban terlalu lama dan dihentikan"
+	}
+	return "chatbot sedang bermasalah"
 }
 
 // FavoritPesan: PATCH /pesan/{id}/favorit dengan body {"favorit": true}
@@ -247,6 +323,12 @@ func gagalPercakapan(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "judul wajib diisi, maksimal 100 huruf"})
 	case errors.Is(err, service.ErrPenilaianSalah):
 		writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "penilaian harus 1, -1, atau 0"})
+	case errors.Is(err, service.ErrSedangMenjawab):
+		writeJSON(w, http.StatusConflict, Response{Status: "gagal", Message: "percakapan ini masih membuat jawaban, tunggu sampai selesai atau hentikan dulu"})
+	case errors.Is(err, service.ErrTerlaluBanyakJawaban):
+		writeJSON(w, http.StatusTooManyRequests, Response{Status: "gagal", Message: service.ErrTerlaluBanyakJawaban.Error()})
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		writeJSON(w, http.StatusConflict, Response{Status: "gagal", Message: pesanGalatJawaban(err)})
 	case errors.Is(err, service.ErrAgentGagal):
 		// bukan 502: frontend mengulang otomatis 502 sampai 504 (server bangun), sehingga pertanyaan terkirim berkali kali
 		writeJSON(w, http.StatusInternalServerError, Response{Status: "gagal", Message: "jawaban gagal dibuat, coba lagi"})

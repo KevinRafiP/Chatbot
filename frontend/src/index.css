@@ -3857,3 +3857,60 @@ button:disabled {
   transform: translateX(-50%);
   z-index: 50;
 }
+
+/* Chat bubbles grow in with a soft ease: a question from the input side, an answer from beside the avatar */
+.bubble,
+.empty {
+  animation: bubble-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.bubble.user {
+  transform-origin: bottom right;
+}
+
+.bubble.bot {
+  transform-origin: top left;
+}
+
+@keyframes bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+}
+
+/* the bubble already on screen stays put once saved; only the time, sources, and menu fade in under it */
+.message.quiet .bubble {
+  animation: none;
+}
+
+.message.quiet .message-time,
+.message.quiet .sources,
+.message.quiet .message-menu {
+  animation: fade-in 0.3s ease-out;
+}
+
+/* each new step such as "Mencari: ..." fades in instead of replacing the old one at once */
+.typing-status {
+  animation: fade-in 0.25s ease-out;
+}
+
+/* dot before the title of a conversation whose answer is still being made */
+.answering-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  vertical-align: 1px;
+  animation: answering-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes answering-pulse {
+  50% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+}

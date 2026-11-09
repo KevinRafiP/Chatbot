@@ -123,6 +123,9 @@ func BuatChatbot(
 	mux.Handle("POST /percakapan/{id}/pesan",
 		akun(middleware.BatasiLaju(pembatasPesan, perPengguna,
 			jatah(middleware.BatasiLaju(pembatasGlobal, semua, handler.KirimPesan(percakapanService))))))
+	// jawaban dibuat di server tanpa bergantung koneksi browser, jadi browser bisa menyambung lagi atau menghentikannya
+	mux.Handle("GET /percakapan/{id}/jawaban", akun(handler.SambungJawaban(percakapanService)))
+	mux.Handle("POST /percakapan/{id}/berhenti", akun(handler.HentikanJawaban(percakapanService)))
 
 	// dipanggil alat cari_pengetahuan di agent; tanpa AGENT_API_KEY jalurnya tidak dibuka
 	if kunciAgent != "" {
