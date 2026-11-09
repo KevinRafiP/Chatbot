@@ -12,6 +12,7 @@ import {
 import { AccountMenu, AdminForm, AuthForm, Dialog, ForgotForm, KnowledgeForm, ResetForm, type DialogName } from "./AccountMenu";
 import { FavoriteList } from "./FavoriteList";
 import { IMAGE_NAME, isImage, prepareImage } from "./imageUpload";
+import { JumpButton } from "./JumpButton";
 import { CopyIcon, MessageItem, PaperclipIcon, StarIcon, TypingItem } from "./MessageItem";
 import { copyMessage } from "./messageText";
 import { htmlToMarkdown } from "./pasteFormat";
@@ -64,6 +65,9 @@ if (VERIFY_CODE !== null || RESET_CODE !== null) {
   window.history.replaceState(null, "", window.location.pathname);
 }
 const TOAST_MS = 2000;
+// a toast about another chat stays longer, since the user was not looking at it
+const NEWS_MS = 4000;
+const BASE_TITLE = document.title;
 const AGENT_CHECK_MS = 10_000;
 const HIGHLIGHT_MS = 4000;
 const INPUT_MAX_HEIGHT = 200;
@@ -89,6 +93,17 @@ function failNote(err: unknown): string {
     return err.message;
   }
   return "Jawaban gagal dibuat.";
+}
+
+// Asks once whether finished answers may be announced with a system notification; a browser without them is left alone
+function askNotifyPermission() {
+  try {
+    if ("Notification" in window && Notification.permission === "default") {
+      void Notification.requestPermission();
+    }
+  } catch {
+    // old browsers only offer the callback form; the tab title still counts finished answers
+  }
 }
 
 // The chat that was open in this tab before a refresh, read once when the page opens; null when there was none
@@ -179,6 +194,11 @@ function ConversationItem(props: ConversationItemProps) {
     <li className={active ? "active" : ""}>
       <button className="open" onClick={props.onOpen} title={conversation.title}>
         {conversation.answering && <span className="answering-dot" role="img" aria-label="Sedang menjawab" />}
+        {!conversation.answering && conversation.failed && (
+          <span className="failed-mark" role="img" aria-label="Jawaban gagal" title="Jawaban gagal dibuat">
+            !
+          </span>
+        )}
         {conversation.pinned && <PinIcon />}
         {conversation.title}
       </button>
@@ -239,6 +259,10 @@ function App() {
   const [opening, setOpening] = useState(false);
   const [listLoading, setListLoading] = useState(true);
   const [quietIds, setQuietIds] = useState<ReadonlySet<string>>(new Set());
+  // an answer finished while the user was reading higher up; the jump button shows "!"
+  const [missed, setMissed] = useState(false);
+  // answers finished while the tab was hidden, counted in the tab title
+  const [unseen, setUnseen] = useState(0);
   const messagesRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -254,6 +278,8 @@ function App() {
   const streamIdRef = useRef<string | null>(null);
   // goes up each time another chat is opened, so late results of the chat that was left are ignored
   const viewRef = useRef(0);
+  // the list as last drawn, for code that runs after an await and must not read an old copy
+  const conversationsRef = useRef<Conversation[]>([]);
 
   
   // Remembers the open chat for this tab, so a refresh opens it again and shows its answer if it is still being made
@@ -269,20 +295,22 @@ function App() {
     }
   }, [activeId]);
 
-  // While an answer is being made in any chat, reads the list again every few seconds so its dot goes away when it is done.
-  // A hidden tab does not check
-  const anyAnswering = conversations.some((item) => item.answering);
   useEffect(() => {
-    if (!anyAnswering) {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  // Shows how many answers finished while the tab was hidden, until the user comes back
+  useEffect(() => {
+    document.title = unseen > 0 ? `(${unseen}) ${BASE_TITLE}` : BASE_TITLE;
+    if (unseen === 0) {
       return;
     }
-    const timer = window.setInterval(() => {
-      if (!document.hidden) {
-        listConversations().then(setConversations, () => undefined);
-      }
-    }, ANSWERING_CHECK_MS);
-    return () => window.clearInterval(timer);
-  }, [anyAnswering]);
+    function seen() {
+      if (!document.hidden) setUnseen(0);
+    }
+    document.addEventListener("visibilitychange", seen);
+    return () => document.removeEventListener("visibilitychange", seen);
+  }, [unseen]);
 
   // Checks every 10 seconds, and when the tab gets focus again, whether the AI can answer, so people do not keep sending messages while it is offline.
   // A hidden tab does not check, so a forgotten tab does not keep the server awake all month
@@ -326,6 +354,9 @@ function App() {
       box.scrollTop = target;
     }
   }, []);
+
+  // Reaching the bottom by any means clears the "!" on the jump button
+  const clearMissed = useCallback(() => setMissed(false), []);
 
   // Scrolls to the newest message when one is sent or a chat is opened, but not while an answer is being typed out
   // or a message is starred. A finished answer keeps the same limit as while it was being written
@@ -426,7 +457,6 @@ function App() {
     box.style.height = `${Math.min(box.scrollHeight, INPUT_MAX_HEIGHT)}px`;
   }, [input]);
 
-
   // Leaves the phone's message selection on Escape
   useEffect(() => {
     if (selectedId === null) {
@@ -455,6 +485,7 @@ function App() {
     current?.abort();
     setLoading(false);
     setLive({ status: "", text: "" });
+    setMissed(false);
   }
 
   // Ends the answer this page is showing, unless the page has already moved on to another one
@@ -466,9 +497,49 @@ function App() {
     }
   }
 
-  // Shows or hides the dot beside a conversation that is still being answered
-  function markAnswering(id: string, answering: boolean) {
-    setConversations((current) => current.map((item) => (item.id === id ? { ...item, answering } : item)));
+  // Shows the dot beside a conversation that is still being answered, or the "!" of a failed answer
+  function markAnswering(id: string, answering: boolean, failed = false) {
+    setConversations((current) => current.map((item) => (item.id === id ? { ...item, answering, failed } : item)));
+  }
+
+  // Tells the user that an answer is done: a toast for another chat, and while the tab is hidden a count in its title
+  // and a system notification that opens that chat
+  function announce(conversation: Conversation, onScreen: boolean, ok = !conversation.failed) {
+    const text = ok ? `Jawaban di "${conversation.title}" sudah selesai.` : `Jawaban di "${conversation.title}" gagal dibuat.`;
+    if (!document.hidden) {
+      if (!onScreen) showToast(text, NEWS_MS);
+      return;
+    }
+    setUnseen((count) => count + 1);
+    try {
+      if ("Notification" in window && Notification.permission === "granted") {
+        const note = new Notification("Vokapas", { body: text, tag: conversation.id });
+        note.onclick = () => {
+          window.focus();
+          note.close();
+          void openConversation(conversation.id);
+        };
+      }
+    } catch {
+      // phones only show notifications through a service worker; the title count is enough there
+    }
+  }
+
+  // Marks an answer that finished below the visible part of the chat, so the jump button shows "!"
+  function noteIfOutOfView() {
+    const box = messagesRef.current;
+    if (box !== null && box.scrollHeight - box.scrollTop - box.clientHeight > FOLLOW_GAP_PX) {
+      setMissed(true);
+    }
+  }
+
+  // Announces the end of the answer on screen, which only matters while the tab is hidden
+  function announceOwn(conversationId: string, ok: boolean) {
+    noteIfOutOfView();
+    const conversation = conversationsRef.current.find((item) => item.id === conversationId);
+    if (conversation !== undefined) {
+      announce(conversation, true, ok);
+    }
   }
 
   // Swaps the question on screen for the question and answer saved by the server, without sliding them in again
@@ -532,7 +603,8 @@ function App() {
         return;
       }
       const question = running?.question;
-      withTransition(() => {
+      // waits for the fade to put the messages in place, so a note added right after is not overwritten
+      await withTransition(() => {
         setMessages(question === undefined ? loaded : [...loaded, question]);
         setOpening(false);
       });
@@ -551,17 +623,23 @@ function App() {
       return;
     }
 
-    followToEndRef.current = false;
-    setLoading(true);
-    markAnswering(id, true);
+    // an answer that failed while the user was away is shown as failed at once, not as being written
+    if (!running.finished) {
+      followToEndRef.current = false;
+      setLoading(true);
+      markAnswering(id, true);
+    }
     try {
       showSaved(id, running.question.id, await running.result, true);
+      announceOwn(id, true);
     } catch (err) {
       if (abortRef.current !== controller) {
         return;
       }
-      markAnswering(id, false);
-      keepFailed(running.question, null, partial, controller.signal.aborted ? "Jawaban dihentikan." : failNote(err));
+      const stopped = controller.signal.aborted;
+      markAnswering(id, false, !stopped);
+      keepFailed(running.question, null, partial, stopped ? "Jawaban dihentikan." : failNote(err));
+      if (!stopped && !running.finished) announceOwn(id, false);
     } finally {
       endStream(controller);
     }
@@ -627,11 +705,34 @@ function App() {
   }
 
   // Shows a short note at the bottom of the chat that goes away by itself
-  function showToast(text: string) {
+  function showToast(text: string, ms = TOAST_MS) {
     setToast(text);
     window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(""), TOAST_MS);
+    toastTimer.current = window.setTimeout(() => setToast(""), ms);
   }
+
+  // While an answer is being made in any chat, reads the list again every few seconds so its dot goes away when it is done,
+  // and tells the user about answers that finished in a chat they are not watching. A hidden tab checks too, but only
+  // while an answer is running, so the server can still sleep afterwards
+  const anyAnswering = conversations.some((item) => item.answering);
+  const announceEvent = useEffectEvent((conversation: Conversation) => announce(conversation, false));
+  useEffect(() => {
+    if (!anyAnswering) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      listConversations().then((list) => {
+        for (const before of conversationsRef.current) {
+          const after = list.find((item) => item.id === before.id);
+          if (before.answering && after !== undefined && !after.answering && after.id !== streamIdRef.current) {
+            announceEvent(after);
+          }
+        }
+        setConversations(list);
+      }, () => undefined);
+    }, ANSWERING_CHECK_MS);
+    return () => window.clearInterval(timer);
+  }, [anyAnswering]);
 
   // Copies a message from its menu or from the phone's selection bar
   async function copy(message: Message) {
@@ -922,6 +1023,9 @@ function App() {
     const typed = input.trim() !== "";
     setInput("");
     setAttachment(null);
+    if (!isGuest) {
+      askNotifyPermission();
+    }
     await send(text, attachment, typed);
   }
 
@@ -932,6 +1036,15 @@ function App() {
     }
     setMessages((current) => current.filter((item) => item.id !== message.id && item.id !== `stopped-${message.id}`));
     void send(message.text, message.retry?.attachment ?? null, true);
+  }
+
+  // Scrolls to the newest message and follows the answer to its end from there
+  function jumpToBottom() {
+    const box = messagesRef.current;
+    followRef.current = true;
+    followToEndRef.current = true;
+    setMissed(false);
+    box?.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
   }
 
   // Stops the answer being made, on the server too; the question stays on screen with "Coba lagi"
@@ -1006,14 +1119,17 @@ function App() {
       const result = await sendMessage(id, text, mode, file, onUpdate, controller.signal);
       if (abortRef.current === controller) {
         showSaved(id, draftId, result, streamed);
+        announceOwn(id, true);
       }
     } catch (err) {
       // the user went to another chat: the answer keeps being made there and is shown when they come back
       if (abortRef.current !== controller) {
         return;
       }
+      const failed = !controller.signal.aborted && !(err instanceof ApiError && err.status === 409);
       if (conversationId !== null && !(err instanceof ApiError && err.status === 409)) {
-        markAnswering(conversationId, false);
+        markAnswering(conversationId, false, failed);
+        if (failed) announceOwn(conversationId, false);
       }
       const keep = (note: string) => keepFailed(draft, file, partial, note);
       const giveBack = () => {
@@ -1211,6 +1327,9 @@ function App() {
           </div>
         )}
 
+        {view === "chat" && (
+          <JumpButton target={messagesRef} alert={missed} busy={loading} onJump={jumpToBottom} onBottom={clearMissed} />
+        )}
         {view === "chat" && (attachment !== null || uploading) && (
           <div className="attachment-bar">
             <span className="attachment-chip" title={attachment?.text.slice(0, 1000)}>

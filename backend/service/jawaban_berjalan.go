@@ -17,6 +17,9 @@ const (
 	BatasJawabanPerAkun = 3
 	// BatasWaktuJawaban menghentikan jawaban yang macet, karena jawaban tidak lagi berhenti saat browser ditutup
 	BatasWaktuJawaban = 30 * time.Minute
+	// SimpanGagal adalah lama jawaban gagal tetap diingat, agar pengguna yang kembali ke percakapannya
+	// melihat pertanyaan itu dengan tanda gagal dan tombol "Coba lagi"
+	SimpanGagal = time.Hour
 )
 
 var (
@@ -44,6 +47,8 @@ type JawabanBerjalan struct {
 	Info       InfoJawaban
 	penggunaID string
 	batal      context.CancelFunc
+	// gagalPada diisi saat jawaban gagal (bukan dihentikan pengguna); dibaca dan diubah di bawah kunci pengelola
+	gagalPada time.Time
 
 	kunci     sync.Mutex
 	peristiwa []Peristiwa
@@ -106,7 +111,8 @@ func (j *JawabanBerjalan) Tunggu(ctx context.Context) (HasilPesan, error) {
 	}
 }
 
-// pengelolaJawaban mencatat jawaban yang sedang dibuat, paling banyak satu untuk setiap percakapan
+// pengelolaJawaban mencatat jawaban yang sedang dibuat, paling banyak satu untuk setiap percakapan,
+// dan jawaban yang gagal selama SimpanGagal sampai pertanyaan berikutnya dikirim
 type pengelolaJawaban struct {
 	kunci    sync.Mutex
 	berjalan map[string]*JawabanBerjalan
@@ -120,12 +126,13 @@ func baruPengelolaJawaban() *pengelolaJawaban {
 func (p *pengelolaJawaban) mulai(percakapanID, penggunaID string, info InfoJawaban, kerja func(context.Context, agen.Kabar) (HasilPesan, error)) (*JawabanBerjalan, error) {
 	p.kunci.Lock()
 	defer p.kunci.Unlock()
-	if _, ada := p.berjalan[percakapanID]; ada {
+	p.buangKedaluwarsa()
+	if j, ada := p.berjalan[percakapanID]; ada && j.gagalPada.IsZero() {
 		return nil, ErrSedangMenjawab
 	}
 	jumlah := 0
 	for _, j := range p.berjalan {
-		if j.penggunaID == penggunaID {
+		if j.penggunaID == penggunaID && j.gagalPada.IsZero() {
 			jumlah++
 		}
 	}
@@ -150,44 +157,71 @@ func (p *pengelolaJawaban) jalankan(ctx context.Context, percakapanID string, j 
 			err = fmt.Errorf("panic: %v", r)
 		}
 		j.batal()
-		// dihapus dulu baru diakhiri: jawaban sudah tersimpan, jadi browser yang datang sesudahnya cukup memuat pesan
+		// yang berhasil sudah tersimpan dan yang dihentikan memang diminta pengguna, jadi keduanya dihapus dulu baru diakhiri;
+		// yang gagal tetap diingat agar terlihat saat pengguna kembali
 		p.kunci.Lock()
-		delete(p.berjalan, percakapanID)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			j.gagalPada = time.Now()
+		} else {
+			delete(p.berjalan, percakapanID)
+		}
 		p.kunci.Unlock()
 		j.akhiri(hasil, err)
 	}()
 	hasil, err = kerja(ctx, j.tambah)
 }
 
-// ambil mengembalikan jawaban yang sedang dibuat di percakapan milik pengguna, atau nil
+// buangKedaluwarsa melupakan jawaban gagal yang sudah lebih lama dari SimpanGagal; dipanggil di bawah kunci
+func (p *pengelolaJawaban) buangKedaluwarsa() {
+	for id, j := range p.berjalan {
+		if !j.gagalPada.IsZero() && time.Since(j.gagalPada) > SimpanGagal {
+			delete(p.berjalan, id)
+		}
+	}
+}
+
+// ambil mengembalikan jawaban yang sedang dibuat atau baru gagal di percakapan milik pengguna, atau nil
 func (p *pengelolaJawaban) ambil(percakapanID, penggunaID string) *JawabanBerjalan {
 	p.kunci.Lock()
 	defer p.kunci.Unlock()
+	p.buangKedaluwarsa()
 	if j, ada := p.berjalan[percakapanID]; ada && j.penggunaID == penggunaID {
 		return j
 	}
 	return nil
 }
 
-// hentikan membatalkan jawaban yang sedang dibuat; false jika tidak ada
+// hentikan membatalkan jawaban yang sedang dibuat dan melupakan jawaban gagal; false jika tidak ada yang berjalan
 func (p *pengelolaJawaban) hentikan(percakapanID, penggunaID string) bool {
-	j := p.ambil(percakapanID, penggunaID)
-	if j == nil {
+	p.kunci.Lock()
+	defer p.kunci.Unlock()
+	j, ada := p.berjalan[percakapanID]
+	if !ada || j.penggunaID != penggunaID {
+		return false
+	}
+	if !j.gagalPada.IsZero() {
+		delete(p.berjalan, percakapanID)
 		return false
 	}
 	j.batal()
 	return true
 }
 
-// menjawab mengembalikan id percakapan milik pengguna yang sedang dibuatkan jawaban
-func (p *pengelolaJawaban) menjawab(penggunaID string) map[string]bool {
+// keadaan mengembalikan id percakapan milik pengguna yang sedang dibuatkan jawaban dan yang jawabannya baru gagal
+func (p *pengelolaJawaban) keadaan(penggunaID string) (menjawab, gagal map[string]bool) {
 	p.kunci.Lock()
 	defer p.kunci.Unlock()
-	daftar := map[string]bool{}
+	p.buangKedaluwarsa()
+	menjawab, gagal = map[string]bool{}, map[string]bool{}
 	for id, j := range p.berjalan {
-		if j.penggunaID == penggunaID {
-			daftar[id] = true
+		if j.penggunaID != penggunaID {
+			continue
+		}
+		if j.gagalPada.IsZero() {
+			menjawab[id] = true
+		} else {
+			gagal[id] = true
 		}
 	}
-	return daftar
+	return menjawab, gagal
 }

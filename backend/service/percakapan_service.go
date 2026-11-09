@@ -50,15 +50,16 @@ func BaruPercakapanService(repo *repository.PercakapanRepository, chatbot *Chatb
 		berjalan: baruPengelolaJawaban()}
 }
 
-// Daftar mengambil percakapan pengguna dan menandai yang sedang dibuatkan jawaban
+// Daftar mengambil percakapan pengguna dan menandai yang sedang dibuatkan jawaban atau jawabannya baru gagal
 func (s *PercakapanService) Daftar(penggunaID string) ([]model.Percakapan, error) {
 	daftar, err := s.repo.Semua(penggunaID)
 	if err != nil {
 		return nil, err
 	}
-	menjawab := s.berjalan.menjawab(penggunaID)
+	menjawab, gagal := s.berjalan.keadaan(penggunaID)
 	for i := range daftar {
 		daftar[i].Menjawab = menjawab[daftar[i].ID]
+		daftar[i].Gagal = gagal[daftar[i].ID]
 	}
 	return daftar, nil
 }
@@ -127,7 +128,7 @@ func (s *PercakapanService) Mulai(id string, pengguna model.Pengguna, pertanyaan
 	})
 }
 
-// JawabanBerjalan mengembalikan jawaban yang sedang dibuat di percakapan milik pengguna, atau nil
+// JawabanBerjalan mengembalikan jawaban yang sedang dibuat atau baru gagal di percakapan milik pengguna, atau nil
 func (s *PercakapanService) JawabanBerjalan(id, penggunaID string) *JawabanBerjalan {
 	return s.berjalan.ambil(id, penggunaID)
 }
@@ -159,6 +160,15 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 	riwayat := []agen.Riwayat{}
 	for _, p := range lama {
 		riwayat = append(riwayat, agen.Riwayat{Peran: p.Pengirim, Teks: p.Isi + teksSumber(p.Sumber)})
+	}
+
+	// judul dipasang sebelum menjawab, agar percakapan yang jawabannya gagal saat ditinggal tetap bisa dikenali di daftar
+	judul := ""
+	if sampai == 0 && len(lama) == 0 {
+		judul = potong(pertanyaan, BatasJudul)
+		if err := s.repo.UbahJudul(id, judul); err != nil {
+			return HasilPesan{}, err
+		}
 	}
 
 	baru := model.Lampiran{}
@@ -196,14 +206,6 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 		s.ingatan.PerbaruiNanti(penggunaID, ingatan, terbaru)
 	}
 	s.ringkasan.PerbaruiNanti(id, pengguna, len(lama)+2)
-
-	judul := ""
-	if sampai == 0 && len(lama) == 0 {
-		judul = potong(pertanyaan, BatasJudul)
-		if err := s.repo.UbahJudul(id, judul); err != nil {
-			return HasilPesan{}, err
-		}
-	}
 	return HasilPesan{Judul: judul, Pesan: pesan, Jawaban: jawaban}, nil
 }
 

@@ -16,6 +16,7 @@ type Percakapan struct {
 	Disematkan     bool      `json:"disematkan"`
 	DiperbaruiPada time.Time `json:"diperbarui_pada"`
 	Menjawab       bool      `json:"menjawab,omitempty"` // true selama jawaban percakapan ini masih dibuat
+	Gagal          bool      `json:"gagal,omitempty"`    // true bila jawaban terakhir gagal dan belum dicoba lagi
 }
 
 type Sumber struct {

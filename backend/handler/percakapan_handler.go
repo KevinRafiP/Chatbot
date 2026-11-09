@@ -119,7 +119,8 @@ func KirimPesan(percakapan *service.PercakapanService) http.HandlerFunc {
 }
 
 // SambungJawaban: GET /percakapan/{id}/jawaban; menyambung ke jawaban yang masih dibuat, misalnya setelah refresh.
-// Event pertama "mulai" berisi pertanyaannya, lalu semua kabar dari awal. 204 jika tidak ada jawaban berjalan
+// Event pertama "mulai" berisi pertanyaannya, lalu semua kabar dari awal. Jawaban yang baru gagal juga dikirim,
+// diakhiri "galat", agar pertanyaannya tampil dengan tanda gagal. 204 jika tidak ada keduanya
 func SambungJawaban(percakapan *service.PercakapanService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := bacaID(w, r)
@@ -166,14 +167,18 @@ func alirkanJawaban(w http.ResponseWriter, r *http.Request, jawaban *service.Jaw
 	sse := &penulisSSE{w: w}
 	defer sse.jaga()()
 	if sambung {
-		sse.kirim("mulai", jawaban.Info)
+		// selesai true bila jawaban ini sudah gagal, agar browser tidak menampilkannya sebagai jawaban yang masih ditulis
+		sse.kirim("mulai", struct {
+			service.InfoJawaban
+			Selesai bool `json:"selesai,omitempty"`
+		}{jawaban.Info, jawaban.Ambil(0).Selesai})
 	}
 	dari := 0
 	for {
 		k := jawaban.Ambil(dari)
 		for i, p := range k.Peristiwa {
 			// kode yang sudah diikuti kabar lain sudah dijalankan browser sebelumnya; hanya yang terakhir mungkin masih ditunggu
-			if sambung && dari == 0 && p.Jenis == "jalankan_kode" && i < len(k.Peristiwa)-1 {
+			if sambung && dari == 0 && p.Jenis == "jalankan_kode" && (i < len(k.Peristiwa)-1 || k.Selesai) {
 				continue
 			}
 			sse.kabar(p.Jenis, p.Data)

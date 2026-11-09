@@ -4,8 +4,9 @@ const API_URL = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replac
 const ACCOUNT_TOKEN_KEY = "chatbot_token";
 const GUEST_TOKEN_KEY = "chatbot_guest_token";
 
-// answering is true while the server is still making an answer in this conversation
-export type Conversation = { id: string; title: string; pinned: boolean; answering: boolean };
+// answering is true while the server is still making an answer in this conversation;
+// failed is true when its last answer failed and the question was not sent again yet
+export type Conversation = { id: string; title: string; pinned: boolean; answering: boolean; failed: boolean };
 export type Source = { title: string; url: string };
 export type Message = {
   id: string;
@@ -24,8 +25,9 @@ export type Rating = 1 | -1 | 0;
 export type Attachment = { name: string; text: string; truncated: boolean; pages: number | null };
 export type FavoriteMessage = Message & { conversationId: string; conversationTitle: string };
 export type SendResult = { title: string; question: Message; answer: Message };
-// An answer still being made on the server: the question it answers, and the saved question and answer once it is done
-export type RunningAnswer = { question: Message; result: Promise<SendResult> };
+// An answer still being made on the server: the question it answers, and the saved question and answer once it is done.
+// finished is true for an answer that already failed, so it is not shown as being written
+export type RunningAnswer = { question: Message; finished: boolean; result: Promise<SendResult> };
 export type Role = "tamu" | "user" | "admin";
 export type Account = { id: string; name: string; email: string; role: Role };
 
@@ -98,8 +100,8 @@ export type PerformanceReport = {
 export type PerformanceRecentPage = { entries: PerformanceEntry[]; total: number; page: number; perPage: number };
 
 type ApiResponse<T> = { status: string; message: string; data: T };
-type RawConversation = { id: string; judul: string; disematkan?: boolean; menjawab?: boolean };
-type RawRunning = { pertanyaan: string; lampiran?: string; dimulai_pada: string };
+type RawConversation = { id: string; judul: string; disematkan?: boolean; menjawab?: boolean; gagal?: boolean };
+type RawRunning = { pertanyaan: string; lampiran?: string; dimulai_pada: string; selesai?: boolean };
 type RawSource = { judul: string; url: string };
 type RawMessage = {
   id: string;
@@ -424,7 +426,13 @@ async function runAgentCode(payload: { id?: string; kode?: string; batas_detik?:
 
 // Converts a backend conversation into the shape used by the UI
 function toConversation(raw: RawConversation): Conversation {
-  return { id: raw.id, title: raw.judul, pinned: raw.disematkan === true, answering: raw.menjawab === true };
+  return {
+    id: raw.id,
+    title: raw.judul,
+    pinned: raw.disematkan === true,
+    answering: raw.menjawab === true,
+    failed: raw.gagal === true,
+  };
 }
 
 // Converts a backend user into the shape used by the UI
@@ -496,7 +504,8 @@ export async function sendMessage(
 }
 
 // Joins the answer still being made in a conversation, for example after a refresh or after coming back to it.
-// Every step and piece of text so far is replayed through onUpdate first. Returns null when nothing is running
+// Every step and piece of text so far is replayed through onUpdate first. An answer that failed while nobody watched
+// comes back too and ends with an error. Returns null when there is neither
 export async function resumeAnswer(
   conversationId: string,
   onUpdate: (update: AnswerUpdate) => void,
@@ -511,7 +520,7 @@ export async function resumeAnswer(
       const result = done.then(toSendResult);
       // a page that left this chat never waits for the result, so its failure must not show as an uncaught error
       result.catch(() => undefined);
-      resolve({ question: toRunningQuestion(raw), result });
+      resolve({ question: toRunningQuestion(raw), finished: raw.selesai === true, result });
     });
     // without "mulai" the answer cannot be shown; after resolve this does nothing
     done.then(() => reject(new ApiError(502, "Jawaban terputus sebelum selesai.")), reject);
