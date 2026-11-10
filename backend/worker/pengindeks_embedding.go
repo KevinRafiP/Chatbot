@@ -22,7 +22,6 @@ func (p *PengindeksEmbedding) Mulai(ctx context.Context) {
 	if !p.service.Aktif() {
 		return
 	}
-	log.Println("worker pengindeks embedding mulai, setiap", p.interval)
 	p.jalankan(ctx)
 
 	ticker := time.NewTicker(p.interval)

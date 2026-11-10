@@ -42,6 +42,12 @@ type Lampiran struct {
 	Teks string `json:"teks"`
 }
 
+// HasilCari adalah percakapan yang cocok dengan pencarian, dengan potongan pesan tempat kata itu ditemukan
+type HasilCari struct {
+	Percakapan
+	Cuplikan string `json:"cuplikan"`
+}
+
 // PesanFavorit adalah pesan berbintang beserta percakapan asalnya, untuk daftar pesan berbintang
 type PesanFavorit struct {
 	Pesan

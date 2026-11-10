@@ -14,12 +14,54 @@ const TABLE_DIVIDER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 // Code spans and formulas are kept whole, so a "*" inside them is never read as bold or italic
 const PROTECTED = new RegExp(`\`([^\`\\n]+)\`|${FORMULA.source}`, "g");
 const INLINE =
-  /\*\*(?=\S)([\s\S]+?)(?<=\S)\*\*|~~(?=\S)([\s\S]+?)(?<=\S)~~|\*(?=[^\s*])([\s\S]+?)(?<=[^\s*])\*|(?<![\p{L}\p{N}_])_(?=[^\s_])([\s\S]+?)(?<=[^\s_])_(?![\p{L}\p{N}_])|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|@@atom(\d+)@@/u;
+  /\*\*(?=\S)([\s\S]+?)(?<=\S)\*\*|~~(?=\S)([\s\S]+?)(?<=\S)~~|\*(?=[^\s*])([\s\S]+?)(?<=[^\s*])\*|(?<![\p{L}\p{N}_])_(?=[^\s_])([\s\S]+?)(?<=[^\s_])_(?![\p{L}\p{N}_])|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"'`]+)|@@atom(\d+)@@/u;
+const BARE_URL = /https?:\/\/[^\s<>"'`]+/g;
+
+// A bare address such as a YouTube link usually ends a sentence, so a final "." or "," or an unmatched ")" is not part of it
+function trimUrl(url: string): string {
+  let end = url.length;
+  for (;;) {
+    const last = url[end - 1];
+    if (/[.,;:!?'"*_]/.test(last)) {
+      end--;
+    } else if (last === ")" && url.slice(0, end).split("(").length <= url.slice(0, end).split(")").length - 1) {
+      end--;
+    } else {
+      return url.slice(0, end);
+    }
+  }
+}
+
+function WebLink({ url, children }: { url: string; children: ReactNode }) {
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  );
+}
+
+// Plain text with every web address turned into a link, for questions shown as they were typed
+export function Linkified({ text }: { text: string }) {
+  const nodes: ReactNode[] = [];
+  let from = 0;
+  for (const match of text.matchAll(BARE_URL)) {
+    const url = trimUrl(match[0]);
+    nodes.push(text.slice(from, match.index));
+    nodes.push(
+      <WebLink key={match.index} url={url}>
+        {url}
+      </WebLink>,
+    );
+    from = match.index + url.length;
+  }
+  nodes.push(text.slice(from));
+  return <>{nodes}</>;
+}
 
 type Atom = { kind: "code" | "math"; text: string };
 type ListLine = { indent: number; ordered: boolean; start: number; text: string };
 
-// Bold, italic, strikethrough, inline code, links, and formulas inside one block of text
+// Bold, italic, strikethrough, inline code, links, bare web addresses, and formulas inside one block of text
 function renderInline(text: string): ReactNode[] {
   const atoms: Atom[] = [];
   const marked = text.replace(PROTECTED, (match, code: string | undefined) => {
@@ -33,21 +75,30 @@ function renderInline(text: string): ReactNode[] {
     let rest = source;
     for (let match = INLINE.exec(rest); match !== null; match = INLINE.exec(rest)) {
       if (match.index > 0) nodes.push(rest.slice(0, match.index).replaceAll("\\$", "$"));
-      const [whole, bold, strike, star, underscore, label, url, atom] = match;
+      const [whole, bold, strike, star, underscore, label, url, bare, atom] = match;
+      let used = whole.length;
       if (bold !== undefined) nodes.push(<strong key={key++}>{walk(bold)}</strong>);
       else if (strike !== undefined) nodes.push(<del key={key++}>{walk(strike)}</del>);
       else if (star !== undefined || underscore !== undefined) nodes.push(<em key={key++}>{walk(star ?? underscore)}</em>);
       else if (label !== undefined)
         nodes.push(
-          <a key={key++} href={url} target="_blank" rel="noopener noreferrer">
+          <WebLink key={key++} url={url}>
             {walk(label)}
-          </a>,
+          </WebLink>,
         );
-      else {
+      else if (bare !== undefined) {
+        const link = trimUrl(bare);
+        used = link.length;
+        nodes.push(
+          <WebLink key={key++} url={link}>
+            {link}
+          </WebLink>,
+        );
+      } else {
         const item = atoms[Number(atom)];
         nodes.push(item.kind === "code" ? <code key={key++}>{item.text}</code> : <MathText key={key++} text={item.text} />);
       }
-      rest = rest.slice(match.index + whole.length);
+      rest = rest.slice(match.index + used);
     }
     if (rest !== "") nodes.push(rest.replaceAll("\\$", "$"));
     return nodes;
@@ -134,7 +185,7 @@ function renderBlocks(text: string, prefix = "b"): ReactNode[] {
         // the chart is drawn only once its data has fully arrived
         blocks.push(closed ? <Chart key={key()} source={body.join("\n")} /> : <div key={key()} className="chart-loading">Menyiapkan grafik...</div>);
       } else {
-        blocks.push(<CodeBlock key={key()} code={body.join("\n")} />);
+        blocks.push(<CodeBlock key={key()} code={body.join("\n")} language={fence[2]} />);
       }
       continue;
     }

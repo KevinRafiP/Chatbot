@@ -176,6 +176,8 @@ class AlatTambahan:
     def __init__(self, p):
         self.p = p
         self.alat = {}
+        # alat yang tidak aktif karena paket atau alamat API belum diatur, ditampilkan di tabel awal agent
+        self.tidak_aktif = []
         calon = {
             "waktu_tanggal": lambda: AlatWaktu(p), "konversi": lambda: AlatKonversi(p), "keuangan": AlatKeuangan,
             "kalkulus": lambda: AlatKalkulus(p) if sympy_tersedia() else None, "acak": AlatAcak,
@@ -190,7 +192,7 @@ class AlatTambahan:
                 continue
             alat = buat()
             if alat is None:
-                logging.info("alat %s tidak aktif (paket atau alamat API belum diatur)", nama)
+                self.tidak_aktif.append(nama)
                 continue
             self.alat[nama] = alat
 

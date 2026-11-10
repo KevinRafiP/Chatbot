@@ -19,7 +19,6 @@ func BaruPembersihSesi(repo *repository.SesiRepository, interval time.Duration) 
 
 // Mulai menjalankan pembersihan sekali di awal, lalu berulang setiap interval
 func (p *PembersihSesi) Mulai(ctx context.Context) {
-	log.Println("worker pembersih sesi mulai, setiap", p.interval)
 	p.jalankan()
 
 	ticker := time.NewTicker(p.interval)

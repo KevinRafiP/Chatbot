@@ -7,7 +7,10 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
+
+	"chatbot/backend/logawal"
 
 	"github.com/joho/godotenv"
 )
@@ -55,7 +58,16 @@ func main() {
 	})
 
 	// hanya mendengar di 127.0.0.1, jadi dari luar laptop gerbang ini hanya bisa dicapai lewat tunnel
-	log.Println("gerbang local jalan di http://127.0.0.1:" + port + " menuju " + tujuan.String())
+	tabel := logawal.Baru("Vokapas gerbang local")
+	tabel.Isi("Alamat", "http://127.0.0.1:"+port)
+	tabel.Isi("Tujuan (Ollama)", tujuan.String())
+	jalur := []string{}
+	for j := range jalurDiizinkan {
+		jalur = append(jalur, j)
+	}
+	slices.Sort(jalur)
+	tabel.Isi("Jalur dibuka", strings.Join(jalur, ", "))
+	tabel.Cetak()
 	log.Fatal(http.ListenAndServe("127.0.0.1:"+port, mux))
 }
 

@@ -82,15 +82,39 @@ def hapus_istilah_internal(teks):
     teks = POLA_PEMBUKA_INTERNAL.sub(lambda c: c.group(1) + c.group(2).upper(), teks)
     teks = POLA_KETERANGAN_INTERNAL.sub("", teks)
     return re.sub(r"\b(d)ata internal\b", lambda c: f"{c.group(1)}ata yang saya punya", teks, flags=re.IGNORECASE)
+# baris penanda pertanyaan lanjutan (lihat bagian "Pertanyaan lanjutan:" di prompt), boleh ditulis tebal
+POLA_LANJUTAN = re.compile(r"[ \t]*[*_]{0,2}\[\[\s*lanjutan\s*\]\][*_]{0,2}[ \t]*", re.IGNORECASE)
+MAKS_SARAN = 3
+PANJANG_SARAN = 120
+
+
+def pisah_saran(teks):
+    """Memisahkan pertanyaan lanjutan sesudah baris [[lanjutan]] dari jawaban, agar tampil sebagai tombol, bukan teks."""
+    teks = re.sub(r"<think>.*?</think>", "", teks, flags=re.DOTALL)
+    semua = list(POLA_LANJUTAN.finditer(teks))
+    if not semua:
+        return teks, []
+    terakhir = semua[-1]
+    saran = []
+    for baris in teks[terakhir.end():].split("\n"):
+        baris = re.sub(r"^\s*(?:[-*+•]|\d+[.)])\s*", "", baris).strip().strip("\"'*_").strip()
+        if baris and len(baris) <= PANJANG_SARAN and baris not in saran:
+            saran.append(baris)
+    return teks[:terakhir.start()].rstrip(), saran[:MAKS_SARAN]
+
+
 def hasil(keadaan, teks):
     catatan = keadaan["catatan"]
     semua = catatan["sumber"]
+    teks, saran = pisah_saran(teks)
     if semua:
         teks = POLA_DAFTAR_SUMBER.sub("", teks).strip()
     teks, sumber = rapikan_sitasi(hapus_istilah_internal(bersihkan_format(teks)), semua, catatan["maks_sumber_luar"])
     hasil_akhir = {"jawaban": teks, "sumber": sumber, "pakai_internet": any(s["url"] for s in semua)}
     if catatan.get("email"):
         hasil_akhir["email"] = catatan["email"]
+    if saran:
+        hasil_akhir["saran"] = saran
     return hasil_akhir
 
 

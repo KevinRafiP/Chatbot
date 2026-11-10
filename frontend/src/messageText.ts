@@ -35,7 +35,7 @@ function messageHtml(message: Message): string | null {
     return null;
   }
   const copy = bubble.cloneNode(true) as HTMLElement;
-  copy.querySelectorAll(".message-attachment, .sources, button, svg, img").forEach((element) => element.remove());
+  copy.querySelectorAll(".message-attachment, .sources, .md-code-head, button, svg, img").forEach((element) => element.remove());
   copy.querySelectorAll<HTMLElement>(".math-inline, .math-block").forEach((span) => {
     const block = span.classList.contains("math-block");
     const formula = document.createElement(block ? "div" : "span");
@@ -65,6 +65,48 @@ function messageHtml(message: Message): string | null {
     copy.append(title, list);
   }
   return `<meta charset="utf-8">${copy.innerHTML}`;
+}
+
+// The AI ends an answer with "[[lanjutan]]" and its follow-up questions, which the server turns into buttons;
+// while the answer is still arriving that part, and a marker that is only half written, is hidden
+const FOLLOW_UPS = /\n?[ \t]*[*_]{0,2}\[\[\s*lanjutan[\s\S]*$/i;
+const HALF_MARKER = /\n[ \t]*[*_]{0,2}\[{1,2}[a-z]{0,8}$/i;
+
+export function hideFollowUps(text: string): string {
+  return text.replace(FOLLOW_UPS, "").replace(HALF_MARKER, "");
+}
+
+// The text of a message with its references, as Markdown for a downloaded file
+function messageMarkdown(message: Message): string {
+  const sources = message.sources.map((source, index) => `${index + 1}. ${source.title}${source.url ? ` - ${source.url}` : ""}`);
+  return sources.length > 0 ? `${message.text}\n\nSumber:\n${sources.join("\n")}\n` : `${message.text}\n`;
+}
+
+// Saves a message as a Markdown file, named after the time it was sent
+export function downloadMessage(message: Message) {
+  const sent = new Date(message.sentAt);
+  const two = (value: number) => String(value).padStart(2, "0");
+  const stamp = Number.isNaN(sent.getTime())
+    ? ""
+    : `-${sent.getFullYear()}${two(sent.getMonth() + 1)}${two(sent.getDate())}-${two(sent.getHours())}${two(sent.getMinutes())}`;
+  const url = URL.createObjectURL(new Blob([messageMarkdown(message)], { type: "text/markdown;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `vokapas${message.sender === "bot" ? "-jawaban" : "-pertanyaan"}${stamp}.md`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Copies plain text such as one code block; false when the browser refuses
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Copies a whole message, including its references; apps that accept formatting get bold, lists, and tables too

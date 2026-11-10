@@ -19,6 +19,8 @@ type PermintaanChat struct {
 	Pertanyaan string          `json:"pertanyaan"`
 	Mode       string          `json:"mode"`
 	Lampiran   *model.Lampiran `json:"lampiran"`
+	// GantiDari: id pertanyaan lama yang diganti (edit pertanyaan atau buat ulang jawaban); kosong untuk pertanyaan baru
+	GantiDari string `json:"ganti_dari"`
 }
 
 type PermintaanTamu struct {

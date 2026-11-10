@@ -39,6 +39,7 @@ type EmbeddingService struct {
 	kunci       sync.RWMutex
 	model       string
 	skorMinimal float64
+	diketahui   bool // true setelah keadaan embedding di agent berhasil dibaca sekali
 }
 
 // BaruEmbeddingService mengembalikan nil jika agent atau tabel embedding tidak ada; semua fungsinya aman dipanggil pada nil
@@ -46,9 +47,12 @@ func BaruEmbeddingService(repo *repository.EmbeddingRepository, klienAgen *agen.
 	if klienAgen == nil {
 		return nil
 	}
+	// tabel yang belum ada (pgvector belum terpasang) ditampilkan di tabel awal backend; galat lain dicatat di sini
 	ada, err := repo.Tersedia()
+	if err != nil {
+		log.Println("gagal memeriksa tabel embedding_potongan, pencarian makna tidak aktif:", err)
+	}
 	if err != nil || !ada {
-		log.Println("tabel embedding_potongan belum ada (pgvector belum terpasang): pencarian makna tidak aktif", err)
 		return nil
 	}
 	return &EmbeddingService{repo: repo, agen: klienAgen}
@@ -74,8 +78,9 @@ func (s *EmbeddingService) Perbarui(ctx context.Context) error {
 	}
 
 	s.kunci.Lock()
-	berubah := model != s.model
-	s.model, s.skorMinimal = model, info.SkorMinimal
+	// pengecekan pertama sudah tampil di tabel awal backend, jadi hanya perubahan sesudahnya yang dicatat
+	berubah := model != s.model && s.diketahui
+	s.model, s.skorMinimal, s.diketahui = model, info.SkorMinimal, true
 	s.kunci.Unlock()
 
 	if berubah && model == "" {
@@ -84,6 +89,18 @@ func (s *EmbeddingService) Perbarui(ctx context.Context) error {
 		log.Printf("pencarian makna aktif dengan model %s (kemiripan minimal %.2f)", model, info.SkorMinimal)
 	}
 	return nil
+}
+
+// Keterangan menjelaskan keadaan pencarian makna untuk tabel awal backend
+func (s *EmbeddingService) Keterangan() string {
+	if s == nil {
+		return "mati, pengetahuan dicari dengan kata kunci"
+	}
+	model, skor := s.pengaturan()
+	if model == "" {
+		return "mati di agent, pengetahuan dicari dengan kata kunci"
+	}
+	return fmt.Sprintf("aktif, model %s (kemiripan minimal %.2f)", model, skor)
 }
 
 func (s *EmbeddingService) pengaturan() (string, float64) {

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -120,6 +121,18 @@ func (c Config) DSN() string {
 	}
 	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		c.DBHost, c.DBPort, c.DBUser, c.DBPassword, c.DBName, c.DBSSLMode)
+}
+
+// AlamatDatabase menampilkan host dan nama database tanpa kata sandi, untuk tabel saat menyala
+func (c Config) AlamatDatabase() string {
+	if c.DatabaseURL == "" {
+		return fmt.Sprintf("%s:%s/%s", c.DBHost, c.DBPort, c.DBName)
+	}
+	alamat, err := url.Parse(c.DatabaseURL)
+	if err != nil {
+		return "DATABASE_URL"
+	}
+	return alamat.Host + alamat.Path
 }
 
 func ambil(kunci, bawaan string) string {

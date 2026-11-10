@@ -112,6 +112,7 @@ func BuatChatbot(
 	mux.Handle("GET /admin/kinerja/terbaru", admin(handler.TerbaruKinerja(kinerjaService)))
 
 	mux.Handle("GET /percakapan", akun(handler.DaftarPercakapan(percakapanService)))
+	mux.Handle("GET /percakapan/cari", akun(handler.CariPercakapan(percakapanService)))
 	mux.Handle("POST /percakapan", akun(handler.BuatPercakapan(percakapanService)))
 	mux.Handle("DELETE /percakapan/{id}", akun(handler.HapusPercakapan(percakapanService)))
 	mux.Handle("PATCH /percakapan/{id}", akun(handler.GantiNamaPercakapan(percakapanService)))
@@ -126,6 +127,10 @@ func BuatChatbot(
 	// jawaban dibuat di server tanpa bergantung koneksi browser, jadi browser bisa menyambung lagi atau menghentikannya
 	mux.Handle("GET /percakapan/{id}/jawaban", akun(handler.SambungJawaban(percakapanService)))
 	mux.Handle("POST /percakapan/{id}/berhenti", akun(handler.HentikanJawaban(percakapanService)))
+	// arahan tambahan saat AI masih menjawab: jawabannya dibuat ulang, jadi dihitung seperti pesan baru
+	mux.Handle("POST /percakapan/{id}/arahan",
+		akun(middleware.BatasiLaju(pembatasPesan, perPengguna,
+			jatah(middleware.BatasiLaju(pembatasGlobal, semua, handler.ArahkanJawaban(percakapanService))))))
 
 	// dipanggil alat cari_pengetahuan di agent; tanpa AGENT_API_KEY jalurnya tidak dibuka
 	if kunciAgent != "" {

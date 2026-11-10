@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"chatbot/backend/agen"
@@ -11,25 +14,37 @@ import (
 	"chatbot/backend/config"
 	"chatbot/backend/database"
 	"chatbot/backend/email"
+	"chatbot/backend/logawal"
 	"chatbot/backend/repository"
 	"chatbot/backend/router"
 	"chatbot/backend/service"
 	"chatbot/backend/worker"
 )
 
+// lamaTungguAgen adalah batas menunggu agent menyala; di Render agent dan backend dijalankan bersamaan
+const lamaTungguAgen = 30 * time.Second
+
 func main() {
 	cfg := config.Muat()
+	// semua keterangan saat menyala dikumpulkan di sini lalu dicetak sekali sebagai tabel
+	tabel := logawal.Baru("Vokapas backend")
 
 	db, err := database.Hubungkan(cfg.DSN())
 	if err != nil {
 		log.Fatal("gagal terhubung ke database: ", err)
 	}
 	defer db.Close()
-	log.Println("database terhubung")
+	tabel.Isi("Database", "terhubung ("+cfg.AlamatDatabase()+")")
 
-	if err := database.JalankanMigrasi(db); err != nil {
+	migrasiBaru, jumlahMigrasi, err := database.JalankanMigrasi(db)
+	if err != nil {
 		log.Fatal("migrasi gagal: ", err)
 	}
+	tabel.Isi("Migrasi", database.KeteranganMigrasi(migrasiBaru, jumlahMigrasi))
+
+	// keduanya diisi setelah agent membalas, di bawah
+	tabel.Isi("Agent", "-")
+	tabel.Isi("Pencarian makna", "-")
 
 	pengetahuanRepo := repository.BaruPengetahuanRepository(db)
 
@@ -38,9 +53,6 @@ func main() {
 		klienAgen = agen.BaruKlien(cfg.AgentURL, cfg.AgentAPIKey)
 		// model lokal yang membaca banyak halaman bisa butuh lebih dari 5 menit
 		agen.BatasWaktuStream = time.Duration(cfg.AgentStreamMenit) * time.Minute
-		log.Println("agent aktif:", cfg.AgentURL)
-	} else {
-		log.Println("AGENT_URL kosong: chatbot menjawab dari database saja")
 	}
 	// pengaturan embedding (penyedia, model, kemiripan minimal) ada di agent/.env
 	embeddingService := service.BaruEmbeddingService(repository.BaruEmbeddingRepository(db), klienAgen)
@@ -61,9 +73,9 @@ func main() {
 	switch cfg.EmailLayanan {
 	case "brevo":
 		pengirimEmail = email.BaruKlienBrevo(cfg.EmailAPIKey, cfg.EmailPengirim, cfg.NamaPengirim)
-		log.Println("verifikasi email aktif (brevo), link ke:", alamatFrontend)
+		tabel.Isi("Verifikasi email", "aktif (Brevo), link ke "+alamatFrontend)
 	case "":
-		log.Println("EMAIL_LAYANAN kosong: akun baru langsung aktif tanpa verifikasi email")
+		tabel.Isi("Verifikasi email", "mati, akun baru langsung aktif")
 	default:
 		log.Fatal("EMAIL_LAYANAN tidak dikenal: ", cfg.EmailLayanan)
 	}
@@ -73,19 +85,19 @@ func main() {
 	ingestionService := service.BaruIngestionService(pengetahuanRepo)
 	ingatanService := service.BaruIngatanService(repository.BaruIngatanRepository(db), klienAgen)
 	emailJawaban := service.BaruEmailJawabanService(pengirimEmail, cfg.EmailJawabanPerHari)
-	if emailJawaban != nil {
-		log.Println("kirim jawaban ke email aktif, maksimal per hari:", cfg.EmailJawabanPerHari)
-	}
+	tabel.Isi("Jawaban ke email", logawal.AktifMati(emailJawaban != nil, keteranganJika(emailJawaban != nil,
+		fmt.Sprintf("maksimal %d per hari", cfg.EmailJawabanPerHari))))
 	percakapanRepo := repository.BaruPercakapanRepository(db)
 	ringkasanService := service.BaruRingkasanService(percakapanRepo, klienAgen, kinerjaService, cfg.RingkasanSetelah, cfg.RingkasanSisa)
 	percakapanService := service.BaruPercakapanService(percakapanRepo, chatbotService, ingatanService, emailJawaban, ringkasanService)
 
+	tabel.Isi("Ringkasan percakapan", logawal.AktifMati(ringkasanService != nil, keteranganJika(ringkasanService != nil,
+		fmt.Sprintf("setelah %d pesan", cfg.RingkasanSetelah))))
+	tabel.Isi("Catatan kinerja", logawal.AktifMati(kinerjaService != nil, keteranganJika(kinerjaService != nil,
+		fmt.Sprintf("disimpan %d hari", cfg.KinerjaSimpanHari))))
+
 	intervalWorker := time.Duration(cfg.WorkerIntervalMenit) * time.Minute
-	worker.JalankanSemua(context.Background(),
-		worker.BaruPengindeksKataKunci(pengetahuanRepo, intervalWorker),
-		worker.BaruPembersihSesi(sesiRepo, time.Hour),
-		worker.BaruPengindeksEmbedding(embeddingService, intervalWorker),
-	)
+	tabel.Isif("Worker", "kata kunci dan embedding tiap %s, sesi tiap 1 jam", logawal.Durasi(intervalWorker))
 
 	batas := router.Batas{
 		TamuPerJam:       cfg.BatasTamuPerJam,
@@ -100,13 +112,19 @@ func main() {
 
 	// jatah token dihitung dari catatan kinerja, jadi hanya bekerja bila KINERJA_SIMPAN_HARI lebih dari 0
 	jatahService := service.BaruJatahService(repository.BaruKinerjaRepository(db), cfg.TokenHarianAkun, cfg.TokenHarianSemua)
-	if jatahService != nil && kinerjaService == nil {
-		log.Println("BATAS_TOKEN_HARIAN_* tidak bekerja karena KINERJA_SIMPAN_HARI=0")
+	switch {
+	case jatahService == nil:
+		tabel.Isi("Jatah token harian", "mati")
+	case kinerjaService == nil:
+		tabel.Isi("Jatah token harian", "tidak bekerja karena KINERJA_SIMPAN_HARI=0")
+	default:
+		tabel.Isif("Jatah token harian", "per akun %s, total semua akun %s", angkaAtauBebas(cfg.TokenHarianAkun), angkaAtauBebas(cfg.TokenHarianSemua))
 	}
 	turnstile := captcha.BaruTurnstile(cfg.TurnstileRahasia, cfg.TurnstileURL)
-	if turnstile != nil {
-		log.Println("captcha Turnstile aktif untuk masuk akun")
-	}
+	tabel.Isi("Captcha masuk akun", logawal.AktifMati(turnstile != nil, keteranganJika(turnstile != nil, "Turnstile")))
+	tabel.Isif("Batas pesan", "%d/menit per pengguna, %d/menit total, tamu %d pesan", cfg.BatasPesanPerMenit, cfg.BatasPesanGlobal, cfg.BatasPesanTamu)
+	tabel.Isif("Unggah berkas", "maksimal %d MB, %d per jam", cfg.BerkasMaksMB, cfg.BatasBerkasPerJam)
+	tabel.Isi("CORS", strings.Join(cfg.CORSOrigin, ", "))
 
 	mux := router.BuatChatbot(pengetahuanRepo, chatbotService, sesiService, percakapanService,
 		akunService, ingestionService, kinerjaService, jatahService, turnstile, cfg.CORSOrigin, cfg.AgentAPIKey, batas)
@@ -121,6 +139,70 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    16 << 10,
 	}
-	log.Println("chatbot jalan di http://localhost:" + cfg.AppPort)
-	log.Fatal(server.ListenAndServe())
+	// port dibuka dulu agar Render melihat server hidup, sementara backend menunggu agent yang menyala bersamaan
+	pendengar, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		log.Fatal("port tidak bisa dibuka: ", err)
+	}
+	tabel.Isi("Alamat", "http://localhost:"+cfg.AppPort)
+	go func() {
+		ctx := context.Background()
+		tabel.Ganti("Agent", keadaanAgen(ctx, klienAgen))
+		if embeddingService.Aktif() {
+			if err := embeddingService.Perbarui(ctx); err != nil {
+				log.Println("gagal membaca pengaturan embedding dari agent:", err)
+			}
+		}
+		tabel.Ganti("Pencarian makna", keteranganEmbedding(klienAgen, embeddingService))
+		tabel.Cetak()
+		// worker dijalankan sesudah tabel, agar catatannya tidak menyela tabel
+		worker.JalankanSemua(ctx,
+			worker.BaruPengindeksKataKunci(pengetahuanRepo, intervalWorker),
+			worker.BaruPembersihSesi(sesiRepo, time.Hour),
+			worker.BaruPengindeksEmbedding(embeddingService, intervalWorker),
+		)
+	}()
+	log.Fatal(server.Serve(pendengar))
+}
+
+// keadaanAgen menunggu agent membalas, paling lama lamaTungguAgen, lalu menjelaskan keadaannya
+func keadaanAgen(ctx context.Context, klien *agen.Klien) string {
+	if klien == nil {
+		return "mati (AGENT_URL kosong), chatbot menjawab dari database saja"
+	}
+	batas := time.Now().Add(lamaTungguAgen)
+	for {
+		hidup, llm := klien.Periksa(ctx)
+		switch {
+		case hidup && llm:
+			return "tersambung, model AI siap (" + klien.Alamat() + ")"
+		case hidup:
+			return "tersambung, tetapi model AI belum bisa dihubungi (" + klien.Alamat() + ")"
+		case time.Now().After(batas):
+			return "belum membalas setelah " + logawal.Durasi(lamaTungguAgen) + " (" + klien.Alamat() + ")"
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func keteranganEmbedding(klien *agen.Klien, embedding *service.EmbeddingService) string {
+	if klien != nil && !embedding.Aktif() {
+		return "mati, tabel embedding_potongan belum ada (pgvector belum terpasang)"
+	}
+	return embedding.Keterangan()
+}
+
+// alamatDatabase menulis host dan nama database tanpa password
+func keteranganJika(aktif bool, keterangan string) string {
+	if !aktif {
+		return ""
+	}
+	return keterangan
+}
+
+func angkaAtauBebas(n int) string {
+	if n <= 0 {
+		return "tanpa batas"
+	}
+	return fmt.Sprint(n)
 }

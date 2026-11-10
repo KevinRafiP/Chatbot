@@ -19,6 +19,10 @@ const (
 	BatasPertanyaan  = 2000
 	BatasJudul       = 40
 	BatasJudulManual = 100
+	BatasCari        = 30
+	BatasKueriCari   = 100
+	// TungguBerhenti adalah lama menunggu jawaban lama berhenti sebelum dibuat ulang dengan arahan tambahan
+	TungguBerhenti = 15 * time.Second
 )
 
 var (
@@ -33,6 +37,17 @@ type HasilPesan struct {
 	Judul   string      `json:"judul"`
 	Pesan   model.Pesan `json:"pesan"`
 	Jawaban model.Pesan `json:"jawaban"`
+	// Saran adalah pertanyaan lanjutan usulan AI; tidak disimpan, hanya tampil di bawah jawaban terbaru
+	Saran []string `json:"saran,omitempty"`
+}
+
+// PermintaanJawab adalah pertanyaan yang akan dijawab. GantiDari boleh kosong; jika diisi id pertanyaan lama,
+// pertanyaan itu dan semua pesan sesudahnya disembunyikan lalu diganti, untuk edit pertanyaan dan buat ulang jawaban
+type PermintaanJawab struct {
+	Pertanyaan string
+	Mode       string
+	Lampiran   *model.Lampiran
+	GantiDari  string
 }
 
 type PercakapanService struct {
@@ -111,21 +126,80 @@ func profilPengguna(mode string) string {
 
 // Mulai memeriksa pertanyaan lalu membuat jawabannya di latar belakang, jadi jawaban tetap dibuat
 // walau browser di-refresh, pindah percakapan, atau ditutup. Satu percakapan hanya boleh punya satu jawaban berjalan
-func (s *PercakapanService) Mulai(id string, pengguna model.Pengguna, pertanyaan, mode string, lampiran *model.Lampiran) (*JawabanBerjalan, error) {
-	bersih := strings.TrimSpace(pertanyaan)
-	if bersih == "" || len(bersih) > BatasPertanyaan {
+func (s *PercakapanService) Mulai(id string, pengguna model.Pengguna, p PermintaanJawab) (*JawabanBerjalan, error) {
+	p.Pertanyaan = strings.TrimSpace(p.Pertanyaan)
+	if p.Pertanyaan == "" || len(p.Pertanyaan) > BatasPertanyaan {
 		return nil, ErrDataTidakValid
 	}
 	if err := s.pastikanMilik(id, pengguna.ID); err != nil {
 		return nil, err
 	}
-	info := InfoJawaban{Pertanyaan: bersih, Mode: profilPengguna(mode), DimulaiPada: time.Now()}
-	if l := bersihkanLampiran(lampiran); l != nil {
-		info.Lampiran = l.Nama
+	p.Lampiran = bersihkanLampiran(p.Lampiran)
+
+	siapkan := func() (InfoJawaban, PermintaanJawab, error) {
+		if p.GantiDari != "" {
+			lama, err := s.repo.HapusPesanMulai(id, p.GantiDari)
+			if errors.Is(err, sql.ErrNoRows) {
+				return InfoJawaban{}, p, ErrPesanTidakAda
+			}
+			if err != nil {
+				return InfoJawaban{}, p, err
+			}
+			// berkas pertanyaan lama ikut lagi ke penggantinya bila pengguna tidak mengunggah berkas baru
+			if p.Lampiran == nil && lama.Nama != "" {
+				p.Lampiran = &lama
+			}
+			p.GantiDari = ""
+		}
+		info := InfoJawaban{Pertanyaan: p.Pertanyaan, Mode: profilPengguna(p.Mode), DimulaiPada: time.Now()}
+		if p.Lampiran != nil {
+			info.Lampiran = p.Lampiran.Nama
+		}
+		return info, p, nil
 	}
-	return s.berjalan.mulai(id, pengguna.ID, info, func(ctx context.Context, kabar agen.Kabar) (HasilPesan, error) {
-		return s.Kirim(ctx, id, pengguna, pertanyaan, mode, lampiran, kabar)
+	return s.berjalan.mulai(id, pengguna.ID, siapkan, func(ctx context.Context, kabar agen.Kabar) (HasilPesan, error) {
+		return s.Kirim(ctx, id, pengguna, p.Pertanyaan, p.Mode, p.Lampiran, kabar)
 	})
+}
+
+// Arahkan menghentikan jawaban yang sedang dibuat lalu membuatnya ulang dari awal dengan arahan tambahan pengguna,
+// misalnya "pakai bahasa Go saja" yang diketik saat AI masih berpikir. Jika jawaban lama keburu selesai,
+// tanya jawab itu diganti, jadi percakapan tetap berisi satu pertanyaan dengan arahannya
+func (s *PercakapanService) Arahkan(id string, pengguna model.Pengguna, tambahan string) (*JawabanBerjalan, error) {
+	tambahan = strings.TrimSpace(tambahan)
+	j := s.berjalan.sedangMenjawab(id, pengguna.ID)
+	if j == nil {
+		return nil, ErrTidakMenjawab
+	}
+	p := j.permintaan
+	p.Pertanyaan = strings.TrimSpace(p.Pertanyaan + "\n\nTambahan: " + tambahan)
+	if tambahan == "" || len(p.Pertanyaan) > BatasPertanyaan {
+		return nil, ErrDataTidakValid
+	}
+
+	s.berjalan.hentikan(id, pengguna.ID)
+	ctx, batal := context.WithTimeout(context.Background(), TungguBerhenti)
+	defer batal()
+	hasil, err := j.Tunggu(ctx)
+	if !j.Ambil(1 << 30).Selesai {
+		return nil, ErrSedangMenjawab
+	}
+	if err == nil {
+		p.GantiDari = hasil.Pesan.ID
+	}
+	return s.Mulai(id, pengguna, p)
+}
+
+// Cari mencari percakapan pengguna dari judul atau isi pesannya
+func (s *PercakapanService) Cari(penggunaID, kueri string) ([]model.HasilCari, error) {
+	kueri = strings.TrimSpace(kueri)
+	if kueri == "" {
+		return []model.HasilCari{}, nil
+	}
+	if huruf := []rune(kueri); len(huruf) > BatasKueriCari {
+		kueri = string(huruf[:BatasKueriCari])
+	}
+	return s.repo.Cari(penggunaID, kueri, BatasCari)
 }
 
 // JawabanBerjalan mengembalikan jawaban yang sedang dibuat atau baru gagal di percakapan milik pengguna, atau nil
@@ -206,7 +280,7 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 		s.ingatan.PerbaruiNanti(penggunaID, ingatan, terbaru)
 	}
 	s.ringkasan.PerbaruiNanti(id, pengguna, len(lama)+2)
-	return HasilPesan{Judul: judul, Pesan: pesan, Jawaban: jawaban}, nil
+	return HasilPesan{Judul: judul, Pesan: pesan, Jawaban: jawaban, Saran: hasil.Saran}, nil
 }
 
 // Sematkan menaruh percakapan di atas daftar, atau melepasnya

@@ -20,7 +20,6 @@ func BaruPengindeksKataKunci(repo *repository.PengetahuanRepository, interval ti
 
 // Mulai menjalankan pengindeksan sekali di awal, lalu berulang setiap interval
 func (p *PengindeksKataKunci) Mulai(ctx context.Context) {
-	log.Println("worker pengindeks kata kunci mulai, setiap", p.interval)
 	p.jalankan()
 
 	ticker := time.NewTicker(p.interval)

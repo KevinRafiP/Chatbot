@@ -18,6 +18,7 @@ type HasilChat struct {
 	Sumber        []model.Sumber `json:"sumber"`
 	PakaiInternet bool           `json:"pakai_internet"`
 	Penjawab      string         `json:"penjawab"`
+	Saran         []string       `json:"saran,omitempty"` // pertanyaan lanjutan usulan AI, untuk tombol di bawah jawaban
 	Email         *agen.Email    `json:"-"`
 }
 
@@ -163,6 +164,7 @@ func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, dafta
 		Sumber:        sumber,
 		PakaiInternet: jawaban.PakaiInternet,
 		Penjawab:      "agent",
+		Saran:         jawaban.Saran,
 		Email:         jawaban.Email,
 	}, jawaban.Kinerja, nil
 }

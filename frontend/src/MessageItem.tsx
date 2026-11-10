@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 import type { Message, Rating, Source } from "./api";
-import { Markdown } from "./Markdown";
-import { formatTime, looksFormatted } from "./messageText";
+import { Linkified, Markdown } from "./Markdown";
+import { formatTime, hideFollowUps, looksFormatted } from "./messageText";
 import { useSmoothText } from "./useSmoothText";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
@@ -62,6 +62,72 @@ export function StarIcon({ filled, size = 18 }: { filled: boolean; size?: number
   );
 }
 
+// A pencil, for editing a question
+export function PencilIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+      <path
+        d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// An arrow into a tray, for saving a message as a file
+export function DownloadIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+      <path
+        d="M12 4v11M7 10l5 5 5-5M5 19h14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// A circular arrow, for making an answer again
+function RegenerateIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <path
+        d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// A triangle pointing right, the usual play sign, used for sending
+export function PlayIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <path d="M8 5.5v13l10.5-6.5z" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// A square, the usual stop sign
+export function StopIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
+    </svg>
+  );
+}
+
 // A thumb pointing up for "like", or down for "dislike"; filled when chosen
 function ThumbIcon({ down, filled }: { down?: boolean; filled: boolean }) {
   return (
@@ -109,7 +175,49 @@ type MessageItemProps = {
   canRate: boolean;
   onRate: (rating: Rating) => void;
   onRetry?: () => void;
+  onDownload: () => void;
+  // set for a question that can be edited; editing shows a text box in place of the bubble
+  onEdit?: () => void;
+  editing: boolean;
+  // later is true when messages after this question will be replaced by the new answer
+  editReplacesLater: boolean;
+  onEditDone: (text: string | null) => void;
+  // set for the newest answer, which can be made again
+  onRegenerate?: () => void;
+  // set for the newest answer, so its follow-up questions show as buttons
+  onSuggest?: (text: string) => void;
 };
+
+// The text box that replaces a question while it is edited; Ctrl+Enter sends and Escape cancels
+function EditBox({ text, replacesLater, onDone }: { text: string; replacesLater: boolean; onDone: (text: string | null) => void }) {
+  const [draft, setDraft] = useState(text);
+  const ready = draft.trim() !== "" && draft.trim() !== text.trim();
+  return (
+    <div className="edit-box" onClick={(event) => event.stopPropagation()}>
+      <textarea
+        value={draft}
+        autoFocus
+        maxLength={2000}
+        rows={Math.min(8, Math.max(2, draft.split("\n").length))}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onDone(null);
+          if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && ready) onDone(draft.trim());
+        }}
+        aria-label="Edit pertanyaan"
+      />
+      {replacesLater && <p className="edit-hint">Jawaban dan pesan sesudahnya akan diganti dengan jawaban baru.</p>}
+      <div className="edit-actions">
+        <button type="button" className="edit-cancel" onClick={() => onDone(null)}>
+          Batal
+        </button>
+        <button type="button" className="edit-send" disabled={!ready} onClick={() => onDone(draft.trim())}>
+          Kirim
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // One chat message: the bubble, a small menu at its top right (shown on hover), and the time it was sent.
 // On a phone the menu is replaced by a long press, like WhatsApp
@@ -200,56 +308,70 @@ export function MessageItemView(props: MessageItemProps) {
     >
       {message.sender === "bot" && <span className="bot-avatar" aria-hidden="true" />}
       <div className="message-body">
-        <div className="bubble-wrap">
-          <div className={`bubble ${message.sender}`}>
-            {message.attachment !== "" && (
-              <span className="message-attachment">
-                <PaperclipIcon size={14} />
-                {message.attachment}
-              </span>
-            )}
-            {message.sender === "bot" || looksFormatted(message.text) ? (
-              <Markdown text={message.text.slice(0, length)} partial={typing} />
-            ) : (
-              message.text.slice(0, length)
-            )}
-            {!typing && message.sources.length > 0 && (
-              <div className="sources">
-                <p className="sources-title">Sumber Referensi</p>
-                <ol>
-                  {message.sources.map((source, index) => (
-                    <SourceItem key={index} source={source} />
-                  ))}
-                </ol>
-              </div>
-            )}
-          </div>
-          {!typing && (
-            <div className="message-menu" onClick={(event) => event.stopPropagation()}>
-              <button
-                type="button"
-                className="message-menu-button"
-                onClick={props.onToggleMenu}
-                aria-label="Menu pesan"
-                aria-expanded={menuOpen}
-              >
-                <ChevronIcon />
-              </button>
-              {menuOpen && (
-                <div className="dropdown message-dropdown" role="menu">
-                  <button role="menuitem" onClick={props.onCopy}>
-                    <CopyIcon />
-                    Salin
-                  </button>
-                  <button role="menuitem" onClick={props.onToggleFavorite}>
-                    <StarIcon filled={message.favorite} />
-                    {message.favorite ? "Hapus favorit" : "Favorit"}
-                  </button>
+        {props.editing ? (
+          <EditBox text={message.text} replacesLater={props.editReplacesLater} onDone={props.onEditDone} />
+        ) : (
+          <div className="bubble-wrap">
+            <div className={`bubble ${message.sender}`}>
+              {message.attachment !== "" && (
+                <span className="message-attachment">
+                  <PaperclipIcon size={14} />
+                  {message.attachment}
+                </span>
+              )}
+              {message.sender === "bot" || looksFormatted(message.text) ? (
+                <Markdown text={message.text.slice(0, length)} partial={typing} />
+              ) : (
+                <Linkified text={message.text.slice(0, length)} />
+              )}
+              {!typing && message.sources.length > 0 && (
+                <div className="sources">
+                  <p className="sources-title">Sumber Referensi</p>
+                  <ol>
+                    {message.sources.map((source, index) => (
+                      <SourceItem key={index} source={source} />
+                    ))}
+                  </ol>
                 </div>
               )}
             </div>
-          )}
-        </div>
+            {!typing && (
+              <div className="message-menu" onClick={(event) => event.stopPropagation()}>
+                <button
+                  type="button"
+                  className="message-menu-button"
+                  onClick={props.onToggleMenu}
+                  aria-label="Menu pesan"
+                  aria-expanded={menuOpen}
+                >
+                  <ChevronIcon />
+                </button>
+                {menuOpen && (
+                  <div className="dropdown message-dropdown" role="menu">
+                    <button role="menuitem" onClick={props.onCopy}>
+                      <CopyIcon />
+                      Salin
+                    </button>
+                    <button role="menuitem" onClick={props.onToggleFavorite}>
+                      <StarIcon filled={message.favorite} />
+                      {message.favorite ? "Hapus favorit" : "Favorit"}
+                    </button>
+                    {props.onEdit && (
+                      <button role="menuitem" onClick={props.onEdit}>
+                        <PencilIcon />
+                        Edit
+                      </button>
+                    )}
+                    <button role="menuitem" onClick={props.onDownload}>
+                      <DownloadIcon />
+                      Unduh
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {message.note && (
           <p className="message-note" onClick={(event) => event.stopPropagation()}>
             {message.note}
@@ -287,7 +409,23 @@ export function MessageItemView(props: MessageItemProps) {
               </button>
             </span>
           )}
+          {props.onRegenerate && !typing && (
+            <span className="rating regenerate" onClick={(event) => event.stopPropagation()}>
+              <button type="button" onClick={props.onRegenerate} aria-label="Buat ulang jawaban" title="Buat ulang jawaban">
+                <RegenerateIcon />
+              </button>
+            </span>
+          )}
         </span>
+        {props.onSuggest && !typing && message.suggestions !== undefined && message.suggestions.length > 0 && (
+          <div className="suggestions" onClick={(event) => event.stopPropagation()}>
+            {message.suggestions.map((text) => (
+              <button key={text} type="button" className="suggestion" onClick={() => props.onSuggest?.(text)}>
+                {text}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -305,12 +443,17 @@ export const MessageItem = memo(
     before.selected === after.selected &&
     before.highlighted === after.highlighted &&
     before.canRate === after.canRate &&
-    (before.onRetry === undefined) === (after.onRetry === undefined),
+    before.editing === after.editing &&
+    before.editReplacesLater === after.editReplacesLater &&
+    (before.onRetry === undefined) === (after.onRetry === undefined) &&
+    (before.onEdit === undefined) === (after.onEdit === undefined) &&
+    (before.onRegenerate === undefined) === (after.onRegenerate === undefined) &&
+    (before.onSuggest === undefined) === (after.onSuggest === undefined),
 );
 
 // The bubble shown while the answer is being made: the answer so far, or else the current step such as "Mencari: ..."
 export function TypingItem({ status, text, onGrow }: { status: string; text: string; onGrow: () => void }) {
-  const shown = useSmoothText(text);
+  const shown = hideFollowUps(useSmoothText(text));
 
   // runs before the frame is drawn, so following the answer down never shows a jump
   useLayoutEffect(() => {

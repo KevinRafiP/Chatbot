@@ -1812,15 +1812,38 @@ button:disabled {
   visibility: visible;
 }
 
+/* send and stop are round icon buttons, so the text box gets the width */
+.send-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.chat-form .send-actions button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.chat-form .send-button svg {
+  margin-left: 2px;
+}
+
 .chat-form .stop-button {
   border-color: var(--danger);
   background: none;
   color: var(--danger);
 }
 
-.chat-form .stop-button:hover {
-  background: var(--danger);
-  color: var(--bg);
+/* only a mouse hovers; a tapped button on a phone would otherwise stay filled */
+@media (hover: hover) {
+  .chat-form .stop-button:hover {
+    background: var(--danger);
+    color: var(--bg);
+  }
 }
 
 .disliked-list {
@@ -2304,4 +2327,208 @@ button:disabled {
 /* the toast moves up while the jump button is shown, so the two never cover each other */
 .chat:has(.jump-button) .toast {
   bottom: 136px;
+}
+
+/* the bar above a code block: its language and a copy button for the whole code */
+.md-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px 4px 12px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 8px 8px 0 0;
+  background: var(--panel);
+  white-space: normal;
+}
+
+.md-code-lang {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: lowercase;
+}
+
+.md-code-copy {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: none;
+  color: var(--accent-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.md-code-copy:hover {
+  background: var(--surface-hover);
+}
+
+.md-code-wrap .md-code,
+.md-code-wrap .md-code-box {
+  margin: 0;
+  border-radius: 0 0 8px 8px;
+}
+
+/* a question edited in place of its bubble */
+.edit-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(560px, 100%);
+}
+
+.message.user:has(.edit-box) {
+  width: 85%;
+}
+
+.message.user:has(.edit-box) .message-body {
+  align-items: flex-end;
+  width: 100%;
+}
+
+.edit-box textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 16px;
+  background: var(--surface);
+  font: inherit;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.edit-box textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.edit-hint {
+  margin: 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.edit-actions button {
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.edit-actions .edit-send {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.edit-actions .edit-send:disabled {
+  border-color: var(--line);
+  background: var(--surface-hover);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* the newest answer keeps its time, rating, and "make again" button visible */
+.message:has(.regenerate) .message-time {
+  visibility: visible;
+}
+
+/* follow-up questions under the newest answer */
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.suggestion {
+  max-width: 100%;
+  padding: 6px 12px;
+  border: 1px solid var(--accent-soft);
+  border-radius: 999px;
+  background: none;
+  color: var(--accent-soft);
+  font-size: 13px;
+  line-height: 1.3;
+  text-align: left;
+  animation: bubble-in 0.3s ease both;
+}
+
+.suggestion:hover {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--text);
+}
+
+/* searching the conversations above the list */
+.search-box {
+  margin-top: 10px;
+}
+
+.search-box input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 14px;
+}
+
+.search-box input::placeholder {
+  color: var(--muted);
+}
+
+.search-box input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.search-results .open {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.search-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-snippet {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.search-snippet mark {
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--text);
+}
+
+@media (max-width: 768px) {
+  .chat-form .send-actions {
+    grid-row: 2;
+    grid-column: 3;
+    align-self: end;
+  }
+
+  .message.user:has(.edit-box) {
+    width: 100%;
+    max-width: 100%;
+  }
 }

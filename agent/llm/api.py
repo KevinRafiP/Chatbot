@@ -26,25 +26,27 @@ class KlienAPI:
     def sehat(self, batas_waktu=5):
         """Cek GET /models untuk status AI di frontend: True = terhubung; False = pasti mati (koneksi ditolak,
         alamat tidak ditemukan, atau gerbang/tunnel membalas galat); None = hanya lambat membalas, misalnya laptop sedang sibuk."""
+        hasil, alasan = self.periksa(batas_waktu)
+        if not hasil:
+            logging.warning("cek LLM %s", alasan)
+        return hasil
+
+    def periksa(self, batas_waktu=5):
+        """Sama seperti sehat, tetapi tanpa mencatat log; hasilnya (status, alasan) untuk tabel awal agent."""
         header = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         try:
             with urllib.request.urlopen(urllib.request.Request(f"{self.alamat}/models", headers=header), timeout=batas_waktu) as respon:
-                return respon.status == 200
+                return respon.status == 200, f"kode {respon.status}"
         except TimeoutError:
-            logging.warning("cek LLM lambat: lebih dari %s detik", batas_waktu)
-            return None
+            return None, f"lambat: lebih dari {batas_waktu} detik"
         except urllib.error.HTTPError as galat:
-            logging.warning("cek LLM gagal: kode %s", galat.code)
-            return False
+            return False, f"gagal: kode {galat.code}"
         except urllib.error.URLError as galat:
             if isinstance(galat.reason, TimeoutError):
-                logging.warning("cek LLM lambat: lebih dari %s detik", batas_waktu)
-                return None
-            logging.warning("cek LLM gagal: %s", galat.reason)
-            return False
+                return None, f"lambat: lebih dari {batas_waktu} detik"
+            return False, f"gagal: {galat.reason}"
         except (OSError, ValueError) as galat:
-            logging.warning("cek LLM gagal: %s", galat)
-            return False
+            return False, f"gagal: {galat}"
 
     def kirim(self, instruksi_sistem, isi_percakapan, deklarasi_alat=None, wajib_alat=False, saat_teks=None):
         """Mengirim percakapan ke layanan berformat OpenAI (chat/completions) dan mengembalikan pesan balasan model.

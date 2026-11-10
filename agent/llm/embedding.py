@@ -1,5 +1,4 @@
 import json
-import logging
 import urllib.parse
 
 from llm.client import GalatLLM, kirim_json
@@ -7,6 +6,7 @@ from llm.tanda_tangan import tanda_tangani
 
 MAKS_TEKS = 96
 PENYEDIA_EMBED = ("aws", "api", "local")
+NAMA_PENYEDIA = {"aws": "AWS Bedrock", "api": "API", "local": "Lokal (Ollama)"}
 MODEL_BEDROCK = ("cohere.embed-", "amazon.titan-embed-text-v2")
 JENIS_COHERE = {"dokumen": "search_document", "kueri": "search_query"}
 JENIS_GEMINI = {"dokumen": "RETRIEVAL_DOCUMENT", "kueri": "RETRIEVAL_QUERY"}
@@ -96,11 +96,11 @@ def awalan_gemini(teks, jenis):
 
 
 def buat_pembuat_embedding(cfg):
-    """Mengembalikan None jika EMBED_PROVIDER kosong atau pengaturannya kurang; agent tetap jalan tanpa embedding."""
+    """Mengembalikan (pembuat, keterangan untuk tabel awal); pembuat None jika EMBED_PROVIDER kosong atau pengaturannya kurang,
+    agent tetap jalan tanpa embedding."""
     penyedia = cfg.embed_provider
     if not penyedia:
-        logging.info("EMBED_PROVIDER kosong: pencarian makna mati, pengetahuan dicari dengan kata kunci")
-        return None
+        return None, "mati (EMBED_PROVIDER kosong), pengetahuan dicari dengan kata kunci"
 
     masalah = ""
     if penyedia not in PENYEDIA_EMBED:
@@ -114,8 +114,5 @@ def buat_pembuat_embedding(cfg):
     elif penyedia == "api" and not cfg.embed_api_key:
         masalah = "EMBED_API_KEY (atau API_KEY) wajib diisi"
     if masalah:
-        logging.warning("pencarian makna mati: %s", masalah)
-        return None
-
-    logging.info("pencarian makna aktif: %s, model %s", penyedia, cfg.embed_model)
-    return PembuatEmbedding(cfg)
+        return None, f"mati, {masalah}"
+    return PembuatEmbedding(cfg), f"aktif, {NAMA_PENYEDIA.get(penyedia, penyedia)}, model {cfg.embed_model}"

@@ -12,14 +12,13 @@ MAKS_HURUF_NILAI = 200
 
 
 def buat_pencari_gambar(cfg):
-    """Membuat pencari asal gambar sesuai CARI_GAMBAR_PENYEDIA; None jika mati atau kunci API kosong."""
+    """Mengembalikan (pencari, keterangan untuk tabel awal) sesuai CARI_GAMBAR_PENYEDIA; pencari None jika mati atau kunci API kosong."""
     if cfg.cari_gambar_penyedia != "saucenao":
-        return None
+        return None, "mati"
     if not cfg.saucenao_api_key:
-        logging.warning("SAUCENAO_API_KEY kosong: pencarian asal gambar dimatikan")
-        return None
-    logging.info("pencarian asal gambar aktif: SauceNAO (kemiripan minimal %d%%)", cfg.saucenao_ambang)
-    return PencariSauceNAO(cfg.saucenao_api_key, cfg.saucenao_ambang, cfg.saucenao_batas_detik)
+        return None, "mati, SAUCENAO_API_KEY kosong"
+    pencari = PencariSauceNAO(cfg.saucenao_api_key, cfg.saucenao_ambang, cfg.saucenao_batas_detik)
+    return pencari, f"aktif, SauceNAO (kemiripan minimal {cfg.saucenao_ambang}%)"
 
 
 class PencariSauceNAO:

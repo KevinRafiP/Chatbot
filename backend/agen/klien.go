@@ -31,6 +31,7 @@ type Jawaban struct {
 	Sumber        []Sumber `json:"sumber"`
 	PakaiInternet bool     `json:"pakai_internet"`
 	Email         *Email   `json:"email,omitempty"`
+	Saran         []string `json:"saran,omitempty"`
 	Kinerja       Kinerja  `json:"kinerja"`
 }
 
@@ -191,15 +192,21 @@ const BatasWaktuSehat = 8 * time.Second
 
 // Sehat mengecek apakah agent hidup dan model AI-nya bisa dihubungi
 func (k *Klien) Sehat(ctx context.Context) bool {
+	hidup, llm := k.Periksa(ctx)
+	return hidup && llm
+}
+
+// Periksa mengecek dua hal terpisah: agent membalas (hidup) dan model AI-nya bisa dihubungi (llm)
+func (k *Klien) Periksa(ctx context.Context) (hidup, llm bool) {
 	ctx, batal := context.WithTimeout(ctx, BatasWaktuSehat)
 	defer batal()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, k.alamat+"/kesehatan", nil)
 	if err != nil {
-		return false
+		return false, false
 	}
 	resp, err := k.http.Do(req)
 	if err != nil {
-		return false
+		return false, false
 	}
 	defer resp.Body.Close()
 	var isi struct {
@@ -208,10 +215,15 @@ func (k *Klien) Sehat(ctx context.Context) bool {
 		} `json:"data"`
 	}
 	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&isi) != nil {
-		return false
+		return false, false
 	}
 	// agent versi lama tidak mengirim data llm, jadi dianggap terhubung
-	return isi.Data.LLM == nil || *isi.Data.LLM
+	return true, isi.Data.LLM == nil || *isi.Data.LLM
+}
+
+// Alamat mengembalikan alamat layanan agent, untuk ditampilkan saat backend menyala
+func (k *Klien) Alamat() string {
+	return k.alamat
 }
 
 // Tanya mengirim pertanyaan, data dari database, riwayat percakapan, dan ingatan tentang pengguna ke layanan agent;

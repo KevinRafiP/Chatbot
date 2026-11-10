@@ -19,12 +19,16 @@ export type Message = {
   rating: Rating;
   note?: string;
   retry?: { attachment: Attachment | null };
+  // follow-up questions suggested with a fresh answer; never saved, so only the newest answer has them
+  suggestions?: string[];
 };
 export type Rating = 1 | -1 | 0;
 // Text read from an uploaded file; it is sent along with the next question
 export type Attachment = { name: string; text: string; truncated: boolean; pages: number | null };
 export type FavoriteMessage = Message & { conversationId: string; conversationTitle: string };
 export type SendResult = { title: string; question: Message; answer: Message };
+// A conversation found by searching, with the part of a message where the words were found (empty when only the title matched)
+export type SearchResult = { conversation: Conversation; snippet: string };
 // An answer still being made on the server: the question it answers, and the saved question and answer once it is done.
 // finished is true for an answer that already failed, so it is not shown as being written
 export type RunningAnswer = { question: Message; finished: boolean; result: Promise<SendResult> };
@@ -114,11 +118,11 @@ type RawMessage = {
   dibuat_pada: string;
 };
 type RawFavorite = RawMessage & { percakapan_id: string; judul_percakapan: string };
-type RawSendResult = { judul: string; pesan: RawMessage; jawaban: RawMessage };
+type RawSendResult = { judul: string; pesan: RawMessage; jawaban: RawMessage; saran?: string[] };
 type RawAccount = { id: string; nama: string; jenis: Role; email?: string };
 type RawSession = { token: string; pengguna: RawAccount };
 type RawSignIn = RawSession | { perlu_verifikasi: true; email: string };
-type RawAnswer = { jawaban: string; sumber: RawSource[] | null };
+type RawAnswer = { jawaban: string; sumber: RawSource[] | null; saran?: string[] };
 type RawFile = { nama: string; teks: string; terpotong: boolean; halaman: number | null };
 type RawStats = {
   profil: string;
@@ -469,7 +473,7 @@ export async function createConversation(): Promise<Conversation> {
   return toConversation(await request<RawConversation>("POST", "/percakapan"));
 }
 
-// Deletes a conversation together with its messages
+// Deletes a conversation from the list; the server keeps its data for the performance report
 export async function deleteConversation(id: string): Promise<void> {
   await request<undefined>("DELETE", `/percakapan/${id}`);
 }
@@ -490,7 +494,9 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
   return data.map(toMessage);
 }
 
-// Sends a question into a conversation and returns the saved question and answer; onUpdate shows the answer as it is made
+// Sends a question into a conversation and returns the saved question and answer; onUpdate shows the answer as it is made.
+// replaceFrom is the id of an earlier question: it and every message after it are replaced, for editing a question
+// or making its answer again
 export async function sendMessage(
   conversationId: string,
   text: string,
@@ -498,9 +504,32 @@ export async function sendMessage(
   attachment: Attachment | null,
   onUpdate: (update: AnswerUpdate) => void,
   signal?: AbortSignal,
+  replaceFrom?: string,
 ): Promise<SendResult> {
-  const body = { pertanyaan: text, mode: mode === "fast" ? "cepat" : "mendalam", lampiran: attachmentBody(attachment) };
+  const body = {
+    pertanyaan: text,
+    mode: mode === "fast" ? "cepat" : "mendalam",
+    lampiran: attachmentBody(attachment),
+    ganti_dari: replaceFrom,
+  };
   return toSendResult(await streamRequest<RawSendResult>(`/percakapan/${conversationId}/pesan`, body, onUpdate, signal));
+}
+
+// Restarts the answer being made with an extra instruction typed while the AI was still answering;
+// the question becomes the old question plus the instruction, and the new answer comes back like sendMessage
+export async function steerAnswer(
+  conversationId: string,
+  extra: string,
+  onUpdate: (update: AnswerUpdate) => void,
+  signal?: AbortSignal,
+): Promise<SendResult> {
+  return toSendResult(await streamRequest<RawSendResult>(`/percakapan/${conversationId}/arahan`, { tambahan: extra }, onUpdate, signal));
+}
+
+// Finds conversations whose title or messages contain the words, newest first
+export async function searchConversations(query: string): Promise<SearchResult[]> {
+  const data = await request<(RawConversation & { cuplikan: string })[]>("GET", `/percakapan/cari?q=${encodeURIComponent(query)}`);
+  return data.map((raw) => ({ conversation: toConversation(raw), snippet: raw.cuplikan }));
 }
 
 // Joins the answer still being made in a conversation, for example after a refresh or after coming back to it.
@@ -533,7 +562,7 @@ export async function stopServerAnswer(conversationId: string): Promise<void> {
 }
 
 function toSendResult(raw: RawSendResult): SendResult {
-  return { title: raw.judul, question: toMessage(raw.pesan), answer: toMessage(raw.jawaban) };
+  return { title: raw.judul, question: toMessage(raw.pesan), answer: { ...toMessage(raw.jawaban), suggestions: raw.saran } };
 }
 
 // The question of a running answer, shown like a question that was just sent
@@ -573,6 +602,7 @@ signal?: AbortSignal,
     favorite: false,
     attachment: "",
     rating: 0,
+    suggestions: data.saran,
   };
 }
 

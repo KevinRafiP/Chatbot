@@ -25,6 +25,7 @@ const (
 var (
 	ErrSedangMenjawab       = errors.New("percakapan ini masih membuat jawaban, tunggu sampai selesai atau hentikan dulu")
 	ErrTerlaluBanyakJawaban = fmt.Errorf("paling banyak %d jawaban dibuat bersamaan, tunggu salah satunya selesai", BatasJawabanPerAkun)
+	ErrTidakMenjawab        = errors.New("tidak ada jawaban yang sedang dibuat di percakapan ini")
 )
 
 // Peristiwa adalah satu kabar dari agent (status, teks, ulang, jalankan_kode) yang disimpan agar bisa diputar ulang
@@ -47,6 +48,8 @@ type JawabanBerjalan struct {
 	Info       InfoJawaban
 	penggunaID string
 	batal      context.CancelFunc
+	// permintaan disimpan agar jawaban bisa dibuat ulang dengan arahan tambahan dari pengguna
+	permintaan PermintaanJawab
 	// gagalPada diisi saat jawaban gagal (bukan dihentikan pengguna); dibaca dan diubah di bawah kunci pengelola
 	gagalPada time.Time
 
@@ -122,8 +125,11 @@ func baruPengelolaJawaban() *pengelolaJawaban {
 	return &pengelolaJawaban{berjalan: map[string]*JawabanBerjalan{}}
 }
 
-// mulai menjalankan kerja di latar belakang; ErrSedangMenjawab jika percakapan ini masih menjawab
-func (p *pengelolaJawaban) mulai(percakapanID, penggunaID string, info InfoJawaban, kerja func(context.Context, agen.Kabar) (HasilPesan, error)) (*JawabanBerjalan, error) {
+// mulai menjalankan kerja di latar belakang; ErrSedangMenjawab jika percakapan ini masih menjawab.
+// siapkan dijalankan setelah semua pemeriksaan lolos dan sebelum kerja dimulai, jadi pesan lama hanya
+// disembunyikan bila jawaban barunya memang dibuat; hasilnya info pertanyaan dan permintaan untuk dibuat ulang
+func (p *pengelolaJawaban) mulai(percakapanID, penggunaID string, siapkan func() (InfoJawaban, PermintaanJawab, error),
+	kerja func(context.Context, agen.Kabar) (HasilPesan, error)) (*JawabanBerjalan, error) {
 	p.kunci.Lock()
 	defer p.kunci.Unlock()
 	p.buangKedaluwarsa()
@@ -139,9 +145,13 @@ func (p *pengelolaJawaban) mulai(percakapanID, penggunaID string, info InfoJawab
 	if jumlah >= BatasJawabanPerAkun {
 		return nil, ErrTerlaluBanyakJawaban
 	}
+	info, permintaan, err := siapkan()
+	if err != nil {
+		return nil, err
+	}
 
 	ctx, batal := context.WithTimeout(context.Background(), BatasWaktuJawaban)
-	j := &JawabanBerjalan{Info: info, penggunaID: penggunaID, batal: batal, baru: make(chan struct{})}
+	j := &JawabanBerjalan{Info: info, penggunaID: penggunaID, batal: batal, permintaan: permintaan, baru: make(chan struct{})}
 	p.berjalan[percakapanID] = j
 	go p.jalankan(ctx, percakapanID, j, kerja)
 	return j, nil
@@ -186,6 +196,16 @@ func (p *pengelolaJawaban) ambil(percakapanID, penggunaID string) *JawabanBerjal
 	defer p.kunci.Unlock()
 	p.buangKedaluwarsa()
 	if j, ada := p.berjalan[percakapanID]; ada && j.penggunaID == penggunaID {
+		return j
+	}
+	return nil
+}
+
+// sedangMenjawab mengembalikan jawaban yang masih dibuat (bukan yang sudah gagal) di percakapan milik pengguna, atau nil
+func (p *pengelolaJawaban) sedangMenjawab(percakapanID, penggunaID string) *JawabanBerjalan {
+	p.kunci.Lock()
+	defer p.kunci.Unlock()
+	if j, ada := p.berjalan[percakapanID]; ada && j.penggunaID == penggunaID && j.gagalPada.IsZero() {
 		return j
 	}
 	return nil

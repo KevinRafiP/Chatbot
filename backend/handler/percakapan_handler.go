@@ -94,7 +94,7 @@ func DaftarPesan(percakapan *service.PercakapanService) http.HandlerFunc {
 	}
 }
 
-// KirimPesan: POST /percakapan/{id}/pesan dengan body {"pertanyaan": "...", "mode": "cepat" | "mendalam", "lampiran": {"nama": "...", "teks": "..."}}
+// KirimPesan: POST /percakapan/{id}/pesan dengan body {"pertanyaan": "...", "mode": "cepat" | "mendalam", "lampiran": {"nama": "...", "teks": "..."}, "ganti_dari": "id pertanyaan lama"}
 func KirimPesan(percakapan *service.PercakapanService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := bacaID(w, r)
@@ -109,12 +109,58 @@ func KirimPesan(percakapan *service.PercakapanService) http.HandlerFunc {
 			return
 		}
 
-		jawaban, err := percakapan.Mulai(id, middleware.PenggunaDari(r.Context()), permintaan.Pertanyaan, permintaan.Mode, permintaan.Lampiran)
+		gantiDari := strings.ToLower(permintaan.GantiDari)
+		if gantiDari != "" && !polaUUID.MatchString(gantiDari) {
+			writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "id pesan tidak valid"})
+			return
+		}
+		jawaban, err := percakapan.Mulai(id, middleware.PenggunaDari(r.Context()), service.PermintaanJawab{
+			Pertanyaan: permintaan.Pertanyaan, Mode: permintaan.Mode, Lampiran: permintaan.Lampiran, GantiDari: gantiDari,
+		})
 		if err != nil {
 			gagalPercakapan(w, err)
 			return
 		}
 		alirkanJawaban(w, r, jawaban, false)
+	}
+}
+
+// ArahkanJawaban: POST /percakapan/{id}/arahan dengan body {"tambahan": "..."}; jawaban yang sedang dibuat dihentikan
+// lalu dibuat ulang dari awal dengan pertanyaan yang sama ditambah arahan itu, dan kabarnya dialirkan seperti KirimPesan
+func ArahkanJawaban(percakapan *service.PercakapanService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := bacaID(w, r)
+		if !ok {
+			return
+		}
+
+		var permintaan struct {
+			Tambahan string `json:"tambahan"`
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+		if err := json.NewDecoder(r.Body).Decode(&permintaan); err != nil {
+			writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "body JSON tidak valid"})
+			return
+		}
+
+		jawaban, err := percakapan.Arahkan(id, middleware.PenggunaDari(r.Context()), permintaan.Tambahan)
+		if err != nil {
+			gagalPercakapan(w, err)
+			return
+		}
+		alirkanJawaban(w, r, jawaban, false)
+	}
+}
+
+// CariPercakapan: GET /percakapan/cari?q=...; mencari judul dan isi pesan percakapan milik pengguna
+func CariPercakapan(percakapan *service.PercakapanService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		hasil, err := percakapan.Cari(middleware.PenggunaDari(r.Context()).ID, r.URL.Query().Get("q"))
+		if err != nil {
+			gagalPercakapan(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, Response{Status: "sukses", Message: "hasil pencarian", Data: hasil})
 	}
 }
 
@@ -330,6 +376,8 @@ func gagalPercakapan(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusBadRequest, Response{Status: "gagal", Message: "penilaian harus 1, -1, atau 0"})
 	case errors.Is(err, service.ErrSedangMenjawab):
 		writeJSON(w, http.StatusConflict, Response{Status: "gagal", Message: "percakapan ini masih membuat jawaban, tunggu sampai selesai atau hentikan dulu"})
+	case errors.Is(err, service.ErrTidakMenjawab):
+		writeJSON(w, http.StatusConflict, Response{Status: "gagal", Message: service.ErrTidakMenjawab.Error()})
 	case errors.Is(err, service.ErrTerlaluBanyakJawaban):
 		writeJSON(w, http.StatusTooManyRequests, Response{Status: "gagal", Message: service.ErrTerlaluBanyakJawaban.Error()})
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):

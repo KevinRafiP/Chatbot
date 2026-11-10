@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"unicode/utf8"
 
 	"chatbot/backend/model"
 )
@@ -20,7 +21,7 @@ func BaruPercakapanRepository(db *sql.DB) *PercakapanRepository {
 // Semua mengambil percakapan milik satu pengguna: yang disematkan paling atas (terakhir disematkan dulu), lalu yang terbaru
 func (r *PercakapanRepository) Semua(penggunaID string) ([]model.Percakapan, error) {
 	rows, err := r.db.Query(`SELECT id, judul, disematkan_pada IS NOT NULL, diperbarui_pada FROM percakapan
-		WHERE pengguna_id = $1 ORDER BY disematkan_pada DESC NULLS LAST, diperbarui_pada DESC`, penggunaID)
+		WHERE pengguna_id = $1 AND dihapus_pada IS NULL ORDER BY disematkan_pada DESC NULLS LAST, diperbarui_pada DESC`, penggunaID)
 	if err != nil {
 		return nil, err
 	}
@@ -45,17 +46,18 @@ func (r *PercakapanRepository) Buat(penggunaID string) (model.Percakapan, error)
 	return p, err
 }
 
-// Milik memeriksa apakah percakapan itu ada dan dimiliki pengguna tersebut
+// Milik memeriksa apakah percakapan itu ada, belum dihapus, dan dimiliki pengguna tersebut
 func (r *PercakapanRepository) Milik(id, penggunaID string) (bool, error) {
 	var ada bool
-	err := r.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM percakapan WHERE id = $1 AND pengguna_id = $2)`,
+	err := r.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM percakapan WHERE id = $1 AND pengguna_id = $2 AND dihapus_pada IS NULL)`,
 		id, penggunaID).Scan(&ada)
 	return ada, err
 }
 
-// Hapus menghapus percakapan milik pengguna; pesannya ikut terhapus oleh ON DELETE CASCADE
+// Hapus menyembunyikan percakapan milik pengguna tanpa membuang barisnya (hapus lunak), agar pesan, penilaian,
+// dan catatan kinerjanya tetap ada untuk halaman kinerja admin
 func (r *PercakapanRepository) Hapus(id, penggunaID string) (bool, error) {
-	hasil, err := r.db.Exec(`DELETE FROM percakapan WHERE id = $1 AND pengguna_id = $2`, id, penggunaID)
+	hasil, err := r.db.Exec(`UPDATE percakapan SET dihapus_pada = NOW() WHERE id = $1 AND pengguna_id = $2 AND dihapus_pada IS NULL`, id, penggunaID)
 	if err != nil {
 		return false, err
 	}
@@ -72,7 +74,7 @@ func (r *PercakapanRepository) UbahJudul(id string, judul string) error {
 // GantiJudul mengganti judul percakapan milik pengguna; sql.ErrNoRows bila percakapan tidak ada
 func (r *PercakapanRepository) GantiJudul(id, penggunaID, judul string) (model.Percakapan, error) {
 	var p model.Percakapan
-	err := r.db.QueryRow(`UPDATE percakapan SET judul = $1 WHERE id = $2 AND pengguna_id = $3
+	err := r.db.QueryRow(`UPDATE percakapan SET judul = $1 WHERE id = $2 AND pengguna_id = $3 AND dihapus_pada IS NULL
 		RETURNING id, judul, disematkan_pada IS NOT NULL, diperbarui_pada`, judul, id, penggunaID).Scan(&p.ID, &p.Judul, &p.Disematkan, &p.DiperbaruiPada)
 	return p, err
 }
@@ -80,7 +82,7 @@ func (r *PercakapanRepository) GantiJudul(id, penggunaID, judul string) (model.P
 // Sematkan menyematkan atau melepas sematan percakapan milik pengguna; false bila percakapan tidak ada
 func (r *PercakapanRepository) Sematkan(id, penggunaID string, sematkan bool) (bool, error) {
 	hasil, err := r.db.Exec(`UPDATE percakapan SET disematkan_pada = CASE WHEN $3 THEN NOW() END
-		WHERE id = $1 AND pengguna_id = $2`, id, penggunaID, sematkan)
+		WHERE id = $1 AND pengguna_id = $2 AND dihapus_pada IS NULL`, id, penggunaID, sematkan)
 	if err != nil {
 		return false, err
 	}
@@ -97,7 +99,7 @@ func (r *PercakapanRepository) DaftarPesan(percakapanID string, batas int) ([]mo
 func (r *PercakapanRepository) DaftarPesanSetelah(percakapanID string, setelah int64, batas int) ([]model.Pesan, error) {
 	rows, err := r.db.Query(`SELECT id, urutan, pengirim, isi, sumber, favorit, COALESCE(penilaian, 0), lampiran_nama, dibuat_pada FROM (
 		SELECT id, urutan, pengirim, isi, sumber, favorit, penilaian, lampiran_nama, dibuat_pada FROM pesan
-			WHERE percakapan_id = $1 AND urutan > $3 ORDER BY urutan DESC LIMIT NULLIF($2, 0)
+			WHERE percakapan_id = $1 AND urutan > $3 AND dihapus_pada IS NULL ORDER BY urutan DESC LIMIT NULLIF($2, 0)
 		) AS terakhir ORDER BY urutan`, percakapanID, batas, setelah)
 	if err != nil {
 		return nil, err
@@ -197,7 +199,7 @@ func (r *PercakapanRepository) SimpanTanyaJawab(percakapanID, pertanyaan string,
 func (r *PercakapanRepository) LampiranTerakhir(percakapanID string, batas int) (model.Lampiran, error) {
 	var l model.Lampiran
 	err := r.db.QueryRow(`SELECT lampiran_nama, lampiran_teks FROM (
-			SELECT lampiran_nama, lampiran_teks, urutan FROM pesan WHERE percakapan_id = $1 ORDER BY urutan DESC LIMIT $2
+			SELECT lampiran_nama, lampiran_teks, urutan FROM pesan WHERE percakapan_id = $1 AND dihapus_pada IS NULL ORDER BY urutan DESC LIMIT $2
 		) AS terakhir WHERE lampiran_nama <> '' ORDER BY urutan DESC LIMIT 1`, percakapanID, batas).Scan(&l.Nama, &l.Teks)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Lampiran{}, nil
@@ -208,7 +210,7 @@ func (r *PercakapanRepository) LampiranTerakhir(percakapanID string, batas int) 
 // UbahFavorit menandai atau melepas bintang sebuah pesan, hanya bila percakapannya milik pengguna itu
 func (r *PercakapanRepository) UbahFavorit(pesanID, penggunaID string, favorit bool) (bool, error) {
 	hasil, err := r.db.Exec(`UPDATE pesan p SET favorit = $3 FROM percakapan c
-		WHERE p.id = $1 AND p.percakapan_id = c.id AND c.pengguna_id = $2`, pesanID, penggunaID, favorit)
+		WHERE p.id = $1 AND p.percakapan_id = c.id AND c.pengguna_id = $2 AND p.dihapus_pada IS NULL AND c.dihapus_pada IS NULL`, pesanID, penggunaID, favorit)
 	if err != nil {
 		return false, err
 	}
@@ -219,7 +221,8 @@ func (r *PercakapanRepository) UbahFavorit(pesanID, penggunaID string, favorit b
 // UbahPenilaian menyimpan suka (1), tidak suka (-1), atau menghapus penilaian (0) pada jawaban asisten milik pengguna
 func (r *PercakapanRepository) UbahPenilaian(pesanID, penggunaID string, nilai int) (bool, error) {
 	hasil, err := r.db.Exec(`UPDATE pesan p SET penilaian = NULLIF($3::SMALLINT, 0), dinilai_pada = CASE WHEN $3 = 0 THEN NULL ELSE NOW() END
-		FROM percakapan c WHERE p.id = $1 AND p.percakapan_id = c.id AND c.pengguna_id = $2 AND p.pengirim = 'asisten'`,
+		FROM percakapan c WHERE p.id = $1 AND p.percakapan_id = c.id AND c.pengguna_id = $2 AND p.pengirim = 'asisten'
+			AND p.dihapus_pada IS NULL AND c.dihapus_pada IS NULL`,
 		pesanID, penggunaID, nilai)
 	if err != nil {
 		return false, err
@@ -232,7 +235,7 @@ func (r *PercakapanRepository) UbahPenilaian(pesanID, penggunaID string, nilai i
 func (r *PercakapanRepository) DaftarFavorit(penggunaID string, batas int) ([]model.PesanFavorit, error) {
 	rows, err := r.db.Query(`SELECT p.id, p.pengirim, p.isi, p.sumber, p.dibuat_pada, c.id, c.judul
 		FROM pesan p JOIN percakapan c ON c.id = p.percakapan_id
-		WHERE c.pengguna_id = $1 AND p.favorit ORDER BY p.dibuat_pada DESC LIMIT $2`, penggunaID, batas)
+		WHERE c.pengguna_id = $1 AND p.favorit AND p.dihapus_pada IS NULL AND c.dihapus_pada IS NULL ORDER BY p.dibuat_pada DESC LIMIT $2`, penggunaID, batas)
 	if err != nil {
 		return nil, err
 	}
@@ -250,6 +253,86 @@ func (r *PercakapanRepository) DaftarFavorit(penggunaID string, batas int) ([]mo
 		daftar = append(daftar, p)
 	}
 	return daftar, rows.Err()
+}
+
+// HapusPesanMulai menyembunyikan pertanyaan pengguna pesanID dan semua pesan sesudahnya (hapus lunak), dipakai saat
+// pertanyaan diedit atau jawabannya dibuat ulang; penilaian lamanya tetap terhitung di halaman kinerja.
+// Ringkasan yang sudah memuat pesan itu dikosongkan agar dibuat ulang. Mengembalikan lampiran pertanyaan itu,
+// atau sql.ErrNoRows bila pesan bukan pertanyaan yang masih tampil di percakapan ini
+func (r *PercakapanRepository) HapusPesanMulai(percakapanID, pesanID string) (model.Lampiran, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return model.Lampiran{}, err
+	}
+	defer tx.Rollback()
+
+	var urutan int64
+	var l model.Lampiran
+	err = tx.QueryRow(`SELECT urutan, lampiran_nama, lampiran_teks FROM pesan
+		WHERE id = $1 AND percakapan_id = $2 AND pengirim = 'user' AND dihapus_pada IS NULL`, pesanID, percakapanID).Scan(&urutan, &l.Nama, &l.Teks)
+	if err != nil {
+		return model.Lampiran{}, err
+	}
+	if _, err := tx.Exec(`UPDATE pesan SET dihapus_pada = NOW() WHERE percakapan_id = $1 AND urutan >= $2 AND dihapus_pada IS NULL`,
+		percakapanID, urutan); err != nil {
+		return model.Lampiran{}, err
+	}
+	if _, err := tx.Exec(`UPDATE percakapan SET ringkasan = '', ringkasan_sampai = 0, diperbarui_pada = NOW()
+		WHERE id = $1 AND ringkasan_sampai >= $2`, percakapanID, urutan); err != nil {
+		return model.Lampiran{}, err
+	}
+	return l, tx.Commit()
+}
+
+// Cari mencari percakapan milik pengguna yang judul atau isi pesannya memuat kueri, yang terbaru di atas.
+// Cuplikan diambil dari pesan terbaru yang cocok; kosong bila hanya judulnya yang cocok
+func (r *PercakapanRepository) Cari(penggunaID, kueri string, batas int) ([]model.HasilCari, error) {
+	pola := "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(kueri) + "%"
+	rows, err := r.db.Query(`SELECT c.id, c.judul, c.disematkan_pada IS NOT NULL, c.diperbarui_pada, COALESCE(m.isi, '')
+		FROM percakapan c LEFT JOIN LATERAL (
+			SELECT isi FROM pesan WHERE percakapan_id = c.id AND dihapus_pada IS NULL AND isi ILIKE $2
+			ORDER BY urutan DESC LIMIT 1
+		) AS m ON TRUE
+		WHERE c.pengguna_id = $1 AND c.dihapus_pada IS NULL AND (c.judul ILIKE $2 OR m.isi IS NOT NULL)
+		ORDER BY c.diperbarui_pada DESC LIMIT $3`, penggunaID, pola, batas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	daftar := []model.HasilCari{}
+	for rows.Next() {
+		var h model.HasilCari
+		var isi string
+		if err := rows.Scan(&h.ID, &h.Judul, &h.Disematkan, &h.DiperbaruiPada, &isi); err != nil {
+			return nil, err
+		}
+		h.Cuplikan = cuplikan(isi, kueri, 60)
+		daftar = append(daftar, h)
+	}
+	return daftar, rows.Err()
+}
+
+// cuplikan memotong teks di sekitar kata yang dicari, paling banyak sekitar dua kali sisi huruf
+func cuplikan(teks, kueri string, sisi int) string {
+	huruf := []rune(strings.Join(strings.Fields(teks), " "))
+	if len(huruf) == 0 {
+		return ""
+	}
+	kecil := strings.ToLower(string(huruf))
+	awal := 0
+	if letak := strings.Index(kecil, strings.ToLower(kueri)); letak > 0 {
+		awal = max(utf8.RuneCountInString(kecil[:letak])-sisi, 0)
+	}
+	akhir := min(awal+sisi*2+len([]rune(kueri)), len(huruf))
+	hasil := string(huruf[awal:akhir])
+	if awal > 0 {
+		hasil = "..." + hasil
+	}
+	if akhir < len(huruf) {
+		hasil += "..."
+	}
+	return hasil
 }
 
 // pecahSumber membaca kolom sumber: bentuk baru berupa JSON, bentuk lama satu sumber per baris

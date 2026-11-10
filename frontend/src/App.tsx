@@ -13,8 +13,8 @@ import { AccountMenu, AdminForm, AuthForm, Dialog, ForgotForm, KnowledgeForm, Re
 import { FavoriteList } from "./FavoriteList";
 import { IMAGE_NAME, isImage, prepareImage } from "./imageUpload";
 import { JumpButton } from "./JumpButton";
-import { CopyIcon, MessageItem, PaperclipIcon, StarIcon, TypingItem } from "./MessageItem";
-import { copyMessage } from "./messageText";
+import { CopyIcon, DownloadIcon, MessageItem, PaperclipIcon, PencilIcon, PlayIcon, StarIcon, StopIcon, TypingItem } from "./MessageItem";
+import { copyMessage, downloadMessage, hideFollowUps } from "./messageText";
 import { htmlToMarkdown } from "./pasteFormat";
 import { PerformancePanel } from "./Performance";
 import { ScrollHandle } from "./ScrollHandle";
@@ -35,10 +35,12 @@ import {
   pinConversation,
   renameConversation,
   resumeAnswer,
+  searchConversations,
   sendGuestMessage,
   sendMessage,
   setFavorite,
   setRating,
+  steerAnswer,
   stopServerAnswer,
   uploadFile,
   verifyEmail,
@@ -51,6 +53,7 @@ import {
   type Message,
   type Rating,
   type RunningAnswer,
+  type SearchResult,
   type SendResult,
 } from "./api";
 
@@ -79,6 +82,10 @@ const MODE_KEY = "answerMode";
 const CHAT_KEY = "openChat";
 // how often the list is read again while an answer is being made somewhere, so its dot goes away when it is done
 const ANSWERING_CHECK_MS = 5000;
+// searching waits until the user stops typing for this long
+const SEARCH_DELAY_MS = 300;
+// errors that come before the server starts an answer, so a replaced question and its answer are still saved there
+const NOT_STARTED = [400, 404, 409, 429];
 // must match BERKAS_MAKS_MB on the backend
 const MAX_FILE_MB = Number(import.meta.env.VITE_MAX_FILE_MB ?? 5);
 const FILE_TYPES = ".pdf,.docx,.txt,.md,.csv,.json,.log,.html,.htm,.xml,.py,.go,.js,.ts,.sql,.png,.jpg,.jpeg,.webp,.gif,image/*";
@@ -148,6 +155,21 @@ function PinIcon() {
         strokeLinejoin="round"
       />
     </svg>
+  );
+}
+
+// Shows the part of a message where the searched words were found, with the words marked
+function Snippet({ text, query }: { text: string; query: string }) {
+  const at = text.toLowerCase().indexOf(query.toLowerCase());
+  if (at < 0) {
+    return <span className="search-snippet">{text}</span>;
+  }
+  return (
+    <span className="search-snippet">
+      {text.slice(0, at)}
+      <mark>{text.slice(at, at + query.length)}</mark>
+      {text.slice(at + query.length)}
+    </span>
   );
 }
 
@@ -263,6 +285,11 @@ function App() {
   const [missed, setMissed] = useState(false);
   // answers finished while the tab was hidden, counted in the tab title
   const [unseen, setUnseen] = useState(0);
+  // the question being edited in place of its bubble
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  // results belong to the words they were searched for, so an older reply never shows under newer words
+  const [found, setFound] = useState<{ query: string; items: SearchResult[] }>({ query: "", items: [] });
   const messagesRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -274,6 +301,8 @@ function App() {
   // true after the user scrolls back to the bottom themselves: then the answer is followed to its end
   const followToEndRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  // the file sent with the question being answered, so a guest's extra instruction sends it again
+  const sendingFileRef = useRef<Attachment | null>(null);
   // the conversation whose answer this page is showing, so "Berhenti" can stop it on the server
   const streamIdRef = useRef<string | null>(null);
   // goes up each time another chat is opened, so late results of the chat that was left are ignored
@@ -429,6 +458,21 @@ function App() {
     }
   }, [messages.length, view]);
 
+  // Searches the conversations once the user stops typing
+  const searchText = query.trim();
+  useEffect(() => {
+    if (searchText === "") {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      searchConversations(searchText).then(
+        (items) => setFound({ query: searchText, items }),
+        () => setFound({ query: searchText, items: [] }),
+      );
+    }, SEARCH_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [searchText]);
+
   // Closes the three-dot menu on a click outside it or on Escape
   useEffect(() => {
     if (menuId === null) {
@@ -563,7 +607,14 @@ function App() {
       if (partial.trim() === "") {
         return kept;
       }
-      const half: Message = { ...draft, id: `stopped-${draft.id}`, sender: "bot", text: partial, attachment: "", note: "" };
+      const half: Message = {
+        ...draft,
+        id: `stopped-${draft.id}`,
+        sender: "bot",
+        text: hideFollowUps(partial),
+        attachment: "",
+        note: "",
+      };
       return [...kept, half];
     });
   }
@@ -584,6 +635,7 @@ function App() {
     setAttachment(null);
     setTypingId(null);
     setSelectedId(null);
+    setEditingId(null);
     setView("chat");
     setError("");
     closeSidebarOnMobile();
@@ -698,6 +750,7 @@ function App() {
       setGuestFile(null);
       setTypingId(null);
       setSelectedId(null);
+      setEditingId(null);
       setView("chat");
       setError("");
       closeSidebarOnMobile();
@@ -941,15 +994,16 @@ function App() {
   }
 
   // A guest chat lives only in this page: it is sent with its history and never saved
-    async function sendAsGuest(
+  async function sendAsGuest(
     text: string,
     draftId: string,
     chosen: Attachment | null,
+    history: Message[],
     onUpdate: (update: AnswerUpdate) => void,
     signal: AbortSignal,
   ): Promise<Message> {
     const file = chosen ?? guestFile;
-    const answer = await sendGuestMessage(text, messages, file, onUpdate, signal);
+    const answer = await sendGuestMessage(text, history, file, onUpdate, signal);
     setGuestFile(file);
     // the question and the answer are already on screen, so their new bubbles do not slide in again
     setQuietIds((current) => new Set(current).add(`question-${draftId}`).add(answer.id));
@@ -1012,9 +1066,18 @@ function App() {
     requestAnimationFrame(() => box.setSelectionRange(start + pasted.length, start + pasted.length));
   }
 
-  // Sends the question in the input box; the box and the chosen file are cleared at once
+  // Sends the question in the input box; the box and the chosen file are cleared at once.
+  // While an answer is being made, the text is an extra instruction and that answer starts again with it
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (loading) {
+      const extra = input.trim();
+      if (extra !== "" && !uploading && (isGuest || streamIdRef.current !== null)) {
+        setInput("");
+        await steer(extra);
+      }
+      return;
+    }
     const fileQuestion = attachment !== null && IMAGE_NAME.test(attachment.name) ? IMAGE_ONLY_QUESTION : FILE_ONLY_QUESTION;
     const text = input.trim() || (attachment !== null ? fileQuestion : "");
     if (text === "" || loading || uploading || agentOffline) {
@@ -1038,6 +1101,120 @@ function App() {
     void send(message.text, message.retry?.attachment ?? null, true);
   }
 
+  // Makes the newest answer again from the same question, replacing the old answer
+  function regenerate(answer: Message) {
+    const index = messages.findIndex((item) => item.id === answer.id);
+    const question = messages.slice(0, index).findLast((item) => item.sender === "user");
+    if (loading || uploading || question === undefined) {
+      return;
+    }
+    void send(question.text, null, true, question.id);
+  }
+
+  // Sends the edited question; its old answer and everything after it are replaced.
+  // A failed question was never saved, so it is simply sent again with the new text
+  function finishEdit(message: Message, text: string | null) {
+    setEditingId(null);
+    if (text === null || loading || uploading) {
+      return;
+    }
+    if (message.note !== undefined) {
+      setMessages((current) => current.filter((item) => item.id !== message.id && item.id !== `stopped-${message.id}`));
+      void send(text, message.retry?.attachment ?? null, true);
+      return;
+    }
+    void send(text, null, true, message.id);
+  }
+
+  // Opens the text box of a question that can be edited
+  function startEdit(message: Message) {
+    setMenuId(null);
+    setSelectedId(null);
+    setEditingId(message.id);
+  }
+
+  // Sends a suggested follow-up question as if it was typed
+  function ask(text: string) {
+    if (loading || uploading || agentOffline) {
+      return;
+    }
+    if (!isGuest) {
+      askNotifyPermission();
+    }
+    void send(text, null, true);
+  }
+
+  // Saves a message as a file, from its menu or from the phone's selection bar
+  function download(message: Message) {
+    setMenuId(null);
+    setSelectedId(null);
+    downloadMessage(message);
+  }
+
+  // Restarts the answer being made with an extra instruction typed while waiting.
+  // An account asks the server, which stops the old answer and makes it again; a guest just sends the longer question
+  async function steer(extra: string) {
+    const draft = messages.findLast((item) => item.sender === "user" && item.id.startsWith("draft-"));
+    if (draft === undefined) {
+      return;
+    }
+    const text = `${draft.text}\n\nTambahan: ${extra}`;
+    const old = abortRef.current;
+    if (isGuest) {
+      // the new send takes over first, so the old one ends silently like an answer that was left
+      void send(text, draft.retry?.attachment ?? sendingFileRef.current, true, draft.id);
+      old?.abort();
+      return;
+    }
+    const id = streamIdRef.current;
+    if (id === null) {
+      return;
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+    old?.abort();
+    followRef.current = true;
+    followToEndRef.current = false;
+    setMessages((current) => current.map((item) => (item.id === draft.id ? { ...item, text } : item)));
+    setLive({ status: "", text: "" });
+    setError("");
+
+    let streamed = false;
+    let partial = "";
+    const onUpdate = (update: AnswerUpdate) => {
+      if (update.kind === "text") {
+        streamed = true;
+        partial += update.text;
+      }
+      if (update.kind === "reset") partial = "";
+      showUpdate(update);
+    };
+    try {
+      const result = await steerAnswer(id, extra, onUpdate, controller.signal);
+      if (abortRef.current === controller) {
+        showSaved(id, draft.id, result, streamed);
+        announceOwn(id, true);
+      }
+    } catch (err) {
+      if (abortRef.current !== controller) {
+        return;
+      }
+      if (err instanceof ApiError && NOT_STARTED.includes(err.status)) {
+        // the old answer ended on its own or could not be stopped: the chat is read again as the server has it
+        endStream(controller);
+        await openConversation(id);
+        setError(err.message);
+        return;
+      }
+      const stopped = controller.signal.aborted;
+      markAnswering(id, false, !stopped);
+      keepFailed(draft, null, partial, stopped ? "Jawaban dihentikan." : failNote(err));
+      if (!stopped) announceOwn(id, false);
+    } finally {
+      endStream(controller);
+    }
+  }
+
   // Scrolls to the newest message and follows the answer to its end from there
   function jumpToBottom() {
     const box = messagesRef.current;
@@ -1058,8 +1235,13 @@ function App() {
 
   // Waits for the answer, then shows the question and answer as saved by the server.
   // A failed or stopped question is not saved: it stays on screen with a note and "Coba lagi",
-  // and the user can also just type a new question
-  async function send(text: string, file: Attachment | null, typed: boolean) {
+  // and the user can also just type a new question.
+  // replaceFrom is a question on screen: it and everything after it are taken away and replaced by this question
+  async function send(text: string, file: Attachment | null, typed: boolean, replaceFrom?: string) {
+    const cut = replaceFrom === undefined ? -1 : messages.findIndex((item) => item.id === replaceFrom);
+    const history = cut < 0 ? messages : messages.slice(0, cut);
+    // a question only on this page (a guest's, or one still waiting) is replaced here only
+    const serverReplace = !isGuest && replaceFrom !== undefined && cut >= 0 && !LOCAL_ID.test(replaceFrom) ? replaceFrom : undefined;
     const sentAt = new Date();
     const draftId = `draft-${sentAt.getTime()}`;
     const draft: Message = {
@@ -1074,12 +1256,16 @@ function App() {
     };
     followRef.current = true;
     followToEndRef.current = false;
-    setMessages((current) => [...current, draft]);
+    setMessages((current) => {
+      const at = replaceFrom === undefined ? -1 : current.findIndex((item) => item.id === replaceFrom);
+      return [...(at < 0 ? current : current.slice(0, at)), draft];
+    });
     setError("");
     setLive({ status: "", text: "" });
     setLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
+    sendingFileRef.current = file;
     let conversationId: string | null = null;
 
     // An answer that already appeared piece by piece is not typed out again; a stopped one keeps what arrived
@@ -1096,7 +1282,7 @@ function App() {
 
     try {
       if (isGuest) {
-        const answer = await sendAsGuest(text, draftId, file, onUpdate, controller.signal);
+        const answer = await sendAsGuest(text, draftId, file, history, onUpdate, controller.signal);
         setTypingId(streamed ? null : answer.id);
         return;
       }
@@ -1116,7 +1302,7 @@ function App() {
       const id = conversationId;
       streamIdRef.current = id;
       markAnswering(id, true);
-      const result = await sendMessage(id, text, mode, file, onUpdate, controller.signal);
+      const result = await sendMessage(id, text, mode, file, onUpdate, controller.signal, serverReplace);
       if (abortRef.current === controller) {
         showSaved(id, draftId, result, streamed);
         announceOwn(id, true);
@@ -1124,6 +1310,13 @@ function App() {
     } catch (err) {
       // the user went to another chat: the answer keeps being made there and is shown when they come back
       if (abortRef.current !== controller) {
+        return;
+      }
+      if (serverReplace !== undefined && conversationId !== null && err instanceof ApiError && NOT_STARTED.includes(err.status)) {
+        // nothing was replaced on the server, so the old question and answer come back
+        markAnswering(conversationId, false);
+        setMessages(await listMessages(conversationId).catch(() => history));
+        setError(err.message);
         return;
       }
       const failed = !controller.signal.aborted && !(err instanceof ApiError && err.status === 409);
@@ -1161,6 +1354,18 @@ function App() {
   // only the newest question can be sent again, and only when nothing came after it except its half answer
   const lastQuestion = [...messages].reverse().find((item) => item.sender === "user");
   const retryId = !loading && lastQuestion?.note ? lastQuestion.id : null;
+  const lastMessage = messages[messages.length - 1];
+  // the newest saved answer can be made again and shows its follow-up questions
+  const freshAnswerId =
+    !loading && lastMessage?.sender === "bot" && lastMessage.note === undefined && (isGuest || !LOCAL_ID.test(lastMessage.id))
+      ? lastMessage.id
+      : null;
+  // a saved question can be edited; a guest's questions live on this page; a failed one is sent again with the new text
+  const canEdit = (message: Message) =>
+    !loading &&
+    message.sender === "user" &&
+    (message.note !== undefined || (isGuest ? message.id.startsWith("question-") : !LOCAL_ID.test(message.id)));
+  const searching = !isGuest && searchText !== "";
   const activeTitle = isGuest
     ? "Percakapan tamu"
     : (conversations.find((item) => item.id === activeId)?.title ?? "Percakapan baru");
@@ -1198,24 +1403,62 @@ function App() {
           + Percakapan baru
         </button>
 
+        {!isGuest && (
+          <div className="search-box">
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => event.key === "Escape" && setQuery("")}
+              placeholder="Cari percakapan..."
+              maxLength={100}
+              aria-label="Cari percakapan"
+            />
+          </div>
+        )}
+
         <div className="conversation-scroll">
-          {pinnedList.length > 0 && (
+          {searching ? (
             <>
-              <p className="list-title">Disematkan</p>
-              <ul className="conversation-list">{pinnedList.map(renderConversation)}</ul>
+              <p className="list-title">Hasil pencarian</p>
+              <ul className="conversation-list search-results">
+                {found.query !== searchText ? (
+                  <li className="list-empty">Mencari...</li>
+                ) : found.items.length === 0 ? (
+                  <li className="list-empty">Tidak ada percakapan yang cocok</li>
+                ) : (
+                  found.items.map((item) => (
+                    <li key={item.conversation.id} className={item.conversation.id === activeId ? "active" : ""}>
+                      <button className="open" onClick={() => openConversation(item.conversation.id)} title={item.conversation.title}>
+                        <span className="search-title">{item.conversation.title}</span>
+                        {item.snippet !== "" && <Snippet text={item.snippet} query={searchText} />}
+                      </button>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </>
+          ) : (
+            <>
+              {pinnedList.length > 0 && (
+                <>
+                  <p className="list-title">Disematkan</p>
+                  <ul className="conversation-list">{pinnedList.map(renderConversation)}</ul>
+                </>
+              )}
+              <p className="list-title">Riwayat</p>
+              <ul className="conversation-list">
+                {listLoading ? (
+                  <ListSkeleton rows={4} />
+                ) : (
+                  conversations.length === 0 && (
+                    <li className="list-empty">{isGuest ? "Masuk untuk menyimpan percakapan" : "Belum ada percakapan"}</li>
+                  )
+                )}
+                {otherList.map(renderConversation)}
+              </ul>
             </>
           )}
-          <p className="list-title">Riwayat</p>
-          <ul className="conversation-list">
-            {listLoading ? (
-              <ListSkeleton rows={4} />
-            ) : (
-              conversations.length === 0 && (
-                <li className="list-empty">{isGuest ? "Masuk untuk menyimpan percakapan" : "Belum ada percakapan"}</li>
-              )
-            )}
-            {otherList.map(renderConversation)}
-          </ul>
         </div>
 
         {isGuest && !listLoading && (
@@ -1239,6 +1482,14 @@ function App() {
                 ✕
               </button>
               <span className="chat-title">1 dipilih</span>
+              {canEdit(selected) && (
+                <button className="icon-button" onClick={() => startEdit(selected)} aria-label="Edit pertanyaan">
+                  <PencilIcon />
+                </button>
+              )}
+              <button className="icon-button" onClick={() => download(selected)} aria-label="Unduh pesan">
+                <DownloadIcon />
+              </button>
               <button className="icon-button" onClick={() => copy(selected)} aria-label="Salin pesan">
                 <CopyIcon />
               </button>
@@ -1287,7 +1538,7 @@ function App() {
               </div>
             ))}
 
-          {messages.map((message) => (
+          {messages.map((message, index) => (
             <MessageItem
               key={message.id}
               message={message}
@@ -1307,6 +1558,13 @@ function App() {
               canRate={!isGuest && message.sender === "bot" && !LOCAL_ID.test(message.id)}
               onRate={(rating) => rate(message, rating)}
               onRetry={message.id === retryId ? () => retry(message) : undefined}
+              onDownload={() => download(message)}
+              onEdit={canEdit(message) ? () => startEdit(message) : undefined}
+              editing={message.id === editingId}
+              editReplacesLater={index < messages.length - 1}
+              onEditDone={(text) => finishEdit(message, text)}
+              onRegenerate={message.id === freshAnswerId ? () => regenerate(message) : undefined}
+              onSuggest={message.id === freshAnswerId ? ask : undefined}
             />
           ))}
 
@@ -1381,18 +1639,35 @@ function App() {
             onBlur={() => setInputFocused(false)}
             onKeyDown={handleInputKey}
             onPaste={handlePaste}
-            placeholder="Tulis pertanyaan..."
+            placeholder={loading ? "Tambahkan arahan..." : "Tulis pertanyaan..."}
             maxLength={2000}
           />
-          {loading ? (
-            <button type="button" className="stop-button" onClick={stopAnswer} aria-label="Hentikan jawaban">
-              Berhenti
-            </button>
-          ) : (
-            <button type="submit" disabled={(input.trim() === "" && attachment === null) || uploading || agentOffline}>
-              Kirim
-            </button>
-          )}
+          {/* one round button: stop while an answer is made and the box is empty, otherwise send (an extra instruction while answering) */}
+          <div className="send-actions">
+            {loading && input.trim() === "" ? (
+              <button
+                key="stop"
+                type="button"
+                className="stop-button"
+                onClick={stopAnswer}
+                aria-label="Hentikan jawaban"
+                title="Hentikan jawaban"
+              >
+                <StopIcon />
+              </button>
+            ) : (
+              <button
+                key="send"
+                type="submit"
+                className="send-button"
+                disabled={loading ? uploading : (input.trim() === "" && attachment === null) || uploading || agentOffline}
+                aria-label={loading ? "Kirim arahan tambahan" : "Kirim"}
+                title={loading ? "Ulangi jawaban dengan arahan ini" : "Kirim"}
+              >
+                <PlayIcon />
+              </button>
+            )}
+          </div>
         </form>
       </div>
       {(dialog === "masuk" || dialog === "daftar") && (
