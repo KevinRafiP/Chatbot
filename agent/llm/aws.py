@@ -52,9 +52,6 @@ class KlienAWS:
                 pesan, alasan = (data.get("output") or {}).get("message"), data.get("stopReason")
                 catat_token(data.get("usage"))
         except TimeoutError:
-            if alasan == "max_tokens":
-                # token habis untuk berpikir sebelum menulis jawaban; mengulang tanpa alat hanya membuang token lagi
-                raise GalatLLM(f"Bedrock kehabisan {self.maks_token} token sebelum menulis jawaban", 413)
             raise GalatLLM(f"Bedrock diam lebih dari {batas_waktu} detik", 204)
         if not pesan or not pesan.get("content"):
             if alasan == "max_tokens":
