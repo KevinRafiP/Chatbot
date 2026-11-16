@@ -212,8 +212,20 @@ function renderBlocks(text: string, prefix = "b"): ReactNode[] {
       const head = tableCells(line);
       const align = tableAlign(lines[i + 1]);
       const rows: string[][] = [];
-      for (i += 2; i < lines.length && lines[i].includes("|") && lines[i].trim() !== ""; i++) {
-        rows.push(tableCells(lines[i]));
+      for (i += 2; i < lines.length; i++) {
+        if (lines[i].trim() === "") {
+          // a model sometimes leaves blank lines between rows; the table goes on unless a new table starts
+          let next = i;
+          while (next < lines.length && lines[next].trim() === "") next++;
+          const newTable = next + 1 < lines.length && TABLE_DIVIDER.test(lines[next + 1]);
+          if (next < lines.length && lines[next].trim().startsWith("|") && !newTable) {
+            i = next - 1;
+            continue;
+          }
+          break;
+        }
+        if (!lines[i].includes("|")) break;
+        if (!TABLE_DIVIDER.test(lines[i])) rows.push(tableCells(lines[i]));
       }
       blocks.push(
         <div key={key()} className="md-table">

@@ -8,8 +8,19 @@ import {
   type ClipboardEvent as ReactClipboardEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
-import { AccountMenu, AdminForm, AuthForm, Dialog, ForgotForm, KnowledgeForm, ResetForm, type DialogName } from "./AccountMenu";
+import {
+  AccountMenu,
+  AdminForm,
+  AuthForm,
+  Dialog,
+  ForgotForm,
+  InstructionsForm,
+  KnowledgeForm,
+  ResetForm,
+  type DialogName,
+} from "./AccountMenu";
 import { FavoriteList } from "./FavoriteList";
 import { IMAGE_NAME, isImage, prepareImage } from "./imageUpload";
 import { JumpButton } from "./JumpButton";
@@ -24,16 +35,22 @@ import {
   ApiError,
   BlockedError,
   createConversation,
+  createFolder,
   deleteConversation,
+  deleteFolder,
+  finishGoogleSignIn,
   getAccount,
   getAgentStatus,
   listConversations,
   listFavorites,
+  listFolders,
   listMessages,
   logout,
+  moveToFolder,
   onServerWaking,
   pinConversation,
   renameConversation,
+  renameFolder,
   resumeAnswer,
   searchConversations,
   sendGuestMessage,
@@ -50,6 +67,7 @@ import {
   type Attachment,
   type Conversation,
   type FavoriteMessage,
+  type Folder,
   type Message,
   type Rating,
   type RunningAnswer,
@@ -64,9 +82,18 @@ const MOBILE_QUERY = "(max-width: 768px)";
 const LINK_PARAMS = new URLSearchParams(window.location.search);
 const VERIFY_CODE = LINK_PARAMS.get("verifikasi");
 const RESET_CODE = LINK_PARAMS.get("atur-ulang");
-if (VERIFY_CODE !== null || RESET_CODE !== null) {
+// set by the backend after Google's sign-in page sends the browser back
+const GOOGLE_CODE = LINK_PARAMS.get("masuk_google");
+const GOOGLE_FAIL = LINK_PARAMS.get("google_gagal");
+if (VERIFY_CODE !== null || RESET_CODE !== null || GOOGLE_CODE !== null || GOOGLE_FAIL !== null) {
   window.history.replaceState(null, "", window.location.pathname);
 }
+const GOOGLE_FAIL_TEXT: Record<string, string> = {
+  batal: "Masuk dengan Google dibatalkan.",
+  kedaluwarsa: "Waktu masuk dengan Google habis, coba lagi.",
+  email: "Email akun Google itu belum terverifikasi.",
+};
+const CLOSED_FOLDERS_KEY = "closedFolders";
 const TOAST_MS = 2000;
 // a toast about another chat stays longer, since the user was not looking at it
 const NEWS_MS = 4000;
@@ -122,6 +149,16 @@ const SAVED_CHAT = (() => {
   }
 })();
 
+// Folders the user folded shut, kept per browser; every folder is open when nothing was saved
+function readClosedFolders(): ReadonlySet<string> {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(CLOSED_FOLDERS_KEY) ?? "[]");
+    return new Set(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
 // The last chosen answer mode, kept per browser; "deep" when nothing was saved or storage is blocked
 function readMode(): AnswerMode {
   try {
@@ -135,12 +172,139 @@ type ConversationItemProps = {
   conversation: Conversation;
   active: boolean;
   menuOpen: boolean;
+  folders: Folder[];
   onOpen: () => void;
   onToggleMenu: () => void;
   onRename: (title: string) => void;
   onDelete: () => void;
   onTogglePin: () => void;
+  onMove: (folderId: string) => void;
+  onNewFolder: () => void;
 };
+
+function FolderIcon({ open }: { open: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" className="folder-icon">
+      <path
+        d={open ? "M3 7V5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v2M3 7l2 12h15l2-10H6" : "M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// A name box in the folder list, for a new folder or a new name; Enter saves, Escape or an empty name cancels
+function FolderNameInput({ initial, onDone, onCancel }: { initial: string; onDone: (name: string) => void; onCancel: () => void }) {
+  const [draft, setDraft] = useState(initial);
+  const finished = useRef(false);
+
+  function finish(save: boolean) {
+    if (finished.current) return;
+    finished.current = true;
+    const name = draft.trim();
+    if (save && name !== "" && name !== initial) {
+      onDone(name);
+    } else {
+      onCancel();
+    }
+  }
+
+  return (
+    <input
+      className="rename folder-name-input"
+      value={draft}
+      autoFocus
+      maxLength={40}
+      placeholder="Nama folder"
+      aria-label="Nama folder"
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => finish(true)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") finish(true);
+        if (event.key === "Escape") finish(false);
+      }}
+    />
+  );
+}
+
+type FolderGroupProps = {
+  folder: Folder;
+  items: Conversation[];
+  open: boolean;
+  menuOpen: boolean;
+  hasActive: boolean;
+  onToggleOpen: () => void;
+  onToggleMenu: () => void;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+  renderItem: (item: Conversation) => ReactNode;
+};
+
+// One folder in the sidebar: its name folds the list open or shut, the three-dot button renames or deletes it
+function FolderGroup(props: FolderGroupProps) {
+  const { folder, items, open, menuOpen } = props;
+  const [editing, setEditing] = useState(false);
+
+  return (
+    <div className="folder">
+      {editing ? (
+        <FolderNameInput
+          initial={folder.name}
+          onDone={(name) => {
+            setEditing(false);
+            props.onRename(name);
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      ) : (
+        <div className={`folder-head ${!open && props.hasActive ? "has-active" : ""}`}>
+          <button className="open" onClick={props.onToggleOpen} aria-expanded={open} title={folder.name}>
+            <span className={`folder-caret ${open ? "expanded" : ""}`} aria-hidden="true">
+              ›
+            </span>
+            <FolderIcon open={open} />
+            <span className="folder-name">{folder.name}</span>
+            <span className="folder-count">{items.length}</span>
+          </button>
+          <div className="item-menu">
+            <button
+              className={`more ${menuOpen ? "shown" : ""}`}
+              onClick={props.onToggleMenu}
+              aria-label={`Menu folder ${folder.name}`}
+              aria-expanded={menuOpen}
+            >
+              ⋮
+            </button>
+            {menuOpen && (
+              <div className="dropdown" role="menu">
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setEditing(true);
+                    props.onToggleMenu();
+                  }}
+                >
+                  Ganti nama
+                </button>
+                <button role="menuitem" className="danger" onClick={props.onDelete}>
+                  Hapus folder
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {open && (
+        <ul className="conversation-list folder-items">
+          {items.length === 0 ? <li className="list-empty">Folder kosong</li> : items.map(props.renderItem)}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 // A pushpin, shown before the title of a pinned conversation
 function PinIcon() {
@@ -178,6 +342,8 @@ function ConversationItem(props: ConversationItemProps) {
   const { conversation, active, menuOpen } = props;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(conversation.title);
+  // the menu shows the folder choices instead of its normal items
+  const [moving, setMoving] = useState(false);
 
   function startRename() {
     setDraft(conversation.title);
@@ -227,13 +393,16 @@ function ConversationItem(props: ConversationItemProps) {
       <div className="item-menu">
         <button
           className={`more ${menuOpen ? "shown" : ""}`}
-          onClick={props.onToggleMenu}
+          onClick={() => {
+            setMoving(false);
+            props.onToggleMenu();
+          }}
           aria-label="Menu percakapan"
           aria-expanded={menuOpen}
         >
           ⋮
         </button>
-        {menuOpen && (
+        {menuOpen && !moving && (
           <div className="dropdown" role="menu">
             <button role="menuitem" onClick={props.onTogglePin}>
               {conversation.pinned ? "Lepas sematan" : "Sematkan"}
@@ -241,9 +410,41 @@ function ConversationItem(props: ConversationItemProps) {
             <button role="menuitem" onClick={startRename}>
               Ganti nama
             </button>
+            <button role="menuitem" onClick={() => setMoving(true)}>
+              Pindahkan ke folder
+            </button>
             <button role="menuitem" className="danger" onClick={props.onDelete}>
               Hapus
             </button>
+          </div>
+        )}
+        {menuOpen && moving && (
+          <div className="dropdown folder-picker" role="menu" aria-label="Pilih folder">
+            <button role="menuitem" className="menu-back" onClick={() => setMoving(false)}>
+              ‹ Kembali
+            </button>
+            <div className="folder-choices">
+              {props.folders.map((folder) => (
+                <button
+                  key={folder.id}
+                  role="menuitemradio"
+                  aria-checked={folder.id === conversation.folderId}
+                  className={folder.id === conversation.folderId ? "current" : ""}
+                  disabled={folder.id === conversation.folderId}
+                  onClick={() => props.onMove(folder.id)}
+                >
+                  {folder.name}
+                </button>
+              ))}
+            </div>
+            <button role="menuitem" onClick={props.onNewFolder}>
+              + Folder baru
+            </button>
+            {conversation.folderId !== "" && (
+              <button role="menuitem" onClick={() => props.onMove("")}>
+                Keluarkan dari folder
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -258,10 +459,14 @@ function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(GOOGLE_FAIL === null ? "" : (GOOGLE_FAIL_TEXT[GOOGLE_FAIL] ?? "Masuk dengan Google gagal, coba lagi."));
   const [sidebarOpen, setSidebarOpen] = useState(() => !window.matchMedia(MOBILE_QUERY).matches);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [account, setAccount] = useState<Account | null>(null);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [closedFolders, setClosedFolders] = useState<ReadonlySet<string>>(readClosedFolders);
+  // the name box for a new folder; moveId is the conversation that goes into it once it is made
+  const [newFolder, setNewFolder] = useState<{ moveId: string | null } | null>(null);
   const [dialog, setDialog] = useState<DialogName | null>(RESET_CODE !== null ? "atur-ulang" : null);
   const [typingId, setTypingId] = useState<string | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
@@ -708,25 +913,30 @@ function App() {
   // Opening the link from the verification email logs into the new account first
   useEffect(() => {
     onServerWaking(setWaking);
-    const start =
-      VERIFY_CODE === null
-        ? getAccount()
-        : verifyEmail(VERIFY_CODE).then(
-            (current) => {
-              setToast("Email terverifikasi, selamat datang!");
-              toastTimer.current = window.setTimeout(() => setToast(""), TOAST_MS);
-              return current;
-            },
-            () => {
-              setError("Link verifikasi salah atau sudah kedaluwarsa.");
-              return getAccount();
-            },
-          );
+    const welcome = (text: string) => (current: Account) => {
+      setToast(text);
+      toastTimer.current = window.setTimeout(() => setToast(""), TOAST_MS);
+      return current;
+    };
+    let start: Promise<Account>;
+    if (VERIFY_CODE !== null) {
+      start = verifyEmail(VERIFY_CODE).then(welcome("Email terverifikasi, selamat datang!"), () => {
+        setError("Link verifikasi salah atau sudah kedaluwarsa.");
+        return getAccount();
+      });
+    } else if (GOOGLE_CODE !== null) {
+      start = finishGoogleSignIn(GOOGLE_CODE).then(welcome("Berhasil masuk dengan Google"), () => {
+        setError("Masuk dengan Google gagal atau sudah kedaluwarsa, coba lagi.");
+        return getAccount();
+      });
+    } else {
+      start = getAccount();
+    }
     start
       .then(async (current) => {
         setAccount(current);
         if (current.role !== "tamu") {
-          const list = await listConversations();
+          const [list] = await Promise.all([listConversations(), loadFolders()]);
           setConversations(list);
           restoreChat(list);
         }
@@ -904,6 +1114,95 @@ function App() {
     }
   }
 
+  // Folders are a sorting aid: if they fail to load, the conversations still show in the history list
+  async function loadFolders() {
+    try {
+      setFolders(await listFolders());
+    } catch {
+      setFolders([]);
+    }
+  }
+
+  function saveClosedFolders(next: ReadonlySet<string>) {
+    setClosedFolders(next);
+    try {
+      localStorage.setItem(CLOSED_FOLDERS_KEY, JSON.stringify([...next]));
+    } catch {
+      // the folders stay folded this way until the page is reloaded
+    }
+  }
+
+  function toggleFolder(id: string) {
+    const next = new Set(closedFolders);
+    if (!next.delete(id)) next.add(id);
+    saveClosedFolders(next);
+  }
+
+  function startNewFolder(moveId: string | null) {
+    setMenuId(null);
+    setNewFolder({ moveId });
+  }
+
+  // Makes a folder, and moves the conversation whose menu asked for it into the new folder
+  async function addFolder(name: string) {
+    const moveId = newFolder?.moveId ?? null;
+    setNewFolder(null);
+    try {
+      const folder = await createFolder(name);
+      setFolders((current) => [...current, folder].sort((a, b) => a.name.localeCompare(b.name, "id")));
+      if (moveId !== null) await moveConversation(moveId, folder.id);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Gagal membuat folder.");
+    }
+  }
+
+  async function changeFolderName(id: string, name: string) {
+    try {
+      const saved = await renameFolder(id, name);
+      setFolders((current) =>
+        current.map((item) => (item.id === id ? saved : item)).sort((a, b) => a.name.localeCompare(b.name, "id")),
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Gagal mengganti nama folder.");
+    }
+  }
+
+  // Deleting a folder keeps its conversations; they go back to the history list
+  async function removeFolder(folder: Folder) {
+    setMenuId(null);
+    if (!window.confirm(`Hapus folder "${folder.name}"? Percakapan di dalamnya tetap ada di Riwayat.`)) {
+      return;
+    }
+    try {
+      await deleteFolder(folder.id);
+      setFolders((current) => current.filter((item) => item.id !== folder.id));
+      setConversations((current) => current.map((item) => (item.folderId === folder.id ? { ...item, folderId: "" } : item)));
+    } catch {
+      setError("Gagal menghapus folder.");
+    }
+  }
+
+  // Moves a conversation right away and puts it back if saving fails; the folder it lands in opens
+  async function moveConversation(id: string, folderId: string) {
+    setMenuId(null);
+    const before = conversationsRef.current.find((item) => item.id === id)?.folderId ?? "";
+    const mark = (value: string) =>
+      setConversations((current) => current.map((item) => (item.id === id ? { ...item, folderId: value } : item)));
+    mark(folderId);
+    if (folderId !== "" && closedFolders.has(folderId)) {
+      const next = new Set(closedFolders);
+      next.delete(folderId);
+      saveClosedFolders(next);
+    }
+    try {
+      await moveToFolder(id, folderId);
+      showToast(folderId === "" ? "Dikeluarkan dari folder" : `Dipindahkan ke ${folders.find((item) => item.id === folderId)?.name ?? "folder"}`);
+    } catch {
+      mark(before);
+      setError("Gagal memindahkan percakapan.");
+    }
+  }
+
   // Opens a form from the account menu
   function openDialog(name: DialogName) {
     setMenuId(null);
@@ -917,7 +1216,8 @@ function App() {
     startNew();
     setListLoading(true);
     try {
-      setConversations(await listConversations());
+      const [list] = await Promise.all([listConversations(), loadFolders()]);
+      setConversations(list);
     } catch {
       setError("Gagal memuat percakapan.");
     } finally {
@@ -937,6 +1237,7 @@ function App() {
     try {
       await logout();
       setConversations([]);
+      setFolders([]);
       startNew();
       setAccount(await getAccount());
     } catch {
@@ -1350,7 +1651,10 @@ function App() {
   const isGuest = account === null || account.role === "tamu";
   const selected = messages.find((item) => item.id === selectedId) ?? null;
   const pinnedList = conversations.filter((item) => item.pinned);
-  const otherList = conversations.filter((item) => !item.pinned);
+  // a pinned conversation stays in the pinned list only, so one row never shows twice
+  const folderIds = new Set(folders.map((folder) => folder.id));
+  const inFolder = (item: Conversation) => item.folderId !== "" && folderIds.has(item.folderId);
+  const otherList = conversations.filter((item) => !item.pinned && !inFolder(item));
   // only the newest question can be sent again, and only when nothing came after it except its half answer
   const lastQuestion = [...messages].reverse().find((item) => item.sender === "user");
   const retryId = !loading && lastQuestion?.note ? lastQuestion.id : null;
@@ -1379,9 +1683,12 @@ function App() {
         menuOpen={item.id === menuId}
         onOpen={() => openConversation(item.id)}
         onToggleMenu={() => setMenuId((current) => (current === item.id ? null : item.id))}
+        folders={folders}
         onRename={(title) => changeTitle(item.id, title)}
         onDelete={() => removeConversation(item.id)}
         onTogglePin={() => togglePin(item)}
+        onMove={(folderId) => moveConversation(item.id, folderId)}
+        onNewFolder={() => startNewFolder(item.id)}
       />
     );
   }
@@ -1444,6 +1751,38 @@ function App() {
                 <>
                   <p className="list-title">Disematkan</p>
                   <ul className="conversation-list">{pinnedList.map(renderConversation)}</ul>
+                </>
+              )}
+              {!isGuest && !listLoading && (
+                <>
+                  <div className="list-title folder-title">
+                    <span>Folder</span>
+                    <button className="folder-add" onClick={() => startNewFolder(null)} aria-label="Folder baru" title="Folder baru">
+                      +
+                    </button>
+                  </div>
+                  {newFolder !== null && (
+                    <FolderNameInput initial="" onDone={addFolder} onCancel={() => setNewFolder(null)} />
+                  )}
+                  {folders.length === 0 && newFolder === null && <p className="list-empty folder-hint">Belum ada folder</p>}
+                  {folders.map((folder) => {
+                    const items = conversations.filter((item) => !item.pinned && item.folderId === folder.id);
+                    return (
+                      <FolderGroup
+                        key={folder.id}
+                        folder={folder}
+                        items={items}
+                        open={!closedFolders.has(folder.id)}
+                        menuOpen={menuId === `folder:${folder.id}`}
+                        hasActive={items.some((item) => item.id === activeId)}
+                        onToggleOpen={() => toggleFolder(folder.id)}
+                        onToggleMenu={() => setMenuId((current) => (current === `folder:${folder.id}` ? null : `folder:${folder.id}`))}
+                        onRename={(name) => changeFolderName(folder.id, name)}
+                        onDelete={() => removeFolder(folder)}
+                        renderItem={renderConversation}
+                      />
+                    );
+                  })}
                 </>
               )}
               <p className="list-title">Riwayat</p>
@@ -1699,6 +2038,16 @@ function App() {
       {dialog === "admin" && account?.role === "admin" && (
         <Dialog title="Tambah admin" onClose={() => setDialog(null)}>
           <AdminForm />
+        </Dialog>
+      )}
+      {dialog === "instruksi" && !isGuest && (
+        <Dialog title="Instruksi pribadi" onClose={() => setDialog(null)}>
+          <InstructionsForm
+            onSaved={() => {
+              setDialog(null);
+              showToast("Instruksi pribadi disimpan");
+            }}
+          />
         </Dialog>
       )}
       {dialog === "kinerja" && account?.role === "admin" && (

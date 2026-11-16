@@ -42,7 +42,7 @@ def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM, paksa_cari=False):
         bisa_wajib = time.monotonic() >= ingat["tolak_wajib_sampai"]
         wajib = bool(keadaan.get("wajib_cari")) and keadaan["putaran_llm"] == 0 and bisa_wajib
         kabar = keadaan.get("kabar")
-        sistem = INSTRUKSI_OBROLAN if keadaan.get("obrolan") else instruksi + keadaan.get("instruksi_tambahan", "")
+        sistem = (INSTRUKSI_OBROLAN if keadaan.get("obrolan") else instruksi) + keadaan.get("instruksi_tambahan", "")
         tertulis = []
 
         def saat_teks(potongan):

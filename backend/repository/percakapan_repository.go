@@ -20,7 +20,7 @@ func BaruPercakapanRepository(db *sql.DB) *PercakapanRepository {
 
 // Semua mengambil percakapan milik satu pengguna: yang disematkan paling atas (terakhir disematkan dulu), lalu yang terbaru
 func (r *PercakapanRepository) Semua(penggunaID string) ([]model.Percakapan, error) {
-	rows, err := r.db.Query(`SELECT id, judul, disematkan_pada IS NOT NULL, diperbarui_pada FROM percakapan
+	rows, err := r.db.Query(`SELECT id, judul, disematkan_pada IS NOT NULL, COALESCE(folder_id::text, ''), diperbarui_pada FROM percakapan
 		WHERE pengguna_id = $1 AND dihapus_pada IS NULL ORDER BY disematkan_pada DESC NULLS LAST, diperbarui_pada DESC`, penggunaID)
 	if err != nil {
 		return nil, err
@@ -30,7 +30,7 @@ func (r *PercakapanRepository) Semua(penggunaID string) ([]model.Percakapan, err
 	daftar := []model.Percakapan{}
 	for rows.Next() {
 		var p model.Percakapan
-		if err := rows.Scan(&p.ID, &p.Judul, &p.Disematkan, &p.DiperbaruiPada); err != nil {
+		if err := rows.Scan(&p.ID, &p.Judul, &p.Disematkan, &p.FolderID, &p.DiperbaruiPada); err != nil {
 			return nil, err
 		}
 		daftar = append(daftar, p)

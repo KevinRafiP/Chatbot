@@ -33,6 +33,9 @@ func BuatChatbot(
 	ingestionService *service.IngestionService,
 	kinerjaService *service.KinerjaService,
 	jatahService *service.JatahService,
+	ingatanService *service.IngatanService,
+	folderService *service.FolderService,
+	google *service.MasukGoogle,
 	turnstile *captcha.Turnstile,
 	corsOrigin []string,
 	kunciAgent string,
@@ -84,6 +87,7 @@ func BuatChatbot(
 
 	mux.HandleFunc("GET /kesehatan", handler.Kesehatan)
 	mux.HandleFunc("GET /status-agen", handler.StatusAgen(chatbotService))
+	mux.HandleFunc("GET /kesehatan/lengkap", handler.KesehatanLengkap(chatbotService))
 
 	mux.Handle("POST /sesi/tamu", middleware.BatasiLaju(pembatasTamu, perIP, handler.MasukTamu(sesiService)))
 	mux.Handle("GET /sesi", wajib(http.HandlerFunc(handler.SesiSaya)))
@@ -95,6 +99,12 @@ func BuatChatbot(
 	mux.Handle("POST /akun/kirim-ulang", middleware.BatasiLaju(pembatasAkun, perIP, handler.KirimUlangVerifikasi(akunService)))
 	mux.Handle("POST /akun/lupa-password", middleware.BatasiLaju(pembatasAkun, perIP, handler.LupaPassword(akunService)))
 	mux.Handle("POST /akun/atur-ulang", middleware.BatasiLaju(pembatasAkun, perIP, handler.AturUlangPassword(akunService)))
+	mux.HandleFunc("GET /akun/google", handler.GoogleAktif(google))
+	mux.Handle("POST /akun/google/mulai", middleware.BatasiLaju(pembatasAkun, perIP, handler.MulaiGoogle(google)))
+	mux.HandleFunc("GET /akun/google/kembali", handler.KembaliGoogle(google))
+	mux.Handle("POST /akun/google/tukar", middleware.BatasiLaju(pembatasAkun, perIP, handler.TukarGoogle(google)))
+	mux.Handle("GET /akun/instruksi", akun(handler.AmbilInstruksi(ingatanService)))
+	mux.Handle("PATCH /akun/instruksi", akun(handler.SimpanInstruksi(ingatanService)))
 
 	// tamu hanya bisa chat; percakapannya tidak disimpan, riwayatnya dikirim dari browser
 	mux.Handle("POST /tamu/pesan", wajib(
@@ -110,6 +120,7 @@ func BuatChatbot(
 	mux.Handle("POST /admin/admin", admin(handler.JadikanAdmin(akunService)))
 	mux.Handle("GET /admin/kinerja", admin(handler.LaporanKinerja(kinerjaService)))
 	mux.Handle("GET /admin/kinerja/terbaru", admin(handler.TerbaruKinerja(kinerjaService)))
+	mux.Handle("GET /admin/kinerja/tren", admin(handler.TrenKinerja(kinerjaService)))
 
 	mux.Handle("GET /percakapan", akun(handler.DaftarPercakapan(percakapanService)))
 	mux.Handle("GET /percakapan/cari", akun(handler.CariPercakapan(percakapanService)))
@@ -117,6 +128,11 @@ func BuatChatbot(
 	mux.Handle("DELETE /percakapan/{id}", akun(handler.HapusPercakapan(percakapanService)))
 	mux.Handle("PATCH /percakapan/{id}", akun(handler.GantiNamaPercakapan(percakapanService)))
 	mux.Handle("PATCH /percakapan/{id}/sematkan", akun(handler.SematkanPercakapan(percakapanService)))
+	mux.Handle("PATCH /percakapan/{id}/folder", akun(handler.PindahkanKeFolder(folderService)))
+	mux.Handle("GET /folder", akun(handler.DaftarFolder(folderService)))
+	mux.Handle("POST /folder", akun(handler.BuatFolder(folderService)))
+	mux.Handle("PATCH /folder/{id}", akun(handler.GantiNamaFolder(folderService)))
+	mux.Handle("DELETE /folder/{id}", akun(handler.HapusFolder(folderService)))
 	mux.Handle("GET /percakapan/{id}/pesan", akun(handler.DaftarPesan(percakapanService)))
 	mux.Handle("GET /pesan/favorit", akun(handler.DaftarFavorit(percakapanService)))
 	mux.Handle("PATCH /pesan/{id}/favorit", akun(handler.FavoritPesan(percakapanService)))

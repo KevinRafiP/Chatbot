@@ -6,7 +6,8 @@ const GUEST_TOKEN_KEY = "chatbot_guest_token";
 
 // answering is true while the server is still making an answer in this conversation;
 // failed is true when its last answer failed and the question was not sent again yet
-export type Conversation = { id: string; title: string; pinned: boolean; answering: boolean; failed: boolean };
+export type Conversation = { id: string; title: string; pinned: boolean; answering: boolean; failed: boolean; folderId: string };
+export type Folder = { id: string; name: string; count: number };
 export type Source = { title: string; url: string };
 export type Message = {
   id: string;
@@ -102,9 +103,22 @@ export type PerformanceReport = {
 
 // One page of the newest performance logs; total counts every log in the period
 export type PerformanceRecentPage = { entries: PerformanceEntry[]; total: number; page: number; perPage: number };
+export type TrendPoint = {
+  time: string;
+  count: number;
+  failed: number;
+  avgMs: number;
+  p90Ms: number;
+  tokensIn: number;
+  tokensOut: number;
+  likes: number;
+  dislikes: number;
+};
+export type PerformanceTrend = { unit: "jam" | "hari"; points: TrendPoint[]; slowest: PerformanceEntry[] };
 
 type ApiResponse<T> = { status: string; message: string; data: T };
-type RawConversation = { id: string; judul: string; disematkan?: boolean; menjawab?: boolean; gagal?: boolean };
+type RawConversation = { id: string; judul: string; disematkan?: boolean; menjawab?: boolean; gagal?: boolean; folder_id?: string };
+type RawFolder = { id: string; nama: string; jumlah: number };
 type RawRunning = { pertanyaan: string; lampiran?: string; dimulai_pada: string; selesai?: boolean };
 type RawSource = { judul: string; url: string };
 type RawMessage = {
@@ -173,6 +187,18 @@ type RawPerformance = {
 };
 
 type RawRecentPage = { baris: RawPerformanceEntry[]; total: number; halaman: number; per_halaman: number };
+type RawTrendPoint = {
+  waktu: string;
+  jumlah: number;
+  gagal: number;
+  rata_lama_ms: number;
+  p90_lama_ms: number;
+  token_masuk: number;
+  token_keluar: number;
+  suka: number;
+  tidak_suka: number;
+};
+type RawTrend = { satuan: "jam" | "hari"; titik: RawTrendPoint[] | null; terlambat: RawPerformanceEntry[] | null };
 
 // Render free puts the backend to sleep; these are the waits before each new try while it wakes up (about 2.5 minutes in total)
 const RETRY_DELAYS_MS = [5000, 10000, 15000, 20000, 30000, 30000, 40000];
@@ -436,6 +462,7 @@ function toConversation(raw: RawConversation): Conversation {
     pinned: raw.disematkan === true,
     answering: raw.menjawab === true,
     failed: raw.gagal === true,
+    folderId: raw.folder_id ?? "",
   };
 }
 
@@ -715,6 +742,72 @@ export async function resetPassword(code: string, password: string, remember: bo
   return toAccount(data.pengguna);
 }
 
+// Starts "Sign in with Google": the backend answers with Google's page, and the browser leaves the app to open it
+export async function startGoogleSignIn(remember: boolean): Promise<void> {
+  const data = await postAccount<{ url: string }>("/akun/google/mulai", { ingat: remember });
+  window.location.assign(data.url);
+}
+
+let googlePromise: Promise<Account> | null = null;
+
+// Trades the one-time code Google's return brought back for a login session; like verifyEmail it runs once
+export function finishGoogleSignIn(code: string): Promise<Account> {
+  googlePromise ??= postAccount<RawSession & { ingat: boolean }>("/akun/google/tukar", { kode: code }).then((data) => {
+    saveToken(data.token, "account", data.ingat);
+    return toAccount(data.pengguna);
+  });
+  return googlePromise;
+}
+
+// Whether the backend has Google sign-in set up; an old backend without the endpoint counts as off
+export async function getGoogleEnabled(): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_URL}/akun/google`);
+    if (!response.ok) return false;
+    const result: ApiResponse<{ aktif: boolean }> = await response.json();
+    return result.data.aktif === true;
+  } catch {
+    return false;
+  }
+}
+
+// The account's own instructions for how the AI answers, such as a name to use or a preferred style
+export async function getInstructions(): Promise<{ text: string; limit: number }> {
+  const data = await request<{ instruksi: string; batas: number }>("GET", "/akun/instruksi");
+  return { text: data.instruksi, limit: data.batas };
+}
+
+export async function saveInstructions(text: string): Promise<string> {
+  const data = await request<{ instruksi: string }>("PATCH", "/akun/instruksi", { instruksi: text });
+  return data.instruksi;
+}
+
+function toFolder(raw: RawFolder): Folder {
+  return { id: raw.id, name: raw.nama, count: raw.jumlah };
+}
+
+export async function listFolders(): Promise<Folder[]> {
+  return (await request<RawFolder[]>("GET", "/folder")).map(toFolder);
+}
+
+export async function createFolder(name: string): Promise<Folder> {
+  return toFolder(await request<RawFolder>("POST", "/folder", { nama: name }));
+}
+
+export async function renameFolder(id: string, name: string): Promise<Folder> {
+  return toFolder(await request<RawFolder>("PATCH", `/folder/${id}`, { nama: name }));
+}
+
+// Deleting a folder keeps its conversations; they move back to the history list
+export async function deleteFolder(id: string): Promise<void> {
+  await request<unknown>("DELETE", `/folder/${id}`);
+}
+
+// folderId "" takes the conversation out of its folder
+export async function moveToFolder(conversationId: string, folderId: string): Promise<void> {
+  await request<unknown>("PATCH", `/percakapan/${conversationId}/folder`, { folder_id: folderId });
+}
+
 // Admin only: saves one entry into the internal data used by the chatbot
 export async function addKnowledge(title: string, content: string, keywords: string): Promise<void> {
   await request<unknown>("POST", "/admin/pengetahuan", { judul: title, isi: content, kata_kunci: keywords });
@@ -778,22 +871,48 @@ export async function getPerformance(range: PerformanceRange, account = ""): Pro
 export async function getPerformanceRecent(range: PerformanceRange, account: string, page: number): Promise<PerformanceRecentPage> {
   const data = await request<RawRecentPage>("GET", `/admin/kinerja/terbaru?${rangeQuery(range, account)}&halaman=${page}`);
   return {
-    entries: data.baris.map((entry) => ({
-      profile: entry.profil,
-      ok: entry.berhasil,
-      error: entry.galat ?? "",
-      durationMs: entry.lama_ms,
-      tokensIn: entry.token_masuk,
-      tokensOut: entry.token_keluar,
-      modelCalls: entry.panggilan_llm,
-      account: entry.akun ?? "",
-      accountName: entry.nama_akun ?? "",
-      tools: entry.alat ?? [],
-      createdAt: entry.dibuat_pada,
-    })),
+    entries: data.baris.map(toEntry),
     total: data.total,
     page: data.halaman,
     perPage: data.per_halaman,
+  };
+}
+
+// Admin only: answers, tokens, answer time, and ratings per hour (up to 48 hours) or per day in the browser's time zone,
+// plus the slowest answers of the period
+export async function getPerformanceTrend(range: PerformanceRange, account: string): Promise<PerformanceTrend> {
+  const zone = -new Date().getTimezoneOffset();
+  const data = await request<RawTrend>("GET", `/admin/kinerja/tren?${rangeQuery(range, account)}&zona=${zone}`);
+  return {
+    unit: data.satuan,
+    points: (data.titik ?? []).map((point) => ({
+      time: point.waktu,
+      count: point.jumlah,
+      failed: point.gagal,
+      avgMs: point.rata_lama_ms,
+      p90Ms: point.p90_lama_ms,
+      tokensIn: point.token_masuk,
+      tokensOut: point.token_keluar,
+      likes: point.suka,
+      dislikes: point.tidak_suka,
+    })),
+    slowest: (data.terlambat ?? []).map(toEntry),
+  };
+}
+
+function toEntry(entry: RawPerformanceEntry): PerformanceEntry {
+  return {
+    profile: entry.profil,
+    ok: entry.berhasil,
+    error: entry.galat ?? "",
+    durationMs: entry.lama_ms,
+    tokensIn: entry.token_masuk,
+    tokensOut: entry.token_keluar,
+    modelCalls: entry.panggilan_llm,
+    account: entry.akun ?? "",
+    accountName: entry.nama_akun ?? "",
+    tools: entry.alat ?? [],
+    createdAt: entry.dibuat_pada,
   };
 }
 

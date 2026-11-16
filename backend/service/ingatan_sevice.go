@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"chatbot/backend/agen"
 	"chatbot/backend/repository"
@@ -15,7 +17,12 @@ const (
 	// PerbaruiIngatanSetiap: ingatan dirangkum ulang setiap sekian pertanyaan, agar LLM tidak dipanggil di tiap pesan
 	PerbaruiIngatanSetiap = 4
 	BatasIngatan          = 1500
+	// BatasInstruksi adalah panjang maksimal instruksi pribadi, dalam huruf
+	BatasInstruksi = 1500
 )
+
+// ErrInstruksiPanjang dipakai bila instruksi pribadi lebih dari BatasInstruksi huruf
+var ErrInstruksiPanjang = fmt.Errorf("instruksi pribadi maksimal %d huruf", BatasInstruksi)
 
 // IngatanService menyimpan memori jangka panjang akun: ringkasan tentang pengguna yang dibawa ke semua percakapannya
 type IngatanService struct {
@@ -37,6 +44,29 @@ func (s *IngatanService) Ambil(penggunaID string) (string, bool) {
 		return "", false
 	}
 	return ingatan, hitung%PerbaruiIngatanSetiap == 0
+}
+
+// Instruksi mengembalikan instruksi pribadi untuk dikirim ke agent; kegagalan hanya dicatat agar chat tetap jalan
+func (s *IngatanService) Instruksi(penggunaID string) string {
+	instruksi, err := s.repo.Instruksi(penggunaID)
+	if err != nil {
+		log.Println("gagal membaca instruksi pribadi:", err)
+	}
+	return instruksi
+}
+
+// AmbilInstruksi mengembalikan instruksi pribadi untuk ditampilkan di pengaturan akun
+func (s *IngatanService) AmbilInstruksi(penggunaID string) (string, error) {
+	return s.repo.Instruksi(penggunaID)
+}
+
+// SimpanInstruksi merapikan lalu menyimpan instruksi pribadi; teks kosong berarti menghapusnya
+func (s *IngatanService) SimpanInstruksi(penggunaID, instruksi string) (string, error) {
+	instruksi = strings.TrimSpace(strings.ReplaceAll(instruksi, "\r\n", "\n"))
+	if utf8.RuneCountInString(instruksi) > BatasInstruksi {
+		return "", ErrInstruksiPanjang
+	}
+	return instruksi, s.repo.SimpanInstruksi(penggunaID, instruksi)
 }
 
 // PerbaruiNanti merangkum percakapan terbaru ke dalam ingatan di latar belakang, jadi pengguna tidak ikut menunggu

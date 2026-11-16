@@ -4,6 +4,7 @@ import re
 from llm.client import GalatLLM
 from simpul.siapkan import TANDA_DIPERSINGKAT
 
+POLA_PEMISAH_TABEL = re.compile(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
 POLA_SITASI = re.compile(r"\s*\[(?:data internal|sumber|source)?\s*(\d+)\]", re.IGNORECASE)
 
 
@@ -133,7 +134,24 @@ def bersihkan_format(teks):
             baris = re.sub(r"^\s{0,3}#{1,6}\s+", "### ", baris)
             baris = re.sub(r"^(\s*)[*+]\s+", r"\1- ", baris)
         hasil.append(baris)
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(hasil)).strip()
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(satukan_tabel(hasil))).strip()
+
+
+def satukan_tabel(semua_baris):
+    """Baris kosong di antara baris tabel dibuang, karena tabel Markdown terputus oleh baris kosong
+    dan sisa barisnya tampil sebagai teks "| a | b |"."""
+    hasil, di_kode = [], False
+    for i, baris in enumerate(semua_baris):
+        if baris.lstrip().startswith("```"):
+            di_kode = not di_kode
+        if not di_kode and not baris.strip() and hasil and hasil[-1].lstrip().startswith("|"):
+            j = next((j for j in range(i + 1, len(semua_baris)) if semua_baris[j].strip()), None)
+            # baris berikutnya yang diikuti garis pemisah adalah judul tabel baru, jadi tabelnya tidak disatukan
+            tabel_baru = j is not None and j + 1 < len(semua_baris) and POLA_PEMISAH_TABEL.match(semua_baris[j + 1])
+            if j is not None and semua_baris[j].lstrip().startswith("|") and not tabel_baru:
+                continue
+        hasil.append(baris)
+    return hasil
 
 
 def rapikan_sitasi(teks, semua, maks_sumber_luar):

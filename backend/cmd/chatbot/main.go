@@ -15,6 +15,7 @@ import (
 	"chatbot/backend/database"
 	"chatbot/backend/email"
 	"chatbot/backend/logawal"
+	"chatbot/backend/pelapor"
 	"chatbot/backend/repository"
 	"chatbot/backend/router"
 	"chatbot/backend/service"
@@ -26,6 +27,8 @@ const lamaTungguAgen = 30 * time.Second
 
 func main() {
 	cfg := config.Muat()
+	sentry := pelapor.Baru(cfg.SentryDSN, cfg.SentryLingkungan, "backend")
+	log.SetOutput(sentry.PenulisLog(log.Writer()))
 	// semua keterangan saat menyala dikumpulkan di sini lalu dicetak sekali sebagai tabel
 	tabel := logawal.Baru("Vokapas backend")
 
@@ -126,8 +129,14 @@ func main() {
 	tabel.Isif("Unggah berkas", "maksimal %d MB, %d per jam", cfg.BerkasMaksMB, cfg.BatasBerkasPerJam)
 	tabel.Isi("CORS", strings.Join(cfg.CORSOrigin, ", "))
 
-	mux := router.BuatChatbot(pengetahuanRepo, chatbotService, sesiService, percakapanService,
-		akunService, ingestionService, kinerjaService, jatahService, turnstile, cfg.CORSOrigin, cfg.AgentAPIKey, batas)
+	folderService := service.BaruFolderService(repository.BaruFolderRepository(db))
+	google := service.BaruMasukGoogle(cfg.GoogleClientID, cfg.GoogleClientSecret, alamatKembaliGoogle(cfg), alamatFrontend, akunService)
+	tabel.Isi("Masuk Google", logawal.AktifMati(google != nil, keteranganJika(google != nil,
+		"redirect URI "+alamatKembaliGoogle(cfg))))
+	tabel.Isi("Laporan galat", logawal.AktifMati(sentry != nil, keteranganJika(sentry != nil, "Sentry ("+sentryHost(sentry)+")")))
+
+	mux := router.BuatChatbot(pengetahuanRepo, chatbotService, sesiService, percakapanService, akunService, ingestionService,
+		kinerjaService, jatahService, ingatanService, folderService, google, turnstile, cfg.CORSOrigin, cfg.AgentAPIKey, batas)
 
 	// batas waktu membaca request mencegah koneksi lambat (slowloris) menahan server terlalu lama;
 	// WriteTimeout tidak dipasang karena jawaban agent bisa butuh lebih dari satu menit
@@ -192,7 +201,6 @@ func keteranganEmbedding(klien *agen.Klien, embedding *service.EmbeddingService)
 	return embedding.Keterangan()
 }
 
-// alamatDatabase menulis host dan nama database tanpa password
 func keteranganJika(aktif bool, keterangan string) string {
 	if !aktif {
 		return ""
@@ -205,4 +213,23 @@ func angkaAtauBebas(n int) string {
 		return "tanpa batas"
 	}
 	return fmt.Sprint(n)
+}
+
+// alamatKembaliGoogle: GOOGLE_REDIRECT_URL bila diisi, selain itu alamat Render, selain itu localhost
+func alamatKembaliGoogle(cfg config.Config) string {
+	switch {
+	case cfg.GoogleRedirectURL != "":
+		return cfg.GoogleRedirectURL
+	case cfg.RenderURL != "":
+		return strings.TrimRight(cfg.RenderURL, "/") + "/akun/google/kembali"
+	default:
+		return "http://localhost:" + cfg.AppPort + "/akun/google/kembali"
+	}
+}
+
+func sentryHost(s *pelapor.Sentry) string {
+	if s == nil {
+		return ""
+	}
+	return s.Host()
 }

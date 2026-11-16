@@ -2,15 +2,22 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   addKnowledge,
   ApiError,
+  getGoogleEnabled,
+  getInstructions,
   makeAdmin,
   requestPasswordReset,
   resendVerification,
   resetPassword,
+  saveInstructions,
   signIn,
+  startGoogleSignIn,
   type Account,
 } from "./api";
 
-export type DialogName = "masuk" | "daftar" | "lupa" | "atur-ulang" | "pengetahuan" | "admin" | "kinerja";
+export type DialogName = "masuk" | "daftar" | "lupa" | "atur-ulang" | "pengetahuan" | "admin" | "kinerja" | "instruksi";
+
+// asked once per page; the Google button only shows when the backend has Google sign-in set up
+let googleEnabled: Promise<boolean> | null = null;
 
 // How long the resend button waits; the backend also ignores a resend within one minute
 const RESEND_WAIT_SECONDS = 60;
@@ -70,6 +77,28 @@ export function AuthForm({ mode, onDone, onSwitch, onForgot }: AuthFormProps) {
   const [pendingEmail, setPendingEmail] = useState("");
   const [notice, setNotice] = useState("");
   const [wait, setWait] = useState(0);
+  const [google, setGoogle] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    googleEnabled ??= getGoogleEnabled();
+    void googleEnabled.then((enabled) => active && setGoogle(enabled));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // The page leaves for Google's sign-in page and comes back logged in
+  async function signInWithGoogle() {
+    setBusy(true);
+    setError("");
+    try {
+      await startGoogleSignIn(remember);
+    } catch (err) {
+      setError(errorText(err, "Masuk dengan Google sedang tidak bisa dipakai."));
+      setBusy(false);
+    }
+  }
 
   // Counts the resend wait down once per second
   useEffect(() => {
@@ -140,6 +169,17 @@ export function AuthForm({ mode, onDone, onSwitch, onForgot }: AuthFormProps) {
 
   return (
     <form className="modal-form" onSubmit={submit}>
+      {google && (
+        <>
+          <button type="button" className="google-button" onClick={signInWithGoogle} disabled={busy}>
+            <GoogleIcon />
+            {mode === "masuk" ? "Masuk dengan Google" : "Daftar dengan Google"}
+          </button>
+          <p className="or-line">
+            <span>atau dengan email</span>
+          </p>
+        </>
+      )}
       <label>
         Email
         <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required autoFocus />
@@ -180,6 +220,17 @@ export function AuthForm({ mode, onDone, onSwitch, onForgot }: AuthFormProps) {
         </button>
       </p>
     </form>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true">
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+    </svg>
   );
 }
 
@@ -330,6 +381,74 @@ export function ResetForm({ code, onDone, onRequestNew }: ResetFormProps) {
   );
 }
 
+// The account's own instructions, sent with every question: a name to be called, a language, an answer style.
+// They cannot override the safety rules; the agent puts them after the rules with that note
+export function InstructionsForm({ onSaved }: { onSaved: () => void }) {
+  const [text, setText] = useState("");
+  const [limit, setLimit] = useState(1500);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  // the backend counts letters, not UTF-16 units, so an emoji counts as one
+  const length = [...text.trim()].length;
+
+  useEffect(() => {
+    let active = true;
+    getInstructions()
+      .then((data) => {
+        if (!active) return;
+        setText(data.text);
+        setLimit(data.limit);
+        setLoaded(true);
+      })
+      .catch((err) => active && setError(errorText(err, "Gagal memuat instruksi.")));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      setText(await saveInstructions(text));
+      onSaved();
+    } catch (err) {
+      setError(errorText(err, "Gagal menyimpan instruksi."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="modal-form" onSubmit={submit}>
+      <p className="form-note">
+        Tulis cara AI menjawabmu, misalnya nama panggilan, bahasa, atau gaya jawaban. Berlaku untuk semua percakapan akun ini.
+      </p>
+      <label>
+        Instruksi
+        <textarea
+          className="instructions-input"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          rows={7}
+          placeholder={"Contoh: Panggil saya Kak Kevin. Jawab singkat dan pakai contoh kode Go."}
+          disabled={!loaded}
+          autoFocus
+        />
+      </label>
+      <p className={`char-count ${length > limit ? "over" : ""}`} aria-live="polite">
+        {length}/{limit}
+      </p>
+      {error !== "" && <p className="form-error">{error}</p>}
+      <button type="submit" className="primary" disabled={busy || !loaded || length > limit}>
+        Simpan
+      </button>
+    </form>
+  );
+}
+
 // Admin only: adds one entry to the internal data the chatbot searches first
 export function KnowledgeForm() {
   const [title, setTitle] = useState("");
@@ -464,9 +583,14 @@ export function AccountMenu({ account, open, onToggle, onChoose, onFavorites, on
             </>
           )}
           {!guest && (
-            <button role="menuitem" className="danger" onClick={onLogout}>
-              Keluar
-            </button>
+            <>
+              <button role="menuitem" onClick={() => onChoose("instruksi")}>
+                Instruksi pribadi
+              </button>
+              <button role="menuitem" className="danger" onClick={onLogout}>
+                Keluar
+              </button>
+            </>
           )}
         </div>
       )}

@@ -65,6 +65,24 @@ func LaporanKinerja(kinerja *service.KinerjaService) http.HandlerFunc {
 	}
 }
 
+// TrenKinerja: GET /admin/kinerja/tren?hari=7&zona=420 (atau dengan dari, sampai, dan akun); zona adalah selisih menit
+// jam admin dari UTC, misalnya 420 untuk WIB
+func TrenKinerja(kinerja *service.KinerjaService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rentang, ok := bacaRentang(w, r)
+		if !ok {
+			return
+		}
+		zona, _ := strconv.Atoi(r.URL.Query().Get("zona"))
+		tren, err := kinerja.Tren(rentang, r.URL.Query().Get("akun"), zona)
+		if err != nil {
+			tulisGagalKinerja(w, err, "mengambil tren kinerja")
+			return
+		}
+		writeJSON(w, http.StatusOK, Response{Status: "sukses", Message: "tren kinerja", Data: tren})
+	}
+}
+
 // TerbaruKinerja: GET /admin/kinerja/terbaru?hari=7&halaman=2 (atau dengan dari, sampai, dan akun); satu halaman tabel "Terbaru"
 func TerbaruKinerja(kinerja *service.KinerjaService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

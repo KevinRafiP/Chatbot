@@ -31,6 +31,31 @@ func (r *AkunRepository) CariEmail(email string) (model.Pengguna, string, error)
 	return p, hash, err
 }
 
+// CariGoogle mengambil akun yang pernah masuk dengan akun Google ini; sql.ErrNoRows bila belum ada
+func (r *AkunRepository) CariGoogle(googleID string) (model.Pengguna, error) {
+	var p model.Pengguna
+	err := r.db.QueryRow(`SELECT id, nama, COALESCE(email, ''), jenis, email_terverifikasi FROM pengguna WHERE google_id = $1`, googleID).
+		Scan(&p.ID, &p.Nama, &p.Email, &p.Jenis, &p.Terverifikasi)
+	return p, err
+}
+
+// SambungGoogle menandai akun milik email itu sebagai akun Google yang sama; emailnya ikut dianggap terverifikasi
+func (r *AkunRepository) SambungGoogle(id, googleID string) error {
+	// password akun yang emailnya belum terverifikasi dihapus, karena bisa jadi dibuat orang lain memakai email ini
+	_, err := r.db.Exec(`UPDATE pengguna SET google_id = $2, email_terverifikasi = TRUE,
+		password_hash = CASE WHEN email_terverifikasi THEN password_hash ELSE '' END WHERE id = $1`, id, googleID)
+	return err
+}
+
+// BuatGoogle membuat akun dari akun Google; password kosong, jadi akun ini hanya bisa masuk lewat Google
+// sampai pemiliknya membuat password lewat "Lupa password"
+func (r *AkunRepository) BuatGoogle(nama, email, googleID, jenis string) (model.Pengguna, error) {
+	p := model.Pengguna{Nama: nama, Email: email, Jenis: jenis, Terverifikasi: true}
+	err := r.db.QueryRow(`INSERT INTO pengguna (nama, email, google_id, jenis, email_terverifikasi) VALUES ($1, $2, $3, $4, TRUE)
+		RETURNING id`, nama, email, googleID, jenis).Scan(&p.ID)
+	return p, err
+}
+
 // UbahJenis mengganti jenis akun berdasarkan email; false bila email belum terdaftar
 func (r *AkunRepository) UbahJenis(email, jenis string) (bool, error) {
 	hasil, err := r.db.Exec(`UPDATE pengguna SET jenis = $1 WHERE email = $2`, jenis, email)

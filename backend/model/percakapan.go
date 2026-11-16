@@ -14,6 +14,7 @@ type Percakapan struct {
 	ID             string    `json:"id"`
 	Judul          string    `json:"judul"`
 	Disematkan     bool      `json:"disematkan"`
+	FolderID       string    `json:"folder_id,omitempty"` // kosong bila tidak di dalam folder
 	DiperbaruiPada time.Time `json:"diperbarui_pada"`
 	Menjawab       bool      `json:"menjawab,omitempty"` // true selama jawaban percakapan ini masih dibuat
 	Gagal          bool      `json:"gagal,omitempty"`    // true bila jawaban terakhir gagal dan belum dicoba lagi

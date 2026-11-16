@@ -161,6 +161,45 @@ func (s *KinerjaService) Laporan(rentang RentangKinerja, akun string) (model.Lap
 	return laporan, err
 }
 
+// batasJamTren: rentang sampai 2 hari digambar per jam, lebih panjang per hari
+const batasJamTren = 48 * time.Hour
+
+// Tren menyusun titik grafik per jam atau per hari (yang kosong diisi nol) dan 10 jawaban paling lama;
+// zonaMenit adalah selisih zona waktu admin dari UTC, agar pergantian hari mengikuti jam admin
+func (s *KinerjaService) Tren(rentang RentangKinerja, akun string, zonaMenit int) (model.TrenKinerja, error) {
+	if s == nil {
+		return model.TrenKinerja{}, ErrKinerjaMati
+	}
+	if err := periksaAkun(akun); err != nil {
+		return model.TrenKinerja{}, err
+	}
+	dari, sampai, err := hitungRentang(&rentang)
+	if err != nil {
+		return model.TrenKinerja{}, err
+	}
+	zonaMenit = min(max(zonaMenit, -14*60), 14*60)
+
+	tren := model.TrenKinerja{Satuan: "hari", Titik: []model.TitikTren{}}
+	langkah, satuan := 24*time.Hour, "day"
+	if sampai.Sub(dari) <= batasJamTren {
+		tren.Satuan, langkah, satuan = "jam", time.Hour, "hour"
+	}
+	ada, err := s.repo.Tren(dari, sampai, akun, satuan, zonaMenit)
+	if err != nil {
+		return tren, err
+	}
+	zona := time.Duration(zonaMenit) * time.Minute
+	for t := dari.Add(zona).Truncate(langkah).Add(-zona); t.Before(sampai); t = t.Add(langkah) {
+		if titik, ok := ada[t.Unix()]; ok {
+			tren.Titik = append(tren.Titik, *titik)
+		} else {
+			tren.Titik = append(tren.Titik, model.TitikTren{Waktu: t})
+		}
+	}
+	tren.Terlambat, err = s.repo.Terlambat(dari, sampai, akun, 10)
+	return tren, err
+}
+
 // Terbaru mengambil satu halaman tabel "Terbaru" (mulai dari 1); halaman di luar batas diganti halaman pertama atau terakhir
 func (s *KinerjaService) Terbaru(rentang RentangKinerja, akun string, halaman int) (model.HalamanKinerja, error) {
 	if s == nil {

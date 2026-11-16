@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from ingatan import pilih_ingatan
-from prompt import butuh_analisis, instruksi_tambahan
+from prompt import butuh_analisis, instruksi_pribadi, instruksi_tambahan, mirip_lirik
 from pengaman.aturan import (batas_sumber, butuh_cari, butuh_data, lanjutan, minta_cari_ulang, minta_email, minta_internet, obrolan_ringan,
                              periksa_pertanyaan, permintaan_merusak, tanya_selera)
 
@@ -41,8 +41,9 @@ def buat_siapkan(kotak_alat, penulis=None):
         keadaan["ditolak"] = permintaan_merusak(pertanyaan)
         if keadaan["ditolak"]:
             return keadaan
+        pribadi = instruksi_pribadi(keadaan.get("instruksi_pribadi"))
         if kotak_alat.cfg.hemat_obrolan and not keadaan.get("lampiran") and obrolan_ringan(pertanyaan, keadaan.get("riwayat")):
-            return siapkan_obrolan(keadaan, pertanyaan)
+            return siapkan_obrolan(keadaan, pertanyaan, pribadi)
 
         # pesan yang punya riwayat ditulis ulang LLM menjadi pertanyaan lengkap ("kalau inggris?" -> "... dalam bahasa Inggris?");
         # jika gagal atau dilewati, pola kata lanjutan dipakai sebagai cadangan
@@ -73,7 +74,8 @@ def buat_siapkan(kotak_alat, penulis=None):
         keadaan["deklarasi"] = kotak_alat.deklarasi(email=bisa_email, teks=teks_pilih, stream=bool(keadaan.get("kabar")))
         # aturan grafik, rumus, selera, berkas, dan alat khusus hanya ditambahkan jika dibutuhkan pertanyaan ini
         keadaan["instruksi_tambahan"] = instruksi_tambahan({d["name"] for d in keadaan["deklarasi"]}, teks_pilih, selera,
-                                                           bool(keadaan.get("lampiran")), not kotak_alat.cfg.alat.pilih_otomatis)
+                                                           bool(keadaan.get("lampiran")), not kotak_alat.cfg.alat.pilih_otomatis,
+                                                           mirip_lirik(pertanyaan)) + pribadi
         # pertanyaan kelayakan, kalkulasi, atau simulasi ikut diperiksa simpul periksa logika (jika aktif)
         keadaan["analisis"] = butuh_analisis(teks_pilih)
         # pertanyaan fakta wajib dicari dulu di putaran pertama jika tidak ada data internal yang cocok;
@@ -102,12 +104,12 @@ def buat_siapkan(kotak_alat, penulis=None):
 
     return siapkan
 
-def siapkan_obrolan(keadaan, pertanyaan):
+def siapkan_obrolan(keadaan, pertanyaan, pribadi=""):
     """Sapaan dan ucapan terima kasih dijawab tanpa alat, tanpa data internal, dan dengan instruksi pendek, agar token hemat."""
     keadaan.update({
         "obrolan": True,
         "deklarasi": None,
-        "instruksi_tambahan": "",
+        "instruksi_tambahan": pribadi,
         "wajib_cari": False,
         "cari_cadangan": False,
         "isi": susun_isi((keadaan.get("riwayat") or [])[-JUMLAH_RIWAYAT_OBROLAN:], pertanyaan),

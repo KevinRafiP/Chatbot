@@ -55,11 +55,13 @@ type Lampiran struct {
 	Teks string `json:"teks"`
 }
 
-// Tambahan berisi data pilihan untuk satu pertanyaan: lampiran berkas, izin mengirim email, dan ringkasan pesan lama
+// Tambahan berisi data pilihan untuk satu pertanyaan: lampiran berkas, izin mengirim email, ringkasan pesan lama,
+// dan instruksi pribadi pengguna
 type Tambahan struct {
 	Lampiran  *Lampiran
 	BisaEmail bool
 	Ringkasan string
+	Instruksi string
 }
 
 // Berkas adalah hasil membaca berkas unggahan di agent
@@ -85,6 +87,7 @@ type permintaan struct {
 	Lampiran   *Lampiran `json:"lampiran,omitempty"`
 	BisaEmail  bool      `json:"bisa_email,omitempty"`
 	Ringkasan  string    `json:"ringkasan,omitempty"`
+	Instruksi  string    `json:"instruksi_pribadi,omitempty"`
 }
 
 type permintaanBerkas struct {
@@ -231,7 +234,7 @@ func (k *Klien) Alamat() string {
 func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan, profil string, tambahan Tambahan) (Jawaban, error) {
 	var jawaban Jawaban
 	err := k.kirimUlang(ctx, "/jawab", permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Profil: profil,
-		Lampiran: tambahan.Lampiran, BisaEmail: tambahan.BisaEmail, Ringkasan: tambahan.Ringkasan}, &jawaban)
+		Lampiran: tambahan.Lampiran, BisaEmail: tambahan.BisaEmail, Ringkasan: tambahan.Ringkasan, Instruksi: tambahan.Instruksi}, &jawaban)
 	return jawaban, err
 }
 
@@ -239,7 +242,7 @@ func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks,
 // setiap status dan potongan teks diteruskan ke kabar, lalu hasil akhirnya dikembalikan
 func (k *Klien) TanyaStream(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan, profil string, tambahan Tambahan, kabar Kabar) (Jawaban, error) {
 	badan, err := json.Marshal(permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Profil: profil,
-		Lampiran: tambahan.Lampiran, BisaEmail: tambahan.BisaEmail, Ringkasan: tambahan.Ringkasan})
+		Lampiran: tambahan.Lampiran, BisaEmail: tambahan.BisaEmail, Ringkasan: tambahan.Ringkasan, Instruksi: tambahan.Instruksi})
 	if err != nil {
 		return Jawaban{}, err
 	}

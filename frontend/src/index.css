@@ -2532,3 +2532,222 @@ button:disabled {
     max-width: 100%;
   }
 }
+
+/* folders in the sidebar: a row that folds its conversations open or shut, with the list indented under it */
+.folder-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.folder-add {
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.folder-add:hover {
+  border-color: var(--line);
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.folder-hint {
+  margin: 0 0 4px;
+  padding: 2px 10px 6px;
+  font-size: 13px;
+}
+
+.folder-name-input {
+  margin-bottom: 4px;
+}
+
+.folder-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+
+.folder-head:hover {
+  background: var(--surface);
+}
+
+/* a shut folder holding the open chat shows where it is */
+.folder-head.has-active {
+  border-color: var(--line);
+}
+
+.folder-head .open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 9px 10px 9px 6px;
+  border: none;
+  background: none;
+  text-align: left;
+}
+
+.folder-caret {
+  display: inline-block;
+  width: 12px;
+  color: var(--muted);
+  text-align: center;
+  transition: transform 0.15s ease;
+}
+
+.folder-caret.expanded {
+  transform: rotate(90deg);
+}
+
+.folder-icon {
+  flex-shrink: 0;
+  color: var(--accent-soft);
+}
+
+.folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-count {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.conversation-scroll .folder-items {
+  margin: 0 0 6px 12px;
+  padding-left: 6px;
+  border-left: 1px solid var(--line);
+}
+
+.folder-items .list-empty {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.folder-picker {
+  min-width: 190px;
+}
+
+/* a long folder list scrolls inside the menu */
+.folder-choices {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.folder-picker .menu-back {
+  color: var(--muted);
+}
+
+.folder-picker .current {
+  color: var(--accent-soft);
+  cursor: default;
+}
+
+.folder-picker .current::after {
+  content: " ✓";
+}
+
+/* personal instructions */
+.instructions-input {
+  min-height: 140px;
+}
+
+.char-count {
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.char-count.over {
+  color: var(--danger);
+}
+
+/* sign in with Google, above the email form */
+.google-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #1f1f1f;
+  font-weight: 600;
+}
+
+.google-button:hover:not(:disabled) {
+  background: #f1f3f4;
+}
+
+.google-button:disabled {
+  opacity: 0.6;
+}
+
+.or-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.or-line::before,
+.or-line::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--line);
+}
+
+/* admin performance charts: two per row, one per row on phones */
+.trend-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.trend-grid .chart {
+  width: auto;
+}
+
+.trend-skeleton {
+  display: block;
+  height: 240px;
+  border-radius: 10px;
+}
+
+@media (max-width: 768px) {
+  .trend-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .folder-add {
+    width: 36px;
+    height: 36px;
+  }
+
+  .folder-head .open {
+    padding-top: 11px;
+    padding-bottom: 11px;
+  }
+
+  .folder-picker .folder-choices button,
+  .folder-picker > button {
+    padding: 10px;
+  }
+}

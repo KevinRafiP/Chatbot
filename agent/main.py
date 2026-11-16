@@ -1,6 +1,7 @@
 import dataclasses
 import functools
 import logging
+import os
 import sys
 from http.server import ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -15,6 +16,8 @@ from llm.cari_gambar import buat_pencari_gambar
 from llm.embedding import buat_pembuat_embedding
 from llm.gambar import PembacaGambar
 from log_awal import aktif_mati, cetak_tabel
+from pelapor import pasang_pelapor
+from pengaman.keluaran import PenyaringKeluaran
 from prompt import INSTRUKSI_BACA_BANYAK, INSTRUKSI_CEPAT, INSTRUKSI_MENDALAM, INSTRUKSI_SISTEM, INSTRUKSI_TAMU
 from service import Agen
 from tulis_ulang import tulis_ulang
@@ -45,6 +48,7 @@ def koneksi_llm(klien):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     cfg = muat()
+    ket_pelapor = pasang_pelapor(os.environ.get("SENTRY_DSN", ""), os.environ.get("SENTRY_LINGKUNGAN", ""))
 
     try:
         klien, nama_model = buat_klien(cfg)
@@ -91,8 +95,9 @@ def main():
     pencari_gambar, ket_cari_gambar = buat_pencari_gambar(cfg)
     pembaca_gambar = PembacaGambar(klien_gambar, pencari_gambar) if cfg.baca_gambar else None
 
+    penyaring = PenyaringKeluaran()
     server = ThreadingHTTPServer((cfg.host, cfg.port), buat_penangan(daftar_agen, cfg.api_key, pembuat_embedding, cfg.alat.berkas_maks_huruf,
-                                                                     pembaca_gambar, cek_llm))
+                                                                     pembaca_gambar, cek_llm, penyaring))
     baris = [
         ("LLM provider", NAMA_PENYEDIA_LLM.get(cfg.llm_provider, cfg.llm_provider)),
         ("Alamat LLM", alamat_llm(cfg)),
@@ -109,9 +114,11 @@ def main():
     baris += [
         ("Pemeriksa logika", aktif_mati(pemeriksa is not None, "mode mendalam" if pemeriksa else "")),
         ("Verifikasi jawaban", aktif_mati(cfg.verifikasi_jawaban)),
+        ("Penyaring jawaban", f"aktif, {len(penyaring.rahasia)} rahasia dan {len(penyaring.instruksi)} baris instruksi dijaga"),
         ("Pencarian makna", ket_embedding),
         ("Baca gambar", aktif_mati(pembaca_gambar is not None, f"model {cfg.model_gambar or nama_model}" if pembaca_gambar else "")),
         ("Cari asal gambar", ket_cari_gambar if pembaca_gambar else "mati"),
+        ("Laporan galat", ket_pelapor),
         ("Alamat agent", f"http://{cfg.host}:{cfg.port}"),
     ]
     cetak_tabel("Vokapas agent", baris)

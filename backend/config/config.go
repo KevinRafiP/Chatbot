@@ -58,6 +58,12 @@ type Config struct {
 	JedaGagalMenit      int
 	TokenHarianAkun     int
 	TokenHarianSemua    int
+	GoogleClientID      string
+	GoogleClientSecret  string
+	GoogleRedirectURL   string
+	RenderURL           string
+	SentryDSN           string
+	SentryLingkungan    string
 }
 
 func Muat() Config {
@@ -111,6 +117,12 @@ func Muat() Config {
 		JedaGagalMenit:      ambilAngka("JEDA_GAGAL_MASUK_MENIT", 15),
 		TokenHarianAkun:     ambilAngkaBolehNol("BATAS_TOKEN_HARIAN_AKUN", 1000000),
 		TokenHarianSemua:    ambilAngkaBolehNol("BATAS_TOKEN_HARIAN_SEMUA", 0),
+		GoogleClientID:      ambil("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret:  ambil("GOOGLE_CLIENT_SECRET", ""),
+		GoogleRedirectURL:   ambil("GOOGLE_REDIRECT_URL", ""),
+		RenderURL:           ambil("RENDER_EXTERNAL_URL", ""),
+		SentryDSN:           ambil("SENTRY_DSN", ""),
+		SentryLingkungan:    ambil("SENTRY_LINGKUNGAN", ""),
 	}
 }
 

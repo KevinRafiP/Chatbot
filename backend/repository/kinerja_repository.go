@@ -167,6 +167,85 @@ func (r *KinerjaRepository) Terbaru(sejak, sampai time.Time, akun string, batas,
 	if err != nil {
 		return nil, err
 	}
+	return bacaKinerja(rows)
+}
+
+// awalSatuan mengelompokkan waktu kolom per jam atau per hari menurut zona waktu admin (selisih menit dari UTC, argumen $n),
+// lalu mengembalikannya sebagai waktu UTC
+func awalSatuan(kolom string, n int) string {
+	return fmt.Sprintf(`((date_trunc($%d::text, (%s AT TIME ZONE 'UTC') + make_interval(mins => $%d::int)) - make_interval(mins => $%d::int)) AT TIME ZONE 'UTC')`,
+		n, kolom, n+1, n+1)
+}
+
+// Tren merangkum jawaban (tanpa peringkasan percakapan) dan penilaian per jam atau per hari; satuan "hour" atau "day"
+func (r *KinerjaRepository) Tren(sejak, sampai time.Time, akun, satuan string, zonaMenit int) (map[int64]*model.TitikTren, error) {
+	titik := map[int64]*model.TitikTren{}
+	ambil := func(waktu time.Time) *model.TitikTren {
+		t, ada := titik[waktu.Unix()]
+		if !ada {
+			t = &model.TitikTren{Waktu: waktu}
+			titik[waktu.Unix()] = t
+		}
+		return t
+	}
+
+	syarat, args := saringAkun(akun, []any{sejak, sampai, satuan, zonaMenit})
+	rows, err := r.db.Query(`SELECT `+awalSatuan("k.dibuat_pada", 3)+`, COUNT(*), COUNT(*) FILTER (WHERE NOT k.berhasil),
+			COALESCE(AVG(k.lama_ms), 0)::BIGINT, COALESCE(percentile_cont(0.9) WITHIN GROUP (ORDER BY k.lama_ms), 0)::BIGINT,
+			COALESCE(SUM(k.token_masuk), 0), COALESCE(SUM(k.token_keluar), 0)
+		FROM kinerja_jawaban k WHERE k.dibuat_pada >= $1 AND k.dibuat_pada < $2 AND k.profil <> 'ringkasan'`+syarat+`
+		GROUP BY 1`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var waktu time.Time
+		var s model.TitikTren
+		if err := rows.Scan(&waktu, &s.Jumlah, &s.Gagal, &s.RataLamaMs, &s.P90LamaMs, &s.TokenMasuk, &s.TokenKeluar); err != nil {
+			return nil, err
+		}
+		t := ambil(waktu)
+		t.Jumlah, t.Gagal, t.RataLamaMs, t.P90LamaMs, t.TokenMasuk, t.TokenKeluar = s.Jumlah, s.Gagal, s.RataLamaMs, s.P90LamaMs, s.TokenMasuk, s.TokenKeluar
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	syarat, args = saringPesan(akun, []any{sejak, sampai, satuan, zonaMenit})
+	rows, err = r.db.Query(`SELECT `+awalSatuan("p.dinilai_pada", 3)+`, COUNT(*) FILTER (WHERE p.penilaian = 1), COUNT(*) FILTER (WHERE p.penilaian = -1)
+		FROM pesan p WHERE p.penilaian IS NOT NULL AND p.dinilai_pada >= $1 AND p.dinilai_pada < $2`+syarat+` GROUP BY 1`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var waktu time.Time
+		var suka, tidak int
+		if err := rows.Scan(&waktu, &suka, &tidak); err != nil {
+			return nil, err
+		}
+		t := ambil(waktu)
+		t.Suka, t.TidakSuka = suka, tidak
+	}
+	return titik, rows.Err()
+}
+
+// Terlambat mengambil jawaban yang paling lama dibuat di rentang waktu, yang paling lama lebih dulu
+func (r *KinerjaRepository) Terlambat(sejak, sampai time.Time, akun string, batas int) ([]model.Kinerja, error) {
+	syarat, args := saringAkun(akun, []any{sejak, sampai, batas})
+	rows, err := r.db.Query(`SELECT k.profil, k.berhasil, k.galat, k.lama_ms, k.token_masuk, k.token_keluar, k.panggilan_llm, k.alat,
+			k.panjang_jawaban, k.dibuat_pada, `+kunciAkun+`, CASE WHEN k.jenis_akun = 'tamu' THEN '' ELSE COALESCE(p.nama, '') END
+		FROM kinerja_jawaban k LEFT JOIN pengguna p ON p.id = k.pengguna_id
+		WHERE k.dibuat_pada >= $1 AND k.dibuat_pada < $2 AND k.profil <> 'ringkasan'`+syarat+` ORDER BY k.lama_ms DESC LIMIT $3`, args...)
+	if err != nil {
+		return nil, err
+	}
+	return bacaKinerja(rows)
+}
+
+// bacaKinerja membaca baris catatan kinerja dengan kolom seperti query Terbaru
+func bacaKinerja(rows *sql.Rows) ([]model.Kinerja, error) {
 	defer rows.Close()
 	daftar := []model.Kinerja{}
 	for rows.Next() {

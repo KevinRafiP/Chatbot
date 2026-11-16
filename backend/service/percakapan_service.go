@@ -257,7 +257,8 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 	}
 
 	ingatan, waktunya := s.ingatan.Ambil(penggunaID)
-	tambahan := agen.Tambahan{Lampiran: lampiranAgen(&berkas), BisaEmail: s.email.Bisa(pengguna), Ringkasan: ringkasan}
+	tambahan := agen.Tambahan{Lampiran: lampiranAgen(&berkas), BisaEmail: s.email.Bisa(pengguna), Ringkasan: ringkasan,
+		Instruksi: s.ingatan.Instruksi(penggunaID)}
 	profil := profilPengguna(mode)
 	hasil, err := s.chatbot.Jawab(ctx, pengguna, pertanyaan, riwayat, ingatan, profil, tambahan, kabar)
 	if err != nil {

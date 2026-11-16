@@ -14,6 +14,7 @@ import {
 import { Markdown } from "./Markdown";
 import { plainMarkdown } from "./markdownPlain";
 import { Pagination } from "./Pagination";
+import { PerformanceTrendSection } from "./PerformanceTrend";
 
 const PERIODS = [
   { days: 1, label: "24 jam" },
@@ -178,6 +179,7 @@ export function PerformancePanel() {
             <p className="form-note">Belum ada jawaban di rentang waktu ini.</p>
           ) : (
             <>
+              <PerformanceTrendSection key={`trend-${report.key}`} range={report.range} account={report.data.account} />
               <ProfileTable rows={report.data.byProfile} />
               {report.data.tools.length > 0 && <ToolBars tools={report.data.tools} />}
             </>

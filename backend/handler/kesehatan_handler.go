@@ -18,3 +18,15 @@ func StatusAgen(chatbot *service.ChatbotService) http.HandlerFunc {
 			Data: map[string]bool{"terhubung": chatbot.AgenTerhubung(r.Context())}})
 	}
 }
+
+// KesehatanLengkap: GET /kesehatan/lengkap untuk pemantau uptime; membalas 503 bila agent mati.
+// Database tidak dicek agar ping berkala tidak membangunkan Neon
+func KesehatanLengkap(chatbot *service.ChatbotService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !chatbot.AgenTerhubung(r.Context()) {
+			writeJSON(w, http.StatusServiceUnavailable, Response{Status: "gagal", Message: "agent tidak membalas"})
+			return
+		}
+		writeJSON(w, http.StatusOK, Response{Status: "sukses", Message: "backend dan agent aktif"})
+	}
+}

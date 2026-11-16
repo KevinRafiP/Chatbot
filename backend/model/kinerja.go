@@ -89,3 +89,23 @@ type KinerjaAkun struct {
 	TokenKeluar int64     `json:"token_keluar"`
 	Terakhir    time.Time `json:"terakhir"`
 }
+
+// TitikTren adalah rangkuman satu jam atau satu hari untuk grafik tren di halaman kinerja; Waktu adalah awal jam atau harinya
+type TitikTren struct {
+	Waktu       time.Time `json:"waktu"`
+	Jumlah      int       `json:"jumlah"`
+	Gagal       int       `json:"gagal"`
+	RataLamaMs  int64     `json:"rata_lama_ms"`
+	P90LamaMs   int64     `json:"p90_lama_ms"`
+	TokenMasuk  int64     `json:"token_masuk"`
+	TokenKeluar int64     `json:"token_keluar"`
+	Suka        int       `json:"suka"`
+	TidakSuka   int       `json:"tidak_suka"`
+}
+
+// TrenKinerja berisi titik grafik per jam (rentang sampai 2 hari) atau per hari, dan jawaban yang paling lama dibuat
+type TrenKinerja struct {
+	Satuan    string      `json:"satuan"` // "jam" atau "hari"
+	Titik     []TitikTren `json:"titik"`
+	Terlambat []Kinerja   `json:"terlambat"`
+}

@@ -115,6 +115,40 @@ func (s *AkunService) Masuk(email, password, tokenTamu, perangkat string, ingat 
 	return s.bukaSesi(pengguna, tokenTamu, perangkat, ingat)
 }
 
+// MasukGoogle membuka sesi untuk akun Google yang emailnya sudah diverifikasi Google: akun yang pernah masuk dengan Google,
+// akun lama dengan email yang sama (lalu disambungkan), atau akun baru
+func (s *AkunService) MasukGoogle(googleID, email, nama, tokenTamu, perangkat string, ingat bool) (string, model.Pengguna, error) {
+	email, err := rapikanEmail(email)
+	if err != nil {
+		return "", model.Pengguna{}, err
+	}
+	pengguna, err := s.repo.CariGoogle(googleID)
+	if errors.Is(err, sql.ErrNoRows) {
+		var lama model.Pengguna
+		lama, _, err = s.repo.CariEmail(email)
+		switch {
+		case err == nil:
+			pengguna = lama
+			err = s.repo.SambungGoogle(pengguna.ID, googleID)
+		case errors.Is(err, sql.ErrNoRows):
+			if nama = strings.TrimSpace(nama); nama == "" {
+				nama, _, _ = strings.Cut(email, "@")
+			}
+			pengguna, err = s.repo.BuatGoogle(potong(nama, 100), email, googleID, s.jenisUntuk(email, "user"))
+		}
+	}
+	if err != nil {
+		return "", model.Pengguna{}, err
+	}
+	if jenis := s.jenisUntuk(email, pengguna.Jenis); jenis != pengguna.Jenis {
+		if _, err := s.repo.UbahJenis(pengguna.Email, jenis); err != nil {
+			return "", model.Pengguna{}, err
+		}
+		pengguna.Jenis = jenis
+	}
+	return s.bukaSesi(pengguna, tokenTamu, perangkat, ingat)
+}
+
 // JadikanAdmin mengubah akun yang sudah terdaftar menjadi admin
 func (s *AkunService) JadikanAdmin(email string) error {
 	email, err := rapikanEmail(email)

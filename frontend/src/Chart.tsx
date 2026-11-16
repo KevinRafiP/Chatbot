@@ -266,6 +266,18 @@ function ChartTable({ spec }: { spec: ChartSpec }) {
 // A ```chart block drawn as a bar, line, or pie chart, with a table view of the same numbers
 export function Chart({ source }: { source: string }) {
   const spec = parseChart(source);
+  if (spec === null) {
+    return (
+      <pre className="md-code">
+        <code>{source}</code>
+      </pre>
+    );
+  }
+  return <ChartFigure spec={spec} />;
+}
+
+// The same chart for numbers made in the app itself, such as the admin performance trend
+export function ChartFigure({ spec }: { spec: ChartSpec }) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [showTable, setShowTable] = useState(false);
@@ -278,13 +290,6 @@ export function Chart({ source }: { source: string }) {
     return () => observer.disconnect();
   }, []);
 
-  if (spec === null) {
-    return (
-      <pre className="md-code">
-        <code>{source}</code>
-      </pre>
-    );
-  }
   return (
     <figure className="chart" ref={box}>
       <figcaption>

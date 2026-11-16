@@ -12,15 +12,19 @@ from llm import denyut
 from llm.client import GalatLLM
 from llm.embedding import MAKS_TEKS
 from pengaman.aturan import GalatPengaman
+from pengaman.keluaran import AliranAman, PenyaringKeluaran
 
 BATAS_BODY = 256_000
 # berkas dikirim sebagai base64, jadi ukurannya sekitar 4/3 dari berkas aslinya
 BATAS_BODY_BERKAS = 8_000_000
 
 
-def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berkas=20000, pembaca_gambar=None, cek_llm=None):
-    """Membuat kelas penangan HTTP yang sudah membawa agen per profil (mendalam, cepat, tamu) dan API key."""
+def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berkas=20000, pembaca_gambar=None, cek_llm=None,
+                  penyaring=None):
+    """Membuat kelas penangan HTTP yang sudah membawa agen per profil (mendalam, cepat, tamu) dan API key.
+    penyaring memeriksa setiap jawaban sebelum keluar (rahasia dan instruksi sistem)."""
     agen = daftar_agen["mendalam"]
+    penyaring = penyaring or PenyaringKeluaran()
 
     class Penangan(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -82,9 +86,10 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berka
                 elif self.path == "/ringkas-percakapan":
                     hasil = agen.ringkas_percakapan(data.get("ringkasan"), data.get("riwayat"))
                 else:
-                    hasil = pilihan.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"),
-                                          lampiran=data.get("lampiran"), bisa_email=data.get("bisa_email"),
-                                          ringkasan=data.get("ringkasan"))
+                    hasil = penyaring.saring_hasil(pilihan.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"),
+                                                                 data.get("ingatan"), lampiran=data.get("lampiran"),
+                                                                 bisa_email=data.get("bisa_email"), ringkasan=data.get("ringkasan"),
+                                                                 instruksi_pribadi=data.get("instruksi_pribadi")))
             except GalatPengaman as galat:
                 self.kirim_json(400, {"status": "gagal", "message": str(galat)})
                 return
@@ -142,15 +147,19 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berka
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
 
-            def kabar(jenis, isi):
+            def kirim(jenis, isi):
                 self.wfile.write(f"event: {jenis}\ndata: {json.dumps(isi, ensure_ascii=False)}\n\n".encode("utf-8"))
+
+            # potongan teks lewat penyaring dulu, agar kunci atau instruksi sistem tidak sempat tampil
+            kabar = AliranAman(penyaring, kirim).kabar
 
             # baris komentar SSE (diawali ":") diabaikan backend; gunanya hanya mengetahui koneksi yang sudah putus
             denyut.pasang(lambda: self.wfile.write(b": denyut\n\n"))
             try:
                 hasil = pilihan.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"), kabar,
-                                      data.get("lampiran"), data.get("bisa_email"), data.get("ringkasan"))
-                kabar("selesai", hasil)
+                                      data.get("lampiran"), data.get("bisa_email"), data.get("ringkasan"),
+                                      data.get("instruksi_pribadi"))
+                kabar("selesai", penyaring.saring_hasil(hasil))
             except (BrokenPipeError, ConnectionResetError, denyut.Dihentikan):
                 logging.info("backend menutup stream sebelum jawaban selesai (dihentikan pengguna)")
             except GalatPengaman as galat:

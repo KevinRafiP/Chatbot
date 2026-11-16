@@ -1,0 +1,57 @@
+# Cek celah keamanan di dependensi backend (Go), agent (Python), dan frontend (npm)
+name: Cek keamanan dependensi
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # tiap Senin 08.00 WIB, agar celah baru di dependensi lama tetap ketahuan walau tidak ada commit
+  schedule:
+    - cron: "0 1 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Go (govulncheck)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      # hanya melaporkan celah yang fungsinya benar-benar dipanggil kode
+      - run: govulncheck ./...
+
+  agent:
+    name: Python (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pip-audit
+      # semua paket di requirements.txt dikunci versi dan hash-nya
+      - run: pip-audit --require-hashes -r agent/requirements.txt
+
+  frontend:
+    name: npm audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # dibaca dari package-lock.json, tanpa memasang paket
+      - run: npm audit --audit-level=high
