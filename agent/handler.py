@@ -148,7 +148,11 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berka
             self.end_headers()
 
             def kirim(jenis, isi):
-                self.wfile.write(f"event: {jenis}\ndata: {json.dumps(isi, ensure_ascii=False)}\n\n".encode("utf-8"))
+                # gagal menulis berarti backend sudah menutup koneksi; dibedakan dari koneksi model yang putus
+                try:
+                    self.wfile.write(f"event: {jenis}\ndata: {json.dumps(isi, ensure_ascii=False)}\n\n".encode("utf-8"))
+                except OSError as galat:
+                    raise denyut.Dihentikan() from galat
 
             # potongan teks lewat penyaring dulu, agar kunci atau instruksi sistem tidak sempat tampil
             kabar = AliranAman(penyaring, kirim).kabar

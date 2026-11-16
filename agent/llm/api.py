@@ -1,3 +1,4 @@
+import http.client
 import json
 import logging
 import urllib.error
@@ -74,8 +75,13 @@ class KlienAPI:
             if self.batas_konteks:
                 # Ollama baru mengirim jumlah token di akhir stream jika diminta; dipakai halaman kinerja
                 badan["stream_options"] = {"include_usage": True}
-            with buka(alamat, json.dumps(badan).encode("utf-8"), header, self.batas_waktu, "Layanan LLM") as respon:
-                balasan, alasan = rakit_pesan_stream(respon, saat_teks)
+            try:
+                with buka(alamat, json.dumps(badan).encode("utf-8"), header, self.batas_waktu, "Layanan LLM") as respon:
+                    balasan, alasan = rakit_pesan_stream(respon, saat_teks)
+            except TimeoutError:
+                raise GalatLLM(f"Layanan LLM diam lebih dari {self.batas_waktu} detik", 204)
+            except (OSError, http.client.HTTPException) as galat:
+                raise GalatLLM(f"koneksi Layanan LLM terputus: {galat}")
             pakai = None
         else:
             data = kirim_json(alamat, json.dumps(badan).encode("utf-8"), header, self.batas_waktu, "Layanan LLM")

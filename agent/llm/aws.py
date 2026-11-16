@@ -1,3 +1,4 @@
+import http.client
 import json
 import logging
 import struct
@@ -53,6 +54,8 @@ class KlienAWS:
                 catat_token(data.get("usage"))
         except TimeoutError:
             raise GalatLLM(f"Bedrock diam lebih dari {batas_waktu} detik", 204)
+        except (OSError, http.client.HTTPException) as galat:
+            raise GalatLLM(f"koneksi Bedrock terputus: {galat}")
         if not pesan or not pesan.get("content"):
             if alasan == "max_tokens":
                 # token habis untuk berpikir sebelum menulis jawaban; mengulang tanpa alat hanya membuang token lagi

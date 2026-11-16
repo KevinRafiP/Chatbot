@@ -285,7 +285,7 @@ button:disabled {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: var(--bg) url("/pola-heksagon.svg");
 }
 
 .chat-header {
