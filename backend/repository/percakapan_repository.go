@@ -290,9 +290,9 @@ func (r *PercakapanRepository) HapusPesanMulai(percakapanID, pesanID string) (mo
 // Cuplikan diambil dari pesan terbaru yang cocok; kosong bila hanya judulnya yang cocok
 func (r *PercakapanRepository) Cari(penggunaID, kueri string, batas int) ([]model.HasilCari, error) {
 	pola := "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(kueri) + "%"
-	rows, err := r.db.Query(`SELECT c.id, c.judul, c.disematkan_pada IS NOT NULL, c.diperbarui_pada, COALESCE(m.isi, '')
+	rows, err := r.db.Query(`SELECT c.id, c.judul, c.disematkan_pada IS NOT NULL, c.diperbarui_pada, COALESCE(m.isi, ''), COALESCE(m.id::text, '')
 		FROM percakapan c LEFT JOIN LATERAL (
-			SELECT isi FROM pesan WHERE percakapan_id = c.id AND dihapus_pada IS NULL AND isi ILIKE $2
+			SELECT id, isi FROM pesan WHERE percakapan_id = c.id AND dihapus_pada IS NULL AND isi ILIKE $2
 			ORDER BY urutan DESC LIMIT 1
 		) AS m ON TRUE
 		WHERE c.pengguna_id = $1 AND c.dihapus_pada IS NULL AND (c.judul ILIKE $2 OR m.isi IS NOT NULL)
@@ -306,7 +306,7 @@ func (r *PercakapanRepository) Cari(penggunaID, kueri string, batas int) ([]mode
 	for rows.Next() {
 		var h model.HasilCari
 		var isi string
-		if err := rows.Scan(&h.ID, &h.Judul, &h.Disematkan, &h.DiperbaruiPada, &isi); err != nil {
+		if err := rows.Scan(&h.ID, &h.Judul, &h.Disematkan, &h.DiperbaruiPada, &isi, &h.PesanID); err != nil {
 			return nil, err
 		}
 		h.Cuplikan = cuplikan(isi, kueri, 60)

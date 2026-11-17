@@ -41,7 +41,8 @@ export type Attachment = { name: string; text: string; truncated: boolean; pages
 export type FavoriteMessage = Message & { conversationId: string; conversationTitle: string };
 export type SendResult = { title: string; question: Message; answer: Message };
 // A conversation found by searching, with the part of a message where the words were found (empty when only the title matched)
-export type SearchResult = { conversation: Conversation; snippet: string };
+// messageId is the message the snippet comes from, or "" when only the title matched
+export type SearchResult = { conversation: Conversation; snippet: string; messageId: string };
 // An answer still being made on the server: the question it answers, and the saved question and answer once it is done.
 // finished is true for an answer that already failed, so it is not shown as being written
 export type RunningAnswer = { question: Message; finished: boolean; result: Promise<SendResult> };
@@ -581,8 +582,8 @@ export async function steerAnswer(
 
 // Finds conversations whose title or messages contain the words, newest first
 export async function searchConversations(query: string): Promise<SearchResult[]> {
-  const data = await request<(RawConversation & { cuplikan: string })[]>("GET", `/percakapan/cari?q=${encodeURIComponent(query)}`);
-  return data.map((raw) => ({ conversation: toConversation(raw), snippet: raw.cuplikan }));
+  const data = await request<(RawConversation & { cuplikan: string; pesan_id?: string })[]>("GET", `/percakapan/cari?q=${encodeURIComponent(query)}`);
+  return data.map((raw) => ({ conversation: toConversation(raw), snippet: raw.cuplikan, messageId: raw.pesan_id ?? "" }));
 }
 
 // Joins the answer still being made in a conversation, for example after a refresh or after coming back to it.

@@ -477,6 +477,8 @@ function App() {
   const [favoritesError, setFavoritesError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  // counts jumps, so jumping to a message in the conversation already on screen still scrolls
+  const [jumpCount, setJumpCount] = useState(0);
   const [toast, setToast] = useState("");
   const [live, setLive] = useState({ status: "", text: "" });
   const [mode, setMode] = useState<AnswerMode>(readMode);
@@ -653,15 +655,18 @@ function App() {
     };
   }, []);
 
-  // After a starred message is chosen, scrolls to it once it is on screen
+  // After a starred message or a search result is chosen, scrolls to it once it is on screen. A far message is shown
+  // at once, so the conversation does not scroll past everything above or below it first
   useEffect(() => {
     const target = jumpToRef.current;
     const element = target === null ? null : document.getElementById(`message-${target}`);
-    if (element !== null) {
+    const box = messagesRef.current;
+    if (element !== null && box !== null) {
       jumpToRef.current = null;
-      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      const far = Math.abs(element.getBoundingClientRect().top - box.getBoundingClientRect().top) > box.clientHeight * 2;
+      element.scrollIntoView({ behavior: far ? "auto" : "smooth", block: "center" });
     }
-  }, [messages.length, view]);
+  }, [messages.length, view, jumpCount]);
 
   // Searches the conversations once the user stops typing
   const searchText = query.trim();
@@ -1074,16 +1079,31 @@ function App() {
     }
   }
 
-  // Opens the conversation of a starred message, then scrolls to that message and makes it glow for a moment
-  function openFavorite(item: FavoriteMessage) {
-    jumpToRef.current = item.id;
-    setHighlightId(item.id);
+  // Opens a conversation, then scrolls to one of its messages and makes it glow for a moment
+  function jumpToMessage(conversationId: string, messageId: string) {
+    jumpToRef.current = messageId;
+    setJumpCount((count) => count + 1);
+    setHighlightId(messageId);
     window.clearTimeout(highlightTimer.current);
     highlightTimer.current = window.setTimeout(() => setHighlightId(null), HIGHLIGHT_MS);
-    if (!isGuest && item.conversationId !== activeId) {
-      openConversation(item.conversationId);
+    if (!isGuest && conversationId !== activeId) {
+      openConversation(conversationId);
     } else {
+      closeSidebarOnMobile();
       withTransition(() => setView("chat"));
+    }
+  }
+
+  function openFavorite(item: FavoriteMessage) {
+    jumpToMessage(item.conversationId, item.id);
+  }
+
+  // A result found in a message goes to that message; one that only matched the title opens at the newest message
+  function openFound(item: SearchResult) {
+    if (item.messageId === "") {
+      openConversation(item.conversation.id);
+    } else {
+      jumpToMessage(item.conversation.id, item.messageId);
     }
   }
 
@@ -1736,7 +1756,7 @@ function App() {
                 ) : (
                   found.items.map((item) => (
                     <li key={item.conversation.id} className={item.conversation.id === activeId ? "active" : ""}>
-                      <button className="open" onClick={() => openConversation(item.conversation.id)} title={item.conversation.title}>
+                      <button className="open" onClick={() => openFound(item)} title={item.conversation.title}>
                         <span className="search-title">{item.conversation.title}</span>
                         {item.snippet !== "" && <Snippet text={item.snippet} query={searchText} />}
                       </button>

@@ -74,6 +74,7 @@ type Lampiran struct {
 type HasilCari struct {
 	Percakapan
 	Cuplikan string `json:"cuplikan"`
+	PesanID  string `json:"pesan_id,omitempty"` // pesan asal cuplikan, untuk melompat ke pesan itu; kosong bila yang cocok hanya judul
 }
 
 // PesanFavorit adalah pesan berbintang beserta percakapan asalnya, untuk daftar pesan berbintang
