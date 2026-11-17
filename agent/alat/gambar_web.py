@@ -26,7 +26,7 @@ AGEN_PENGGUNA = "Mozilla/5.0 (compatible; Vokapas/1.0)"
 DEKLARASI_CARI_GAMBAR = {
     "name": "cari_gambar",
     "description": "Mencari gambar satu hal di internet. Hasilnya memberi penanda [[gambar:n]] untuk menaruh gambar itu di dalam jawaban. "
-                   "Pakai jika pengguna ingin melihat rupa atau wujud sesuatu, atau pertanyaannya tentang bentuk atau tampilan sesuatu.",
+                   "Pakai jika pengguna ingin melihat rupa sesuatu, atau jika jawaban memperkenalkan, membandingkan, atau mendaftar hal yang punya wujud untuk dilihat sehingga gambar membantu pengguna mengenalinya.",
     "parameters": {
         "type": "object",
         "properties": {"kueri": {"type": "string", "description": "Satu hal saja, dalam bahasa Inggris: nama paling spesifik ditambah nama ilmiah "
