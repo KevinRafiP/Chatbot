@@ -35,7 +35,7 @@ function messageHtml(message: Message): string | null {
     return null;
   }
   const copy = bubble.cloneNode(true) as HTMLElement;
-  copy.querySelectorAll(".message-attachment, .sources, .md-code-head, button, svg, img").forEach((element) => element.remove());
+  copy.querySelectorAll(".message-attachment, .sources, .md-code-head, .web-image, .web-images, button, svg, img").forEach((element) => element.remove());
   copy.querySelectorAll<HTMLElement>(".math-inline, .math-block").forEach((span) => {
     const block = span.classList.contains("math-block");
     const formula = document.createElement(block ? "div" : "span");
@@ -79,7 +79,8 @@ export function hideFollowUps(text: string): string {
 // The text of a message with its references, as Markdown for a downloaded file
 function messageMarkdown(message: Message): string {
   const sources = message.sources.map((source, index) => `${index + 1}. ${source.title}${source.url ? ` - ${source.url}` : ""}`);
-  return sources.length > 0 ? `${message.text}\n\nSumber:\n${sources.join("\n")}\n` : `${message.text}\n`;
+  const text = message.text.replace(/\n?[ \t]*\[\[gambar:\d+\]\]/g, "");
+  return sources.length > 0 ? `${text}\n\nSumber:\n${sources.join("\n")}\n` : `${text}\n`;
 }
 
 // Saves a message as a Markdown file, named after the time it was sent

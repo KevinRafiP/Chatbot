@@ -40,9 +40,10 @@ type Jawaban struct {
 }
 
 type Gambar struct {
-	URL     string `json:"url"`
-	Judul   string `json:"judul"`
-	Halaman string `json:"halaman"`
+	URL      string `json:"url"`
+	Judul    string `json:"judul"`
+	Halaman  string `json:"halaman"`
+	Kelompok int    `json:"kelompok,omitempty"`
 }
 
 // PerubahanInstruksi adalah instruksi pribadi baru beserta daftar bagian yang diganti, dihapus, atau ditambah

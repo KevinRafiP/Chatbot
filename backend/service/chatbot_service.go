@@ -163,7 +163,7 @@ func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, dafta
 
 	gambar := []model.Gambar{}
 	for _, g := range jawaban.Gambar {
-		gambar = append(gambar, model.Gambar{URL: g.URL, Judul: g.Judul, Halaman: g.Halaman})
+		gambar = append(gambar, model.Gambar{URL: g.URL, Judul: g.Judul, Halaman: g.Halaman, Kelompok: g.Kelompok})
 	}
 
 	return HasilChat{

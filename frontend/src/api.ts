@@ -9,8 +9,9 @@ const GUEST_TOKEN_KEY = "chatbot_guest_token";
 export type Conversation = { id: string; title: string; pinned: boolean; answering: boolean; failed: boolean; folderId: string };
 export type Folder = { id: string; name: string; count: number };
 export type Source = { title: string; url: string };
-// A picture found on the internet for an answer; src and download go through the backend, which keeps nothing
-export type WebImage = { url: string; title: string; page: string; src: string; download: string };
+// A picture found on the internet for an answer; src and download go through the backend, which keeps nothing.
+// group is the image search it came from: a "[[gambar:n]]" mark in the answer shows group n there, other groups show under the answer
+export type WebImage = { url: string; title: string; page: string; src: string; download: string; group: number };
 export type Message = {
   id: string;
   sender: "user" | "bot";
@@ -154,7 +155,7 @@ type RawSendResult = { judul: string; pesan: RawMessage; jawaban: RawMessage; sa
 type RawAccount = { id: string; nama: string; jenis: Role; email?: string };
 type RawSession = { token: string; pengguna: RawAccount };
 type RawSignIn = RawSession | { perlu_verifikasi: true; email: string };
-type RawImage = { url: string; judul: string; halaman: string; tanda: string };
+type RawImage = { url: string; judul: string; halaman: string; tanda: string; kelompok?: number };
 type RawAnswer = { jawaban: string; sumber: RawSource[] | null; gambar?: RawImage[] | null; saran?: string[] };
 type RawFile = { nama: string; teks: string; terpotong: boolean; halaman: number | null };
 type RawStats = {
@@ -494,7 +495,7 @@ function toAccount(raw: RawAccount): Account {
 function toImages(raw: RawImage[] | null | undefined): WebImage[] {
   return (raw ?? []).map((image) => {
     const src = `${API_URL}/gambar?url=${encodeURIComponent(image.url)}&tanda=${image.tanda}`;
-    return { url: image.url, title: image.judul, page: image.halaman, src, download: `${src}&unduh=1` };
+    return { url: image.url, title: image.judul, page: image.halaman, src, download: `${src}&unduh=1`, group: image.kelompok ?? 0 };
   });
 }
 

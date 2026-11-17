@@ -26,7 +26,9 @@ export function plainMarkdown(text: string): string {
       out.push(fence[2].toLowerCase() === "chart" ? plainChart(body.join("\n")) : body.join("\n"));
       continue;
     }
-    let line = lines[i];
+    // picture marks such as "[[gambar:2]]" only place pictures on screen
+    let line = lines[i].replace(/[ \t]*\[\[gambar:\d+\]\]/g, "");
+    if (/\[\[gambar:\d+\]\]/.test(lines[i]) && line.trim() === "") continue;
     if (TABLE_DIVIDER.test(line) && line.includes("-")) continue;
     if (line.includes("|") && /^\s*\|/.test(line)) {
       line = line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim()).join("\t");

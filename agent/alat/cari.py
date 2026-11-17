@@ -86,7 +86,7 @@ PENYEDIA = {"tavily": cari_tavily, "exa": cari_exa, "langsearch": cari_langsearc
 
 def gambar_tavily(kueri, kunci, batas_waktu):
     """Gambar dari halaman hasil pencarian; Tavily tidak memberi alamat halamannya."""
-    badan = {"query": kueri, "max_results": 3, "search_depth": "basic", "include_images": True, "include_image_descriptions": True}
+    badan = {"query": kueri, "max_results": 5, "search_depth": "basic", "include_images": True, "include_image_descriptions": True}
     data = kirim(ALAMAT_TAVILY, badan, {"Authorization": f"Bearer {kunci}"}, batas_waktu)
     hasil = []
     for item in data.get("images") or []:

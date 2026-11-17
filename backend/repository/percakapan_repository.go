@@ -340,9 +340,10 @@ func cuplikan(teks, kueri string, sisi int) string {
 // teksGambar menyusun kolom gambar tanpa tanda proxy, karena tanda dibuat ulang setiap kali pesan dikirim ke browser
 func teksGambar(gambar []model.Gambar) string {
 	type polos struct {
-		URL     string `json:"url"`
-		Judul   string `json:"judul"`
-		Halaman string `json:"halaman"`
+		URL      string `json:"url"`
+		Judul    string `json:"judul"`
+		Halaman  string `json:"halaman"`
+		Kelompok int    `json:"kelompok,omitempty"`
 	}
 	daftar := []polos{}
 	for _, g := range gambar {

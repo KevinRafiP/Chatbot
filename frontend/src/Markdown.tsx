@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { Chart } from "./Chart";
 import { CodeBlock } from "./CodeBlock";
 import { MathText } from "./MathText";
@@ -14,7 +14,20 @@ const TABLE_DIVIDER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 // Code spans and formulas are kept whole, so a "*" inside them is never read as bold or italic
 const PROTECTED = new RegExp(`\`([^\`\\n]+)\`|${FORMULA.source}`, "g");
 const INLINE =
-  /\*\*(?=\S)([\s\S]+?)(?<=\S)\*\*|~~(?=\S)([\s\S]+?)(?<=\S)~~|\*(?=[^\s*])([\s\S]+?)(?<=[^\s*])\*|(?<![\p{L}\p{N}_])_(?=[^\s_])([\s\S]+?)(?<=[^\s_])_(?![\p{L}\p{N}_])|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"'`]+)|@@atom(\d+)@@/u;
+  /\*\*(?=\S)([\s\S]+?)(?<=\S)\*\*|~~(?=\S)([\s\S]+?)(?<=\S)~~|\*(?=[^\s*])([\s\S]+?)(?<=[^\s*])\*|(?<![\p{L}\p{N}_])_(?=[^\s_])([\s\S]+?)(?<=[^\s_])_(?![\p{L}\p{N}_])|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"'`]+)|@@atom(\d+)@@|\[\[gambar:(\d+)\]\]/u;
+// "[[gambar:n]]" on a line of its own places picture n there as a block, as under a list item
+export const IMAGE_MARK = /\[\[gambar:(\d+)\]\]/g;
+const IMAGE_LINE = /^\s*\[\[gambar:(\d+)\]\]\s*$/;
+// a mark still arriving, such as "[[gamb", is hidden until it is complete
+const HALF_IMAGE_MARK = /\[\[[a-z]*:?\d*\]?$/i;
+
+// Draws picture n of the answer; the message supplies it, so Markdown itself knows nothing about images
+const ImageSlotContext = createContext<((group: number) => ReactNode) | null>(null);
+
+function ImageSlot({ group }: { group: number }) {
+  const render = useContext(ImageSlotContext);
+  return render === null ? null : render(group);
+}
 const BARE_URL = /https?:\/\/[^\s<>"'`]+/g;
 
 // A bare address such as a YouTube link usually ends a sentence, so a final "." or "," or an unmatched ")" is not part of it
@@ -75,7 +88,7 @@ function renderInline(text: string): ReactNode[] {
     let rest = source;
     for (let match = INLINE.exec(rest); match !== null; match = INLINE.exec(rest)) {
       if (match.index > 0) nodes.push(rest.slice(0, match.index).replaceAll("\\$", "$"));
-      const [whole, bold, strike, star, underscore, label, url, bare, atom] = match;
+      const [whole, bold, strike, star, underscore, label, url, bare, atom, image] = match;
       let used = whole.length;
       if (bold !== undefined) nodes.push(<strong key={key++}>{walk(bold)}</strong>);
       else if (strike !== undefined) nodes.push(<del key={key++}>{walk(strike)}</del>);
@@ -94,6 +107,8 @@ function renderInline(text: string): ReactNode[] {
             {link}
           </WebLink>,
         );
+      } else if (image !== undefined) {
+        nodes.push(<ImageSlot key={key++} group={Number(image)} />);
       } else {
         const item = atoms[Number(atom)];
         nodes.push(item.kind === "code" ? <code key={key++}>{item.text}</code> : <MathText key={key++} text={item.text} />);
@@ -124,6 +139,7 @@ function startsBlock(line: string, next: string | undefined): boolean {
     RULE.test(line) ||
     LIST_ITEM.test(line) ||
     QUOTE.test(line) ||
+    IMAGE_LINE.test(line) ||
     (line.includes("|") && next !== undefined && TABLE_DIVIDER.test(next))
   );
 }
@@ -197,6 +213,17 @@ function renderBlocks(text: string, prefix = "b"): ReactNode[] {
         <Tag key={key()} className="md-heading">
           {renderInline(heading[2])}
         </Tag>,
+      );
+      i++;
+      continue;
+    }
+
+    const image = IMAGE_LINE.exec(line);
+    if (image) {
+      blocks.push(
+        <div key={key()} className="md-image">
+          <ImageSlot group={Number(image[1])} />
+        </div>,
       );
       i++;
       continue;
@@ -300,7 +327,13 @@ function renderBlocks(text: string, prefix = "b"): ReactNode[] {
 }
 
 // An answer written in Markdown: headings, bold and italic text, lists, tables, code, formulas, and ```chart blocks.
-// partial is for text that is still arriving: its open marks are closed first, so no raw "**" or "|" shows while typing
-export function Markdown({ text, partial = false }: { text: string; partial?: boolean }) {
-  return <div className="markdown">{renderBlocks(partial ? closeMarkdown(text) : text)}</div>;
+// partial is for text that is still arriving: its open marks are closed first, so no raw "**" or "|" shows while typing.
+// renderImage draws the picture a "[[gambar:n]]" mark points to; without it the marks show nothing
+export function Markdown({ text, partial = false, renderImage }: { text: string; partial?: boolean; renderImage?: (group: number) => ReactNode }) {
+  const blocks = renderBlocks(partial ? closeMarkdown(text.replace(HALF_IMAGE_MARK, "")) : text);
+  return (
+    <ImageSlotContext.Provider value={renderImage ?? null}>
+      <div className="markdown">{blocks}</div>
+    </ImageSlotContext.Provider>
+  );
 }

@@ -31,11 +31,14 @@ type Sumber struct {
 // TandaGambar diisi saat backend menyala; tanda dikirim bersama alamat gambar agar proxy /gambar hanya meneruskan gambar dari jawaban
 var TandaGambar func(alamat string) string
 
-// Gambar dari internet yang ditampilkan di bawah jawaban; Halaman adalah halaman asal gambar, bisa kosong
+// Gambar dari internet untuk jawaban; Halaman adalah halaman asal gambar, bisa kosong.
+// Kelompok adalah nomor panggilan cari_gambar: penanda [[gambar:n]] di isi jawaban menaruh gambar kelompok n di tempatnya,
+// kelompok tanpa penanda tampil di bawah jawaban
 type Gambar struct {
-	URL     string `json:"url"`
-	Judul   string `json:"judul"`
-	Halaman string `json:"halaman"`
+	URL      string `json:"url"`
+	Judul    string `json:"judul"`
+	Halaman  string `json:"halaman"`
+	Kelompok int    `json:"kelompok,omitempty"`
 }
 
 // MarshalJSON menambahkan tanda untuk proxy /gambar; tanda tidak ikut disimpan di database

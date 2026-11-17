@@ -1,6 +1,7 @@
 import logging
 import re
 
+from alat.gambar_web import POLA_PENANDA_GAMBAR
 from llm.client import GalatLLM
 from simpul.siapkan import TANDA_DIPERSINGKAT
 
@@ -110,17 +111,56 @@ def hasil(keadaan, teks):
     teks, saran = pisah_saran(teks)
     if semua:
         teks = POLA_DAFTAR_SUMBER.sub("", teks).strip()
+    gambar_karangan = bool(POLA_GAMBAR_MD.search(re.sub(r"```.*?```", "", teks, flags=re.DOTALL))) and not catatan.get("gambar")
     teks, sumber = rapikan_sitasi(hapus_istilah_internal(bersihkan_format(teks)), semua, catatan["maks_sumber_luar"])
+    if gambar_karangan:
+        teks += "\n\n*Gambar belum bisa ditampilkan.*"
+    teks, gambar = rapikan_gambar(teks, catatan.get("gambar") or [])
     hasil_akhir = {"jawaban": teks, "sumber": sumber, "pakai_internet": any(s["url"] for s in semua)}
     if catatan.get("email"):
         hasil_akhir["email"] = catatan["email"]
     if catatan.get("instruksi"):
         hasil_akhir["instruksi"] = catatan["instruksi"]
-    if catatan.get("gambar"):
-        hasil_akhir["gambar"] = catatan["gambar"]
+    if gambar:
+        hasil_akhir["gambar"] = gambar
     if saran:
         hasil_akhir["saran"] = saran
     return hasil_akhir
+
+
+# Markdown gambar yang ditulis model sendiri; gambar asli datang dari alat cari_gambar, bukan dari teks jawaban
+POLA_GAMBAR_MD = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+
+
+MAKS_GAMBAR_TAMPIL = 12
+
+
+def rapikan_gambar(teks, gambar):
+    """Penanda [[gambar:n]] menampilkan satu gambar kelompok n di tempat itu, misalnya di bawah butir daftar atau di sel tabel:
+    gambar terbaik kelompok itu yang belum dipakai butir sebelumnya, karena gambar yang sama di dua butir pasti salah di salah satunya.
+    Penanda yang tidak punya gambar seperti itu, atau ditulis ulang, dibuang. Kelompok tanpa penanda tampil di akhir jawaban."""
+    dipakai, terpilih, alamat = [], [], set()
+
+    def ganti(cocok):
+        nomor = int(cocok.group(1))
+        if nomor in dipakai or len(terpilih) >= MAKS_GAMBAR_TAMPIL:
+            return ""
+        pilihan = next((g for g in gambar if g["kelompok"] == nomor and g["url"] not in alamat), None)
+        if pilihan is None:
+            return ""
+        dipakai.append(nomor)
+        terpilih.append(pilihan)
+        alamat.add(pilihan["url"])
+        return f"[[gambar:{nomor}]]"
+
+    potongan = re.split(r"(```.*?```)", teks, flags=re.DOTALL)
+    teks = "".join(p if p.startswith("```") else POLA_PENANDA_GAMBAR.sub(ganti, p) for p in potongan)
+    teks = re.sub(r"\n{3,}", "\n\n", re.sub(r"[ \t]+\n", "\n", teks)).strip()
+    for g in gambar:
+        if g["kelompok"] not in dipakai and g["url"] not in alamat:
+            terpilih.append(g)
+            alamat.add(g["url"])
+    return teks, terpilih[:MAKS_GAMBAR_TAMPIL]
 
 
 def bersihkan_format(teks):
@@ -137,6 +177,7 @@ def bersihkan_format(teks):
         elif not di_kode:
             baris = re.sub(r"^\s{0,3}#{1,6}\s+", "### ", baris)
             baris = re.sub(r"^(\s*)[*+]\s+", r"\1- ", baris)
+            baris = POLA_GAMBAR_MD.sub("", baris)
         hasil.append(baris)
     return re.sub(r"\n{3,}", "\n\n", "\n".join(satukan_tabel(hasil))).strip()
 

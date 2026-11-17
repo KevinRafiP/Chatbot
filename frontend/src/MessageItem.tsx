@@ -1,6 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 import { ApiError, undoInstructionChange, type InstructionChange, type Message, type Rating, type Source, type WebImage } from "./api";
-import { Linkified, Markdown } from "./Markdown";
+import { IMAGE_MARK, Linkified, Markdown } from "./Markdown";
 import { formatTime, hideFollowUps, looksFormatted } from "./messageText";
 import { useSmoothText } from "./useSmoothText";
 
@@ -171,19 +171,23 @@ function WebImages({ images }: { images: WebImage[] }) {
   );
 }
 
-function WebImageItem({ image }: { image: WebImage }) {
+// inline is a picture placed inside the answer text, under a list item or in a table cell; it is built from spans
+// because it can sit inside a paragraph, and it shows the whole picture uncropped
+function WebImageItem({ image, inline = false }: { image: WebImage; inline?: boolean }) {
   const [failed, setFailed] = useState(false);
   const label = image.title || (isWebAddress(image.page) ? new URL(image.page).hostname : "Gambar dari internet");
+  const Box = inline ? "span" : "figure";
+  const Caption = inline ? "span" : "figcaption";
   return (
-    <figure className="web-image">
+    <Box className={`web-image ${inline ? "inline" : ""}`} onClick={inline ? (event) => event.stopPropagation() : undefined}>
       {failed ? (
-        <div className="web-image-missing">Gambar tidak tersedia</div>
+        <span className="web-image-missing">Gambar tidak tersedia</span>
       ) : (
         <a href={image.src} target="_blank" rel="noopener noreferrer">
           <img src={image.src} alt={label} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
         </a>
       )}
-      <figcaption>
+      <Caption className="web-image-caption">
         {isWebAddress(image.page) ? (
           <a href={image.page} target="_blank" rel="noopener noreferrer" title={label}>
             {label}
@@ -196,9 +200,23 @@ function WebImageItem({ image }: { image: WebImage }) {
             <DownloadIcon size={15} />
           </a>
         )}
-      </figcaption>
-    </figure>
+      </Caption>
+    </Box>
   );
+}
+
+// Groups that have a "[[gambar:n]]" mark in the text are drawn there, the first picture of each; the rest go under the answer
+function placeImages(text: string, images: WebImage[]) {
+  const marked = new Set([...text.matchAll(IMAGE_MARK)].map((match) => Number(match[1])));
+  const first = new Map<number, WebImage>();
+  for (const image of images) {
+    if (marked.has(image.group) && !first.has(image.group)) first.set(image.group, image);
+  }
+  const renderImage = (group: number) => {
+    const image = first.get(group);
+    return image === undefined ? null : <WebImageItem image={image} inline />;
+  };
+  return { renderImage, below: images.filter((image) => !marked.has(image.group)) };
 }
 
 type MessageItemProps = {
@@ -326,6 +344,7 @@ export function MessageItemView(props: MessageItemProps) {
     props.animate && !window.matchMedia(REDUCED_MOTION_QUERY).matches ? 0 : message.text.length,
   );
   const typing = length < message.text.length;
+  const placed = placeImages(message.text, message.images ?? []);
   const press = useRef<{ timer: number; x: number; y: number } | null>(null);
   const pressed = useRef(false);
 
@@ -419,11 +438,11 @@ export function MessageItemView(props: MessageItemProps) {
                 </span>
               )}
               {message.sender === "bot" || looksFormatted(message.text) ? (
-                <Markdown text={message.text.slice(0, length)} partial={typing} />
+                <Markdown text={message.text.slice(0, length)} partial={typing} renderImage={placed.renderImage} />
               ) : (
                 <Linkified text={message.text.slice(0, length)} />
               )}
-              {!typing && message.images !== undefined && message.images.length > 0 && <WebImages images={message.images} />}
+              {!typing && placed.below.length > 0 && <WebImages images={placed.below} />}
               {!typing && message.sources.length > 0 && (
                 <div className="sources">
                   <p className="sources-title">Sumber Referensi</p>

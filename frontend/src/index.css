@@ -1056,7 +1056,7 @@ button:disabled {
   text-align: center;
 }
 
-.web-image figcaption {
+.web-image-caption {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1065,13 +1065,41 @@ button:disabled {
   color: var(--muted);
 }
 
-.web-image figcaption > :first-child {
+.web-image-caption > :first-child {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: inherit;
+}
+
+/* a picture inside the answer text: one per list item or table row, shown whole */
+.web-image.inline {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin: 8px 0 4px;
+}
+
+.web-image.inline img,
+.web-image.inline .web-image-missing {
+  object-fit: contain;
+}
+
+.md-image {
+  margin: 4px 0 10px;
+}
+
+.md-table .web-image.inline {
+  width: 120px;
+  margin: 2px 0;
+}
+
+@media (max-width: 600px) {
+  .md-table .web-image.inline {
+    width: 84px;
+  }
 }
 
 .web-image-download {
