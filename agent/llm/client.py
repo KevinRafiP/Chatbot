@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -45,23 +46,37 @@ BATAS_GAGAL_CEK = 2
 
 class CekLLM:
     """Mengecek apakah model utama bisa dihubungi; hasilnya disimpan sebentar agar pengecekan dari frontend tidak membebani layanan LLM.
-    Klien tanpa metode sehat (misalnya AWS) selalu dianggap terhubung."""
+    Pengecekan berjalan di latar dan yang dikirim adalah hasil terakhir, jadi /kesehatan tidak pernah menunggu LLM yang lambat
+    (backend memutus /kesehatan setelah 8 detik). Klien tanpa metode sehat (misalnya AWS) selalu dianggap terhubung."""
 
     def __init__(self, klien, simpan_detik=10):
         self.cek = getattr(klien, "sehat", None)
         self.simpan_detik = simpan_detik
         self.gagal, self.waktu = 0, float("-inf")
+        self.gembok = threading.Lock()
+        self.berjalan = False
 
     def __call__(self):
         if self.cek is None:
             return True
-        if time.monotonic() - self.waktu >= self.simpan_detik:
+        with self.gembok:
+            if not self.berjalan and time.monotonic() - self.waktu >= self.simpan_detik:
+                self.berjalan = True
+                threading.Thread(target=self.perbarui, daemon=True).start()
+            return self.gagal < BATAS_GAGAL_CEK
+
+    def perbarui(self):
+        try:
+            hasil = self.cek()
+        except Exception:
+            logging.exception("cek LLM gagal")
+            hasil = None
+        with self.gembok:
             # mati pasti (None bukan) langsung dianggap terputus; lambat membalas baru dianggap terputus setelah 2 kali berturut-turut,
             # karena laptop yang sedang sibuk menjawab bisa lambat membalas
-            hasil = self.cek()
             self.gagal = 0 if hasil else BATAS_GAGAL_CEK if hasil is False else self.gagal + 1
             self.waktu = time.monotonic()
-        return self.gagal < BATAS_GAGAL_CEK
+            self.berjalan = False
 
 
 class KlienCadangan:

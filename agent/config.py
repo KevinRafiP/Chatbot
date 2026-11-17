@@ -170,7 +170,8 @@ def ambil_penyedia_cari():
         nama = nama.strip()
         kunci = ambil(f"{nama.upper()}_API_KEY")
         if nama and kunci and nama not in [n for n, _ in daftar]:
-            daftar.append((nama, kunci))
+            # Bright Data juga butuh nama zona SERP API dari dasbornya
+            daftar.append((nama, (kunci, ambil(f"{nama.upper()}_ZONA", "serp_api1")) if nama.split("_")[0] == "brightdata" else kunci))
     return daftar[:MAKS_PENYEDIA_CARI]
 
 def muat():

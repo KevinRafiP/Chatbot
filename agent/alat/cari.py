@@ -5,7 +5,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from pengaman.aturan import domain_diblokir, potong
 
@@ -14,11 +14,18 @@ ALAMAT_EXA = "https://api.exa.ai/search"
 ALAMAT_LANGSEARCH = "https://api.langsearch.com/v1/web-search"
 ALAMAT_SERPER = "https://google.serper.dev/search"
 ALAMAT_SERPER_GAMBAR = "https://google.serper.dev/images"
+ALAMAT_FIRECRAWL = "https://api.firecrawl.dev/v2/search"
+ALAMAT_HASDATA = "https://api.hasdata.com/scrape/google/serp"
+ALAMAT_HASDATA_GAMBAR = "https://api.hasdata.com/scrape/google/images"
+ALAMAT_BRIGHTDATA = "https://api.brightdata.com/request"
 MAKS_HURUF_CUPLIKAN = 1500
 # kunci salah atau kredit habis: penyedia dilewati sampai jedanya lewat
 KODE_HABIS = {401, 402, 432, 433}
-# kode habis tambahan per penyedia; Serper belum mendokumentasikan kode kredit habis, diduga 400 atau 403
-KODE_HABIS_LAIN = {"serper": {400, 403}}
+# kode habis tambahan per penyedia; Serper belum mendokumentasikan kode kredit habis, diduga 400 atau 403;
+# HasData memakai 403 untuk kredit habis; Bright Data membalas 401 atau 403 untuk kunci atau zona yang salah
+KODE_HABIS_LAIN = {"serper": {400, 403}, "hasdata": {403}, "brightdata": {403}}
+# kuota gratisnya tidak diisi ulang tiap bulan, jadi selalu dicoba paling akhir apa pun urutan di CARI_PENYEDIA
+PENYEDIA_TERAKHIR = {"serper"}
 # terlalu banyak permintaan: penyedia dilewati untuk permintaan ini saja
 KODE_SIBUK = {429}
 
@@ -34,6 +41,12 @@ def kirim(alamat, badan, kepala, batas_waktu):
         headers={"Content-Type": "application/json", "User-Agent": "Vokapas/1.0", **kepala},
         method="POST",
     )
+    with urllib.request.urlopen(permintaan, timeout=batas_waktu) as respon:
+        return json.load(respon)
+
+
+def ambil_json(alamat, parameter, kepala, batas_waktu):
+    permintaan = urllib.request.Request(f"{alamat}?{urlencode(parameter)}", headers={"User-Agent": "Vokapas/1.0", **kepala})
     with urllib.request.urlopen(permintaan, timeout=batas_waktu) as respon:
         return json.load(respon)
 
@@ -79,9 +92,37 @@ def cari_serper(kueri, kunci, maks_hasil, kedalaman, batas_waktu, domain=None):
     return [(item.get("link", ""), item.get("title", ""), item.get("snippet", "")) for item in (data.get("organic") or [])[:maks_hasil]]
 
 
+def cari_firecrawl(kueri, kunci, maks_hasil, kedalaman, batas_waktu, domain=None):
+    """2 kredit per 10 hasil; cuplikannya berupa deskripsi halaman."""
+    badan = {"query": kueri[:500], "limit": maks_hasil, "sources": ["web"]}
+    if domain:
+        badan["includeDomains"] = list(domain)
+    data = kirim(ALAMAT_FIRECRAWL, badan, {"Authorization": f"Bearer {kunci}"}, batas_waktu)
+    return [(item.get("url", ""), item.get("title") or "", item.get("description") or "") for item in (data.get("data") or {}).get("web") or []]
+
+
+def cari_hasdata(kueri, kunci, maks_hasil, kedalaman, batas_waktu, domain=None):
+    """Hasil Google lewat HasData, 10 kredit per permintaan."""
+    data = ambil_json(ALAMAT_HASDATA, {"q": dengan_situs(kueri, domain)}, {"x-api-key": kunci}, batas_waktu)
+    return [(item.get("link", ""), item.get("title", ""), item.get("snippet", "")) for item in (data.get("organicResults") or [])[:maks_hasil]]
+
+
+def minta_brightdata(kunci, parameter, batas_waktu):
+    """kunci Bright Data berisi (token, zona); hasil Google dibaca dalam bentuk JSON ringkas (parsed_light)."""
+    token, zona = kunci
+    badan = {"zone": zona, "url": f"https://www.google.com/search?{urlencode(parameter)}", "format": "raw", "data_format": "parsed_light"}
+    return kirim(ALAMAT_BRIGHTDATA, badan, {"Authorization": f"Bearer {token}"}, batas_waktu)
+
+
+def cari_brightdata(kueri, kunci, maks_hasil, kedalaman, batas_waktu, domain=None):
+    data = minta_brightdata(kunci, {"q": dengan_situs(kueri, domain)}, batas_waktu)
+    return [(item.get("link", ""), item.get("title", ""), item.get("description", "")) for item in (data.get("organic") or [])[:maks_hasil]]
+
+
 # penyedia baru cukup ditambah di sini: fungsi(kueri, kunci, maks_hasil, kedalaman, batas_waktu, domain=None) -> [(url, judul, cuplikan)];
 # domain = daftar situs yang boleh muncul (sumber utama), None = semua situs
-PENYEDIA = {"tavily": cari_tavily, "exa": cari_exa, "langsearch": cari_langsearch, "serper": cari_serper}
+PENYEDIA = {"tavily": cari_tavily, "exa": cari_exa, "langsearch": cari_langsearch, "serper": cari_serper, "firecrawl": cari_firecrawl,
+            "hasdata": cari_hasdata, "brightdata": cari_brightdata}
 
 
 def gambar_tavily(kueri, kunci, batas_waktu):
@@ -102,9 +143,38 @@ def gambar_serper(kueri, kunci, batas_waktu):
     return [(item.get("imageUrl", ""), item.get("title", ""), item.get("link", "")) for item in data.get("images") or []]
 
 
+def gambar_exa(kueri, kunci, batas_waktu):
+    """Exa tidak punya pencarian gambar, jadi yang dipakai gambar utama halaman hasil pencarian dan beberapa gambar di dalamnya;
+    judul halaman menjadi keterangannya. Tipe lite tidak menerima extras, jadi memakai auto."""
+    badan = {"query": kueri, "numResults": 5, "type": "auto", "contents": {"extras": {"imageLinks": 2}}}
+    data = kirim(ALAMAT_EXA, badan, {"x-api-key": kunci}, batas_waktu)
+    hasil = []
+    for item in data.get("results") or []:
+        semua = [item.get("image") or ""] + list((item.get("extras") or {}).get("imageLinks") or [])
+        hasil += [(alamat, item.get("title") or "", item.get("url", "")) for alamat in semua if isinstance(alamat, str) and alamat]
+    return hasil
+
+
+def gambar_firecrawl(kueri, kunci, batas_waktu):
+    data = kirim(ALAMAT_FIRECRAWL, {"query": kueri[:500], "limit": 10, "sources": ["images"]}, {"Authorization": f"Bearer {kunci}"}, batas_waktu)
+    return [(item.get("imageUrl", ""), item.get("title") or "", item.get("url", "")) for item in (data.get("data") or {}).get("images") or []]
+
+
+def gambar_hasdata(kueri, kunci, batas_waktu):
+    data = ambil_json(ALAMAT_HASDATA_GAMBAR, {"q": kueri}, {"x-api-key": kunci}, batas_waktu)
+    return [(item.get("original", ""), item.get("title", ""), item.get("link", "")) for item in data.get("imagesResults") or []]
+
+
+def gambar_brightdata(kueri, kunci, batas_waktu):
+    """udm=2 adalah tab Gambar Google."""
+    data = minta_brightdata(kunci, {"q": kueri, "udm": 2}, batas_waktu)
+    return [(item.get("original_image", ""), item.get("title", ""), item.get("link", "")) for item in data.get("images") or []]
+
+
 # penyedia yang bisa mencari gambar: fungsi(kueri, kunci, batas_waktu) -> [(url gambar, judul, url halaman)];
 # penyedia lain di CARI_PENYEDIA dilewati saat mencari gambar
-PENYEDIA_GAMBAR = {"tavily": gambar_tavily, "serper": gambar_serper}
+PENYEDIA_GAMBAR = {"tavily": gambar_tavily, "exa": gambar_exa, "firecrawl": gambar_firecrawl, "hasdata": gambar_hasdata,
+                   "brightdata": gambar_brightdata, "serper": gambar_serper}
 
 
 def jenis_penyedia(nama):
@@ -122,6 +192,7 @@ class PencariBerantai:
                 self.daftar.append((nama, kunci))
             else:
                 logging.warning("penyedia cari %s tidak dikenal, dilewati", nama)
+        self.daftar.sort(key=lambda penyedia: jenis_penyedia(penyedia[0]) in PENYEDIA_TERAKHIR)
         self.jeda = jeda_detik
         self.habis_sampai = {}
         self.gembok = threading.Lock()
@@ -134,6 +205,9 @@ class PencariBerantai:
 
     def nama(self):
         return [nama for nama, _ in self.daftar]
+
+    def nama_gambar(self):
+        return [nama for nama, _ in self.daftar if jenis_penyedia(nama) in PENYEDIA_GAMBAR]
 
     def cari(self, kueri, daftar_blokir, batas_waktu, maks_hasil=5, kedalaman="advanced", domain=None):
         mentah = self.coba(PENYEDIA, lambda fungsi, kunci: fungsi(kueri[:300], kunci, maks_hasil, kedalaman, batas_waktu, domain))

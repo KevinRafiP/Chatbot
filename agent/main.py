@@ -117,7 +117,8 @@ def main():
         ("Penyaring jawaban", f"aktif, {len(penyaring.rahasia)} rahasia dan {len(penyaring.instruksi)} baris instruksi dijaga"),
         ("Pencarian makna", ket_embedding),
         ("Baca gambar", aktif_mati(pembaca_gambar is not None, f"model {cfg.model_gambar or nama_model}" if pembaca_gambar else "")),
-        ("Gambar internet", "aktif, alat cari_gambar" if pencari.ada_gambar() else "mati, perlu TAVILY_API_KEY atau SERPER_API_KEY di CARI_PENYEDIA"),
+        ("Gambar internet", f"aktif, {', '.join(pencari.nama_gambar())}" if pencari.ada_gambar()
+         else "mati, perlu tavily, exa, firecrawl, hasdata, brightdata, atau serper di CARI_PENYEDIA"),
         ("Cari asal gambar", ket_cari_gambar if pembaca_gambar else "mati"),
         ("Laporan galat", ket_pelapor),
         ("Alamat agent", f"http://{cfg.host}:{cfg.port}"),

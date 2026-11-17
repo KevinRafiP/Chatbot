@@ -184,6 +184,10 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berka
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(badan)))
             self.end_headers()
-            self.wfile.write(badan)
+            try:
+                self.wfile.write(badan)
+            except (BrokenPipeError, ConnectionResetError):
+                # peminta sudah memutus sambungan (misalnya batas waktu cek kesehatan backend), jadi balasannya tidak perlu dikirim
+                logging.info("peminta %s memutus sambungan sebelum balasan terkirim", self.path)
 
     return Penangan
