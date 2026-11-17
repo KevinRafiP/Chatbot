@@ -55,14 +55,25 @@ func (r *PercakapanRepository) Milik(id, penggunaID string) (bool, error) {
 }
 
 // Hapus menyembunyikan percakapan milik pengguna tanpa membuang barisnya (hapus lunak), agar pesan, penilaian,
-// dan catatan kinerjanya tetap ada untuk halaman kinerja admin
+// dan catatan kinerjanya tetap ada untuk halaman kinerja admin. Daftar gambar pesannya dikosongkan karena tidak tampil lagi
 func (r *PercakapanRepository) Hapus(id, penggunaID string) (bool, error) {
-	hasil, err := r.db.Exec(`UPDATE percakapan SET dihapus_pada = NOW() WHERE id = $1 AND pengguna_id = $2 AND dihapus_pada IS NULL`, id, penggunaID)
+	tx, err := r.db.Begin()
 	if err != nil {
 		return false, err
 	}
-	jumlah, err := hasil.RowsAffected()
-	return jumlah > 0, err
+	defer tx.Rollback()
+
+	hasil, err := tx.Exec(`UPDATE percakapan SET dihapus_pada = NOW() WHERE id = $1 AND pengguna_id = $2 AND dihapus_pada IS NULL`, id, penggunaID)
+	if err != nil {
+		return false, err
+	}
+	if jumlah, err := hasil.RowsAffected(); err != nil || jumlah == 0 {
+		return false, err
+	}
+	if _, err := tx.Exec(`UPDATE pesan SET gambar = '[]' WHERE percakapan_id = $1 AND gambar <> '[]'`, id); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
 
 // UbahJudul mengganti judul percakapan
@@ -259,7 +270,7 @@ func (r *PercakapanRepository) DaftarFavorit(penggunaID string, batas int) ([]mo
 
 // HapusPesanMulai menyembunyikan pertanyaan pengguna pesanID dan semua pesan sesudahnya (hapus lunak), dipakai saat
 // pertanyaan diedit atau jawabannya dibuat ulang; penilaian lamanya tetap terhitung di halaman kinerja.
-// Ringkasan yang sudah memuat pesan itu dikosongkan agar dibuat ulang. Mengembalikan lampiran pertanyaan itu,
+// Ringkasan yang sudah memuat pesan itu dan daftar gambar pesan yang disembunyikan dikosongkan. Mengembalikan lampiran pertanyaan itu,
 // atau sql.ErrNoRows bila pesan bukan pertanyaan yang masih tampil di percakapan ini
 func (r *PercakapanRepository) HapusPesanMulai(percakapanID, pesanID string) (model.Lampiran, error) {
 	tx, err := r.db.Begin()
@@ -275,7 +286,7 @@ func (r *PercakapanRepository) HapusPesanMulai(percakapanID, pesanID string) (mo
 	if err != nil {
 		return model.Lampiran{}, err
 	}
-	if _, err := tx.Exec(`UPDATE pesan SET dihapus_pada = NOW() WHERE percakapan_id = $1 AND urutan >= $2 AND dihapus_pada IS NULL`,
+	if _, err := tx.Exec(`UPDATE pesan SET dihapus_pada = NOW(), gambar = '[]' WHERE percakapan_id = $1 AND urutan >= $2 AND dihapus_pada IS NULL`,
 		percakapanID, urutan); err != nil {
 		return model.Lampiran{}, err
 	}
