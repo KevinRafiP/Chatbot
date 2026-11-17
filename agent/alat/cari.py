@@ -13,6 +13,7 @@ ALAMAT_TAVILY = "https://api.tavily.com/search"
 ALAMAT_EXA = "https://api.exa.ai/search"
 ALAMAT_LANGSEARCH = "https://api.langsearch.com/v1/web-search"
 ALAMAT_SERPER = "https://google.serper.dev/search"
+ALAMAT_SERPER_GAMBAR = "https://google.serper.dev/images"
 MAKS_HURUF_CUPLIKAN = 1500
 # kunci salah atau kredit habis: penyedia dilewati sampai jedanya lewat
 KODE_HABIS = {401, 402, 432, 433}
@@ -83,6 +84,29 @@ def cari_serper(kueri, kunci, maks_hasil, kedalaman, batas_waktu, domain=None):
 PENYEDIA = {"tavily": cari_tavily, "exa": cari_exa, "langsearch": cari_langsearch, "serper": cari_serper}
 
 
+def gambar_tavily(kueri, kunci, batas_waktu):
+    """Gambar dari halaman hasil pencarian; Tavily tidak memberi alamat halamannya."""
+    badan = {"query": kueri, "max_results": 3, "search_depth": "basic", "include_images": True, "include_image_descriptions": True}
+    data = kirim(ALAMAT_TAVILY, badan, {"Authorization": f"Bearer {kunci}"}, batas_waktu)
+    hasil = []
+    for item in data.get("images") or []:
+        if isinstance(item, str):
+            hasil.append((item, "", ""))
+        elif isinstance(item, dict):
+            hasil.append((item.get("url", ""), item.get("description") or "", ""))
+    return hasil
+
+
+def gambar_serper(kueri, kunci, batas_waktu):
+    data = kirim(ALAMAT_SERPER_GAMBAR, {"q": kueri}, {"X-API-KEY": kunci}, batas_waktu)
+    return [(item.get("imageUrl", ""), item.get("title", ""), item.get("link", "")) for item in data.get("images") or []]
+
+
+# penyedia yang bisa mencari gambar: fungsi(kueri, kunci, batas_waktu) -> [(url gambar, judul, url halaman)];
+# penyedia lain di CARI_PENYEDIA dilewati saat mencari gambar
+PENYEDIA_GAMBAR = {"tavily": gambar_tavily, "serper": gambar_serper}
+
+
 def jenis_penyedia(nama):
     """exa_2 tetap memakai fungsi exa, jadi satu penyedia boleh punya beberapa akun."""
     return re.sub(r"_\d+$", "", nama)
@@ -105,29 +129,52 @@ class PencariBerantai:
     def ada(self):
         return bool(self.daftar)
 
+    def ada_gambar(self):
+        return any(jenis_penyedia(nama) in PENYEDIA_GAMBAR for nama, _ in self.daftar)
+
     def nama(self):
         return [nama for nama, _ in self.daftar]
 
     def cari(self, kueri, daftar_blokir, batas_waktu, maks_hasil=5, kedalaman="advanced", domain=None):
+        mentah = self.coba(PENYEDIA, lambda fungsi, kunci: fungsi(kueri[:300], kunci, maks_hasil, kedalaman, batas_waktu, domain))
+        return saring(mentah, daftar_blokir)
+
+    def cari_gambar(self, kueri, daftar_blokir, batas_waktu):
+        mentah = self.coba(PENYEDIA_GAMBAR, lambda fungsi, kunci: fungsi(kueri[:300], kunci, batas_waktu))
+        hasil = []
+        for url, judul, halaman in mentah:
+            if url and not domain_diblokir(urlparse(url).hostname or "", daftar_blokir):
+                hasil.append({"url": url, "judul": judul or "", "halaman": halaman or ""})
+        return hasil
+
+    def coba(self, peta, panggil):
+        """Memanggil penyedia pertama di peta yang belum habis; pindah ke berikutnya jika habis atau sibuk."""
+        pertama = True
         for nama, kunci in self.daftar:
+            fungsi = peta.get(jenis_penyedia(nama))
+            if fungsi is None:
+                continue
             with self.gembok:
                 if time.monotonic() < self.habis_sampai.get(nama, 0):
+                    pertama = False
                     continue
             try:
-                mentah = PENYEDIA[jenis_penyedia(nama)](kueri[:300], kunci, maks_hasil, kedalaman, batas_waktu, domain)
+                mentah = panggil(fungsi, kunci)
             except urllib.error.HTTPError as galat:
                 if galat.code in KODE_HABIS | KODE_HABIS_LAIN.get(jenis_penyedia(nama), set()):
                     logging.warning("penyedia cari %s habis atau kuncinya salah (kode %s), pindah ke berikutnya", nama, galat.code)
                     with self.gembok:
                         self.habis_sampai[nama] = time.monotonic() + self.jeda
+                    pertama = False
                     continue
                 if galat.code in KODE_SIBUK:
                     logging.warning("penyedia cari %s sibuk (kode 429), pindah ke berikutnya", nama)
+                    pertama = False
                     continue
                 raise
-            if nama != self.daftar[0][0]:
-                logging.info("cari_web memakai penyedia %s", nama)
-            return saring(mentah, daftar_blokir)
+            if not pertama:
+                logging.info("pencarian memakai penyedia %s", nama)
+            return mentah
         raise GalatHabis("semua penyedia pencarian sedang habis kuotanya atau sibuk")
 
 

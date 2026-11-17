@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type Pengguna struct {
 	ID            string `json:"id"`
@@ -25,12 +28,36 @@ type Sumber struct {
 	URL   string `json:"url"`
 }
 
+// TandaGambar diisi saat backend menyala; tanda dikirim bersama alamat gambar agar proxy /gambar hanya meneruskan gambar dari jawaban
+var TandaGambar func(alamat string) string
+
+// Gambar dari internet yang ditampilkan di bawah jawaban; Halaman adalah halaman asal gambar, bisa kosong
+type Gambar struct {
+	URL     string `json:"url"`
+	Judul   string `json:"judul"`
+	Halaman string `json:"halaman"`
+}
+
+// MarshalJSON menambahkan tanda untuk proxy /gambar; tanda tidak ikut disimpan di database
+func (g Gambar) MarshalJSON() ([]byte, error) {
+	type polos Gambar
+	tanda := ""
+	if TandaGambar != nil {
+		tanda = TandaGambar(g.URL)
+	}
+	return json.Marshal(struct {
+		polos
+		Tanda string `json:"tanda"`
+	}{polos(g), tanda})
+}
+
 type Pesan struct {
 	ID         string    `json:"id"`
 	Urutan     int64     `json:"-"`
 	Pengirim   string    `json:"pengirim"`
 	Isi        string    `json:"isi"`
 	Sumber     []Sumber  `json:"sumber"`
+	Gambar     []Gambar  `json:"gambar,omitempty"`
 	Favorit    bool      `json:"favorit"`
 	Penilaian  int       `json:"penilaian"` // 1 suka, -1 tidak suka, 0 belum dinilai
 	Lampiran   string    `json:"lampiran,omitempty"`

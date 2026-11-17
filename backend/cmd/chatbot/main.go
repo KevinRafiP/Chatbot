@@ -15,6 +15,7 @@ import (
 	"chatbot/backend/database"
 	"chatbot/backend/email"
 	"chatbot/backend/logawal"
+	"chatbot/backend/model"
 	"chatbot/backend/pelapor"
 	"chatbot/backend/repository"
 	"chatbot/backend/router"
@@ -135,8 +136,12 @@ func main() {
 		"redirect URI "+alamatKembaliGoogle(cfg))))
 	tabel.Isi("Laporan galat", logawal.AktifMati(sentry != nil, keteranganJika(sentry != nil, "Sentry ("+sentryHost(sentry)+")")))
 
+	penerusGambar := service.BaruPenerusGambar(cfg.AgentAPIKey)
+	model.TandaGambar = penerusGambar.Tanda
+	tabel.Isi("Gambar internet", "aktif, diteruskan lewat /gambar tanpa disimpan")
+
 	mux := router.BuatChatbot(pengetahuanRepo, chatbotService, sesiService, percakapanService, akunService, ingestionService,
-		kinerjaService, jatahService, ingatanService, folderService, google, turnstile, cfg.CORSOrigin, cfg.AgentAPIKey, batas)
+		kinerjaService, jatahService, ingatanService, folderService, google, turnstile, penerusGambar, cfg.CORSOrigin, cfg.AgentAPIKey, batas)
 
 	// batas waktu membaca request mencegah koneksi lambat (slowloris) menahan server terlalu lama;
 	// WriteTimeout tidak dipasang karena jawaban agent bisa butuh lebih dari satu menit

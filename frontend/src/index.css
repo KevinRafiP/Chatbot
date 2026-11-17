@@ -1013,6 +1013,88 @@ button:disabled {
   color: var(--accent-soft);
 }
 
+/* pictures from the internet under an answer: three per row on desktop, two on phones, one larger when there is only one */
+.web-images {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 480px;
+  margin-top: 10px;
+}
+
+@media (min-width: 700px) {
+  .web-images {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.web-images.single {
+  grid-template-columns: minmax(0, 320px);
+}
+
+.web-image {
+  min-width: 0;
+  margin: 0;
+}
+
+.web-image img,
+.web-image-missing {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  object-fit: cover;
+}
+
+.web-image-missing {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.web-image figcaption {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.web-image figcaption > :first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+}
+
+.web-image-download {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--accent-soft);
+}
+
+.web-image-download:hover {
+  background: var(--surface);
+}
+
+@media (pointer: coarse) {
+  .web-image-download {
+    width: 36px;
+    height: 36px;
+  }
+}
+
 .chat-form {
   display: flex;
   align-items: flex-end;
@@ -2465,6 +2547,77 @@ button:disabled {
   border-color: var(--accent);
   background: var(--accent);
   color: var(--text);
+}
+
+/* the card under an answer that changed the personal instructions */
+.instruction-notice {
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent-soft);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  animation: bubble-in 0.3s ease both;
+}
+
+.instruction-notice-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.instruction-notice ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.instruction-notice-label {
+  color: var(--muted);
+}
+
+.instruction-notice del {
+  color: var(--muted);
+}
+
+.instruction-notice-error {
+  margin: 6px 0 0;
+  color: var(--danger);
+}
+
+.instruction-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.instruction-notice-actions button {
+  padding: 5px 12px;
+  border: 1px solid var(--accent-soft);
+  border-radius: 999px;
+  background: none;
+  color: var(--accent-soft);
+  font-size: 13px;
+}
+
+.instruction-notice-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--text);
+}
+
+.instruction-notice-actions button:disabled {
+  opacity: 0.6;
+}
+
+@media (pointer: coarse) {
+  .instruction-notice-actions button {
+    min-height: 36px;
+    padding: 6px 14px;
+  }
 }
 
 /* searching the conversations above the list */

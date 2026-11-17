@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -23,6 +25,9 @@ const (
 
 // ErrInstruksiPanjang dipakai bila instruksi pribadi lebih dari BatasInstruksi huruf
 var ErrInstruksiPanjang = fmt.Errorf("instruksi pribadi maksimal %d huruf", BatasInstruksi)
+
+// ErrInstruksiBerubah dipakai saat membatalkan, bila instruksi sudah diubah lagi sesudah perubahan yang mau dibatalkan
+var ErrInstruksiBerubah = errors.New("instruksi pribadi sudah berubah lagi")
 
 // IngatanService menyimpan memori jangka panjang akun: ringkasan tentang pengguna yang dibawa ke semua percakapannya
 type IngatanService struct {
@@ -62,11 +67,42 @@ func (s *IngatanService) AmbilInstruksi(penggunaID string) (string, error) {
 
 // SimpanInstruksi merapikan lalu menyimpan instruksi pribadi; teks kosong berarti menghapusnya
 func (s *IngatanService) SimpanInstruksi(penggunaID, instruksi string) (string, error) {
+	instruksi, err := rapikanInstruksi(instruksi)
+	if err != nil {
+		return "", err
+	}
+	return instruksi, s.repo.SimpanInstruksi(penggunaID, instruksi)
+}
+
+// GantiInstruksiDariChat menyimpan instruksi yang diubah lewat chat; versi sebelumnya disimpan agar bisa dibatalkan
+func (s *IngatanService) GantiInstruksiDariChat(penggunaID, instruksi string) (string, error) {
+	instruksi, err := rapikanInstruksi(instruksi)
+	if err != nil {
+		return "", err
+	}
+	return instruksi, s.repo.GantiInstruksiSimpanLama(penggunaID, instruksi)
+}
+
+// BatalkanInstruksi mengembalikan instruksi sebelum perubahan lewat chat. saatIni adalah instruksi hasil perubahan itu;
+// jika instruksi sekarang sudah berbeda, tidak ada yang dikembalikan agar perubahan yang lebih baru tidak hilang
+func (s *IngatanService) BatalkanInstruksi(penggunaID, saatIni string) (string, error) {
+	saatIni, err := rapikanInstruksi(saatIni)
+	if err != nil {
+		return "", ErrInstruksiBerubah
+	}
+	instruksi, err := s.repo.KembalikanInstruksi(penggunaID, saatIni)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrInstruksiBerubah
+	}
+	return instruksi, err
+}
+
+func rapikanInstruksi(instruksi string) (string, error) {
 	instruksi = strings.TrimSpace(strings.ReplaceAll(instruksi, "\r\n", "\n"))
 	if utf8.RuneCountInString(instruksi) > BatasInstruksi {
 		return "", ErrInstruksiPanjang
 	}
-	return instruksi, s.repo.SimpanInstruksi(penggunaID, instruksi)
+	return instruksi, nil
 }
 
 // PerbaruiNanti merangkum percakapan terbaru ke dalam ingatan di latar belakang, jadi pengguna tidak ikut menunggu

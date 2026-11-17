@@ -37,6 +37,7 @@ func BuatChatbot(
 	folderService *service.FolderService,
 	google *service.MasukGoogle,
 	turnstile *captcha.Turnstile,
+	penerusGambar *service.PenerusGambar,
 	corsOrigin []string,
 	kunciAgent string,
 	batas Batas,
@@ -71,6 +72,8 @@ func BuatChatbot(
 	pembatasGlobal := middleware.BaruPembatas(batas.PesanGlobalMenit, time.Minute)
 	pembatasPesanTamu := middleware.BaruPembatas(batas.PesanTamu, batas.MasaTamu)
 	pembatasBerkas := middleware.BaruPembatas(batas.BerkasPerJam, time.Hour)
+	// satu jawaban paling banyak 4 gambar, jadi batas ini cukup untuk membuka banyak percakapan sekaligus
+	pembatasGambar := middleware.BaruPembatas(240, time.Minute)
 
 	// semua memakai satu kunci yang sama, jadi batasnya berlaku untuk seluruh pengunjung
 	semua := func(r *http.Request) string {
@@ -89,6 +92,9 @@ func BuatChatbot(
 	mux.HandleFunc("GET /status-agen", handler.StatusAgen(chatbotService))
 	mux.HandleFunc("GET /kesehatan/lengkap", handler.KesehatanLengkap(chatbotService))
 
+	// tanpa sesi karena dibuka lewat tag gambar di browser; alamatnya harus ditandatangani backend
+	mux.Handle("GET /gambar", middleware.BatasiLaju(pembatasGambar, perIP, handler.TeruskanGambar(penerusGambar)))
+
 	mux.Handle("POST /sesi/tamu", middleware.BatasiLaju(pembatasTamu, perIP, handler.MasukTamu(sesiService)))
 	mux.Handle("GET /sesi", wajib(http.HandlerFunc(handler.SesiSaya)))
 	mux.Handle("DELETE /sesi", wajib(handler.Keluar(sesiService)))
@@ -105,6 +111,7 @@ func BuatChatbot(
 	mux.Handle("POST /akun/google/tukar", middleware.BatasiLaju(pembatasAkun, perIP, handler.TukarGoogle(google)))
 	mux.Handle("GET /akun/instruksi", akun(handler.AmbilInstruksi(ingatanService)))
 	mux.Handle("PATCH /akun/instruksi", akun(handler.SimpanInstruksi(ingatanService)))
+	mux.Handle("POST /akun/instruksi/batalkan", akun(handler.BatalkanInstruksi(ingatanService)))
 
 	// tamu hanya bisa chat; percakapannya tidak disimpan, riwayatnya dikirim dari browser
 	mux.Handle("POST /tamu/pesan", wajib(
@@ -160,5 +167,5 @@ func BuatChatbot(
 		akar.Handle("POST /berkas", middleware.BatasBody(batas.BerkasMaks+64<<10, wajib(
 			middleware.BatasiLaju(pembatasBerkas, perPengguna, handler.BacaBerkas(chatbotService, batas.BerkasMaks)))))
 	}
-	return middleware.HeaderKeamanan(middleware.CORS(corsOrigin, akar))
+	return middleware.HeaderKeamanan(middleware.CORS(corsOrigin, middleware.Gzip(akar)))
 }

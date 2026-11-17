@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
-import type { Message, Rating, Source } from "./api";
+import { ApiError, undoInstructionChange, type InstructionChange, type Message, type Rating, type Source, type WebImage } from "./api";
 import { Linkified, Markdown } from "./Markdown";
 import { formatTime, hideFollowUps, looksFormatted } from "./messageText";
 import { useSmoothText } from "./useSmoothText";
@@ -160,6 +160,47 @@ function SourceItem({ source }: { source: Source }) {
   );
 }
 
+// Pictures found on the internet for an answer. Tapping one opens it full size; the caption links to the page it came from
+function WebImages({ images }: { images: WebImage[] }) {
+  return (
+    <div className={`web-images ${images.length === 1 ? "single" : ""}`} onClick={(event) => event.stopPropagation()}>
+      {images.map((image) => (
+        <WebImageItem key={image.url} image={image} />
+      ))}
+    </div>
+  );
+}
+
+function WebImageItem({ image }: { image: WebImage }) {
+  const [failed, setFailed] = useState(false);
+  const label = image.title || (isWebAddress(image.page) ? new URL(image.page).hostname : "Gambar dari internet");
+  return (
+    <figure className="web-image">
+      {failed ? (
+        <div className="web-image-missing">Gambar tidak tersedia</div>
+      ) : (
+        <a href={image.src} target="_blank" rel="noopener noreferrer">
+          <img src={image.src} alt={label} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+        </a>
+      )}
+      <figcaption>
+        {isWebAddress(image.page) ? (
+          <a href={image.page} target="_blank" rel="noopener noreferrer" title={label}>
+            {label}
+          </a>
+        ) : (
+          <span title={label}>{label}</span>
+        )}
+        {!failed && (
+          <a className="web-image-download" href={image.download} aria-label="Unduh gambar" title="Unduh gambar">
+            <DownloadIcon size={15} />
+          </a>
+        )}
+      </figcaption>
+    </figure>
+  );
+}
+
 type MessageItemProps = {
   message: Message;
   animate: boolean;
@@ -186,7 +227,65 @@ type MessageItemProps = {
   onRegenerate?: () => void;
   // set for the newest answer, so its follow-up questions show as buttons
   onSuggest?: (text: string) => void;
+  // opens the personal instructions dialog from the card shown when an answer changed them
+  onViewInstructions?: () => void;
 };
+
+// Shown under an answer that changed the personal instructions: what changed, a button to open them, and one to undo
+function InstructionNotice({ change, onView }: { change: InstructionChange; onView?: () => void }) {
+  const [state, setState] = useState<"saved" | "busy" | "undone">("saved");
+  const [error, setError] = useState("");
+
+  async function undo() {
+    setState("busy");
+    setError("");
+    try {
+      await undoInstructionChange(change.text);
+      setState("undone");
+    } catch (err) {
+      setState("saved");
+      setError(err instanceof ApiError && err.message !== "" ? err.message : "Gagal membatalkan, coba lagi.");
+    }
+  }
+
+  return (
+    <div className="instruction-notice" onClick={(event) => event.stopPropagation()}>
+      <p className="instruction-notice-title">{state === "undone" ? "Instruksi pribadi dikembalikan" : "Instruksi pribadi diperbarui"}</p>
+      {state !== "undone" && (
+        <ul>
+          {change.replaced.map((item) => (
+            <li key={`r-${item.from}`}>
+              <span className="instruction-notice-label">Diganti:</span> <del>{item.from}</del> → {item.to}
+            </li>
+          ))}
+          {change.removed.map((text) => (
+            <li key={`d-${text}`}>
+              <span className="instruction-notice-label">Dihapus:</span> <del>{text}</del>
+            </li>
+          ))}
+          {change.added.map((text) => (
+            <li key={`a-${text}`}>
+              <span className="instruction-notice-label">Ditambah:</span> {text}
+            </li>
+          ))}
+        </ul>
+      )}
+      {error !== "" && <p className="instruction-notice-error">{error}</p>}
+      <div className="instruction-notice-actions">
+        {onView && (
+          <button type="button" onClick={onView}>
+            Lihat
+          </button>
+        )}
+        {state !== "undone" && (
+          <button type="button" onClick={undo} disabled={state === "busy"}>
+            {state === "busy" ? "Membatalkan..." : "Batalkan"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // The text box that replaces a question while it is edited; Ctrl+Enter sends and Escape cancels
 function EditBox({ text, replacesLater, onDone }: { text: string; replacesLater: boolean; onDone: (text: string | null) => void }) {
@@ -324,6 +423,7 @@ export function MessageItemView(props: MessageItemProps) {
               ) : (
                 <Linkified text={message.text.slice(0, length)} />
               )}
+              {!typing && message.images !== undefined && message.images.length > 0 && <WebImages images={message.images} />}
               {!typing && message.sources.length > 0 && (
                 <div className="sources">
                   <p className="sources-title">Sumber Referensi</p>
@@ -417,6 +517,9 @@ export function MessageItemView(props: MessageItemProps) {
             </span>
           )}
         </span>
+        {!typing && message.instructionChange !== undefined && (
+          <InstructionNotice change={message.instructionChange} onView={props.onViewInstructions} />
+        )}
         {props.onSuggest && !typing && message.suggestions !== undefined && message.suggestions.length > 0 && (
           <div className="suggestions" onClick={(event) => event.stopPropagation()}>
             {message.suggestions.map((text) => (
@@ -448,7 +551,8 @@ export const MessageItem = memo(
     (before.onRetry === undefined) === (after.onRetry === undefined) &&
     (before.onEdit === undefined) === (after.onEdit === undefined) &&
     (before.onRegenerate === undefined) === (after.onRegenerate === undefined) &&
-    (before.onSuggest === undefined) === (after.onSuggest === undefined),
+    (before.onSuggest === undefined) === (after.onSuggest === undefined) &&
+    (before.onViewInstructions === undefined) === (after.onViewInstructions === undefined),
 );
 
 // The bubble shown while the answer is being made: the answer so far, or else the current step such as "Mencari: ..."

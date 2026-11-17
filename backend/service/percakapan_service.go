@@ -39,6 +39,8 @@ type HasilPesan struct {
 	Jawaban model.Pesan `json:"jawaban"`
 	// Saran adalah pertanyaan lanjutan usulan AI; tidak disimpan, hanya tampil di bawah jawaban terbaru
 	Saran []string `json:"saran,omitempty"`
+	// Instruksi diisi bila jawaban ini mengubah instruksi pribadi pengguna, untuk kartu pemberitahuan dan tombol batalkan
+	Instruksi *agen.PerubahanInstruksi `json:"instruksi,omitempty"`
 }
 
 // PermintaanJawab adalah pertanyaan yang akan dijawab. GantiDari boleh kosong; jika diisi id pertanyaan lama,
@@ -258,7 +260,7 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 
 	ingatan, waktunya := s.ingatan.Ambil(penggunaID)
 	tambahan := agen.Tambahan{Lampiran: lampiranAgen(&berkas), BisaEmail: s.email.Bisa(pengguna), Ringkasan: ringkasan,
-		Instruksi: s.ingatan.Instruksi(penggunaID)}
+		Instruksi: s.ingatan.Instruksi(penggunaID), BisaUbahInstruksi: pengguna.Jenis != "tamu"}
 	profil := profilPengguna(mode)
 	hasil, err := s.chatbot.Jawab(ctx, pengguna, pertanyaan, riwayat, ingatan, profil, tambahan, kabar)
 	if err != nil {
@@ -270,8 +272,18 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 			hasil.Jawaban += "\n\n*Email belum terkirim: " + alasanEmail(err) + ".*"
 		}
 	}
+	if hasil.Instruksi != nil && tambahan.BisaUbahInstruksi {
+		teks, err := s.ingatan.GantiInstruksiDariChat(penggunaID, hasil.Instruksi.Teks)
+		if err != nil {
+			log.Println("gagal menyimpan instruksi pribadi dari chat:", err)
+			hasil.Jawaban += "\n\n*Instruksi pribadi belum tersimpan, coba ubah lewat menu Instruksi pribadi.*"
+			hasil.Instruksi = nil
+		} else {
+			hasil.Instruksi.Teks = teks
+		}
+	}
 	// pertanyaan baru disimpan bersama jawabannya; yang gagal atau dihentikan tidak tersimpan dan bisa dicoba lagi
-	pesan, jawaban, err := s.repo.SimpanTanyaJawab(id, pertanyaan, baru, hasil.Jawaban, hasil.Sumber, profil)
+	pesan, jawaban, err := s.repo.SimpanTanyaJawab(id, pertanyaan, baru, hasil.Jawaban, hasil.Sumber, hasil.Gambar, profil)
 	if err != nil {
 		return HasilPesan{}, err
 	}
@@ -281,7 +293,7 @@ func (s *PercakapanService) Kirim(ctx context.Context, id string, pengguna model
 		s.ingatan.PerbaruiNanti(penggunaID, ingatan, terbaru)
 	}
 	s.ringkasan.PerbaruiNanti(id, pengguna, len(lama)+2)
-	return HasilPesan{Judul: judul, Pesan: pesan, Jawaban: jawaban, Saran: hasil.Saran}, nil
+	return HasilPesan{Judul: judul, Pesan: pesan, Jawaban: jawaban, Saran: hasil.Saran, Instruksi: hasil.Instruksi}, nil
 }
 
 // Sematkan menaruh percakapan di atas daftar, atau melepasnya

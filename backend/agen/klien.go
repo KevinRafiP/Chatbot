@@ -33,6 +33,29 @@ type Jawaban struct {
 	Email         *Email   `json:"email,omitempty"`
 	Saran         []string `json:"saran,omitempty"`
 	Kinerja       Kinerja  `json:"kinerja"`
+	// Instruksi diisi bila pengguna mengubah instruksi pribadinya lewat chat (alat ubah_instruksi)
+	Instruksi *PerubahanInstruksi `json:"instruksi,omitempty"`
+	// Gambar dari alat cari_gambar, ditampilkan di bawah jawaban
+	Gambar []Gambar `json:"gambar,omitempty"`
+}
+
+type Gambar struct {
+	URL     string `json:"url"`
+	Judul   string `json:"judul"`
+	Halaman string `json:"halaman"`
+}
+
+// PerubahanInstruksi adalah instruksi pribadi baru beserta daftar bagian yang diganti, dihapus, atau ditambah
+type PerubahanInstruksi struct {
+	Teks      string `json:"teks"`
+	Perubahan struct {
+		Diganti []struct {
+			Lama string `json:"lama"`
+			Baru string `json:"baru"`
+		} `json:"diganti"`
+		Dihapus  []string `json:"dihapus"`
+		Ditambah []string `json:"ditambah"`
+	} `json:"perubahan"`
 }
 
 // Kinerja adalah pemakaian satu panggilan agent: token model, berapa kali model dipanggil, dan alat yang dipakai
@@ -56,12 +79,13 @@ type Lampiran struct {
 }
 
 // Tambahan berisi data pilihan untuk satu pertanyaan: lampiran berkas, izin mengirim email, ringkasan pesan lama,
-// dan instruksi pribadi pengguna
+// dan instruksi pribadi pengguna; BisaUbahInstruksi true untuk akun, agar instruksi itu boleh diubah lewat chat
 type Tambahan struct {
-	Lampiran  *Lampiran
-	BisaEmail bool
-	Ringkasan string
-	Instruksi string
+	Lampiran          *Lampiran
+	BisaEmail         bool
+	Ringkasan         string
+	Instruksi         string
+	BisaUbahInstruksi bool
 }
 
 // Berkas adalah hasil membaca berkas unggahan di agent
@@ -88,6 +112,7 @@ type permintaan struct {
 	BisaEmail  bool      `json:"bisa_email,omitempty"`
 	Ringkasan  string    `json:"ringkasan,omitempty"`
 	Instruksi  string    `json:"instruksi_pribadi,omitempty"`
+	BisaUbah   bool      `json:"bisa_ubah_instruksi,omitempty"`
 }
 
 type permintaanBerkas struct {
@@ -234,7 +259,8 @@ func (k *Klien) Alamat() string {
 func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan, profil string, tambahan Tambahan) (Jawaban, error) {
 	var jawaban Jawaban
 	err := k.kirimUlang(ctx, "/jawab", permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Profil: profil,
-		Lampiran: tambahan.Lampiran, BisaEmail: tambahan.BisaEmail, Ringkasan: tambahan.Ringkasan, Instruksi: tambahan.Instruksi}, &jawaban)
+		Lampiran: tambahan.Lampiran, BisaEmail: tambahan.BisaEmail, Ringkasan: tambahan.Ringkasan, Instruksi: tambahan.Instruksi,
+		BisaUbah: tambahan.BisaUbahInstruksi}, &jawaban)
 	return jawaban, err
 }
 
@@ -242,7 +268,8 @@ func (k *Klien) Tanya(ctx context.Context, pertanyaan string, konteks []Konteks,
 // setiap status dan potongan teks diteruskan ke kabar, lalu hasil akhirnya dikembalikan
 func (k *Klien) TanyaStream(ctx context.Context, pertanyaan string, konteks []Konteks, riwayat []Riwayat, ingatan, profil string, tambahan Tambahan, kabar Kabar) (Jawaban, error) {
 	badan, err := json.Marshal(permintaan{Pertanyaan: pertanyaan, Konteks: konteks, Riwayat: riwayat, Ingatan: ingatan, Profil: profil,
-		Lampiran: tambahan.Lampiran, BisaEmail: tambahan.BisaEmail, Ringkasan: tambahan.Ringkasan, Instruksi: tambahan.Instruksi})
+		Lampiran: tambahan.Lampiran, BisaEmail: tambahan.BisaEmail, Ringkasan: tambahan.Ringkasan, Instruksi: tambahan.Instruksi,
+		BisaUbah: tambahan.BisaUbahInstruksi})
 	if err != nil {
 		return Jawaban{}, err
 	}

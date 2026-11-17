@@ -2,6 +2,7 @@ import random
 import re
 from datetime import datetime, timedelta, timezone
 
+from alat.instruksi import DEKLARASI_UBAH_INSTRUKSI
 from ingatan import pilih_ingatan
 from prompt import butuh_analisis, instruksi_pribadi, instruksi_tambahan, mirip_lirik
 from pengaman.aturan import (batas_sumber, butuh_cari, butuh_data, lanjutan, minta_cari_ulang, minta_email, minta_internet, obrolan_ringan,
@@ -31,9 +32,10 @@ MAKS_HURUF_RUJUKAN = 200
 # menandai bagian tengah pesan lama yang dilewati saat riwayat dipersingkat
 TANDA_DIPERSINGKAT = "[...]"
 
-def buat_siapkan(kotak_alat, penulis=None):
+def buat_siapkan(kotak_alat, penulis=None, penggabung=None):
     """Simpul pertama: memeriksa pertanyaan dan menyusun pesan untuk LLM.
-    penulis(riwayat, pertanyaan) menulis ulang pesan lanjutan menjadi pertanyaan lengkap; None = hanya pola kata."""
+    penulis(riwayat, pertanyaan) menulis ulang pesan lanjutan menjadi pertanyaan lengkap; None = hanya pola kata.
+    penggabung(lama, permintaan) dipakai alat ubah_instruksi; None = instruksi pribadi tidak bisa diubah lewat chat."""
 
     def siapkan(keadaan):
         pertanyaan = periksa_pertanyaan(keadaan.get("pertanyaan"))
@@ -72,6 +74,11 @@ def buat_siapkan(kotak_alat, penulis=None):
         bisa_email = bool(keadaan.get("bisa_email")) and minta_email(pertanyaan)
         teks_pilih = teks_pilih_alat(maksud, keadaan.get("riwayat"), keadaan.get("lampiran"))
         keadaan["deklarasi"] = kotak_alat.deklarasi(email=bisa_email, teks=teks_pilih, stream=bool(keadaan.get("kabar")))
+        # instruksi pribadi bisa diubah lewat chat hanya oleh akun; alatnya selalu dikirim karena maknanya dinilai model, bukan kata kunci
+        bisa_ubah = bool(keadaan.get("bisa_ubah_instruksi")) and penggabung is not None
+        if bisa_ubah:
+            keadaan["deklarasi"].append(DEKLARASI_UBAH_INSTRUKSI)
+        keadaan["bagian_pribadi"] = pribadi
         # aturan grafik, rumus, selera, berkas, dan alat khusus hanya ditambahkan jika dibutuhkan pertanyaan ini
         keadaan["instruksi_tambahan"] = instruksi_tambahan({d["name"] for d in keadaan["deklarasi"]}, teks_pilih, selera,
                                                            bool(keadaan.get("lampiran")), not kotak_alat.cfg.alat.pilih_otomatis,
@@ -98,7 +105,10 @@ def buat_siapkan(kotak_alat, penulis=None):
             # maksud dipakai memilih bagian halaman yang relevan; kabar dipakai alat yang berjalan di browser pengguna
             "maksud": maksud,
             "kabar": keadaan.get("kabar"),
+            "instruksi_lama": str(keadaan.get("instruksi_pribadi") or "").strip(),
         }
+        if bisa_ubah:
+            keadaan["catatan"]["gabung_instruksi"] = penggabung
         keadaan["putaran_llm"] = 0
         return keadaan
 

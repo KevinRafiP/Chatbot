@@ -97,8 +97,8 @@ func (r *PercakapanRepository) DaftarPesan(percakapanID string, batas int) ([]mo
 
 // DaftarPesanSetelah sama seperti DaftarPesan, tetapi hanya pesan sesudah urutan tertentu (yang belum diringkas)
 func (r *PercakapanRepository) DaftarPesanSetelah(percakapanID string, setelah int64, batas int) ([]model.Pesan, error) {
-	rows, err := r.db.Query(`SELECT id, urutan, pengirim, isi, sumber, favorit, COALESCE(penilaian, 0), lampiran_nama, dibuat_pada FROM (
-		SELECT id, urutan, pengirim, isi, sumber, favorit, penilaian, lampiran_nama, dibuat_pada FROM pesan
+	rows, err := r.db.Query(`SELECT id, urutan, pengirim, isi, sumber, gambar, favorit, COALESCE(penilaian, 0), lampiran_nama, dibuat_pada FROM (
+		SELECT id, urutan, pengirim, isi, sumber, gambar, favorit, penilaian, lampiran_nama, dibuat_pada FROM pesan
 			WHERE percakapan_id = $1 AND urutan > $3 AND dihapus_pada IS NULL ORDER BY urutan DESC LIMIT NULLIF($2, 0)
 		) AS terakhir ORDER BY urutan`, percakapanID, batas, setelah)
 	if err != nil {
@@ -109,11 +109,12 @@ func (r *PercakapanRepository) DaftarPesanSetelah(percakapanID string, setelah i
 	daftar := []model.Pesan{}
 	for rows.Next() {
 		var p model.Pesan
-		var sumber string
-		if err := rows.Scan(&p.ID, &p.Urutan, &p.Pengirim, &p.Isi, &sumber, &p.Favorit, &p.Penilaian, &p.Lampiran, &p.DibuatPada); err != nil {
+		var sumber, gambar string
+		if err := rows.Scan(&p.ID, &p.Urutan, &p.Pengirim, &p.Isi, &sumber, &gambar, &p.Favorit, &p.Penilaian, &p.Lampiran, &p.DibuatPada); err != nil {
 			return nil, err
 		}
 		p.Sumber = pecahSumber(sumber)
+		p.Gambar = pecahGambar(gambar)
 		daftar = append(daftar, p)
 	}
 	return daftar, rows.Err()
@@ -161,7 +162,7 @@ func (r *PercakapanRepository) SimpanPesanLampiran(percakapanID string, pengirim
 
 // SimpanTanyaJawab menyimpan pertanyaan dan jawabannya sekaligus dalam satu transaksi, jadi pertanyaan yang gagal
 // atau dihentikan tidak pernah tersimpan tanpa jawaban; profil dicatat pada jawaban untuk penilaian per profil
-func (r *PercakapanRepository) SimpanTanyaJawab(percakapanID, pertanyaan string, lampiran model.Lampiran, jawaban string, sumber []model.Sumber, profil string) (model.Pesan, model.Pesan, error) {
+func (r *PercakapanRepository) SimpanTanyaJawab(percakapanID, pertanyaan string, lampiran model.Lampiran, jawaban string, sumber []model.Sumber, gambar []model.Gambar, profil string) (model.Pesan, model.Pesan, error) {
 	if sumber == nil {
 		sumber = []model.Sumber{}
 	}
@@ -182,9 +183,9 @@ func (r *PercakapanRepository) SimpanTanyaJawab(percakapanID, pertanyaan string,
 	if err != nil {
 		return model.Pesan{}, model.Pesan{}, err
 	}
-	jawab := model.Pesan{Pengirim: "asisten", Isi: jawaban, Sumber: sumber}
-	err = tx.QueryRow(`INSERT INTO pesan (percakapan_id, pengirim, isi, sumber, profil) VALUES ($1, 'asisten', $2, $3, $4)
-		RETURNING id, dibuat_pada`, percakapanID, jawaban, string(teksSumber), profil).Scan(&jawab.ID, &jawab.DibuatPada)
+	jawab := model.Pesan{Pengirim: "asisten", Isi: jawaban, Sumber: sumber, Gambar: gambar}
+	err = tx.QueryRow(`INSERT INTO pesan (percakapan_id, pengirim, isi, sumber, gambar, profil) VALUES ($1, 'asisten', $2, $3, $4, $5)
+		RETURNING id, dibuat_pada`, percakapanID, jawaban, string(teksSumber), teksGambar(gambar), profil).Scan(&jawab.ID, &jawab.DibuatPada)
 	if err != nil {
 		return model.Pesan{}, model.Pesan{}, err
 	}
@@ -233,7 +234,7 @@ func (r *PercakapanRepository) UbahPenilaian(pesanID, penggunaID string, nilai i
 
 // DaftarFavorit mengambil pesan berbintang dari semua percakapan milik pengguna, yang terbaru di atas
 func (r *PercakapanRepository) DaftarFavorit(penggunaID string, batas int) ([]model.PesanFavorit, error) {
-	rows, err := r.db.Query(`SELECT p.id, p.pengirim, p.isi, p.sumber, p.dibuat_pada, c.id, c.judul
+	rows, err := r.db.Query(`SELECT p.id, p.pengirim, p.isi, p.sumber, p.gambar, p.dibuat_pada, c.id, c.judul
 		FROM pesan p JOIN percakapan c ON c.id = p.percakapan_id
 		WHERE c.pengguna_id = $1 AND p.favorit AND p.dihapus_pada IS NULL AND c.dihapus_pada IS NULL ORDER BY p.dibuat_pada DESC LIMIT $2`, penggunaID, batas)
 	if err != nil {
@@ -244,11 +245,12 @@ func (r *PercakapanRepository) DaftarFavorit(penggunaID string, batas int) ([]mo
 	daftar := []model.PesanFavorit{}
 	for rows.Next() {
 		var p model.PesanFavorit
-		var sumber string
-		if err := rows.Scan(&p.ID, &p.Pengirim, &p.Isi, &sumber, &p.DibuatPada, &p.PercakapanID, &p.JudulPercakapan); err != nil {
+		var sumber, gambar string
+		if err := rows.Scan(&p.ID, &p.Pengirim, &p.Isi, &sumber, &gambar, &p.DibuatPada, &p.PercakapanID, &p.JudulPercakapan); err != nil {
 			return nil, err
 		}
 		p.Sumber = pecahSumber(sumber)
+		p.Gambar = pecahGambar(gambar)
 		p.Favorit = true
 		daftar = append(daftar, p)
 	}
@@ -333,6 +335,29 @@ func cuplikan(teks, kueri string, sisi int) string {
 		hasil += "..."
 	}
 	return hasil
+}
+
+// teksGambar menyusun kolom gambar tanpa tanda proxy, karena tanda dibuat ulang setiap kali pesan dikirim ke browser
+func teksGambar(gambar []model.Gambar) string {
+	type polos struct {
+		URL     string `json:"url"`
+		Judul   string `json:"judul"`
+		Halaman string `json:"halaman"`
+	}
+	daftar := []polos{}
+	for _, g := range gambar {
+		daftar = append(daftar, polos(g))
+	}
+	teks, _ := json.Marshal(daftar)
+	return string(teks)
+}
+
+func pecahGambar(teks string) []model.Gambar {
+	var daftar []model.Gambar
+	if json.Unmarshal([]byte(teks), &daftar) != nil {
+		return nil
+	}
+	return daftar
 }
 
 // pecahSumber membaca kolom sumber: bentuk baru berupa JSON, bentuk lama satu sumber per baris

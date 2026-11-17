@@ -89,7 +89,8 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berka
                     hasil = penyaring.saring_hasil(pilihan.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"),
                                                                  data.get("ingatan"), lampiran=data.get("lampiran"),
                                                                  bisa_email=data.get("bisa_email"), ringkasan=data.get("ringkasan"),
-                                                                 instruksi_pribadi=data.get("instruksi_pribadi")))
+                                                                 instruksi_pribadi=data.get("instruksi_pribadi"),
+                                                                 bisa_ubah_instruksi=data.get("bisa_ubah_instruksi")))
             except GalatPengaman as galat:
                 self.kirim_json(400, {"status": "gagal", "message": str(galat)})
                 return
@@ -162,7 +163,7 @@ def buat_penangan(daftar_agen, api_key, pembuat_embedding=None, maks_huruf_berka
             try:
                 hasil = pilihan.jawab(data.get("pertanyaan", ""), data.get("konteks"), data.get("riwayat"), data.get("ingatan"), kabar,
                                       data.get("lampiran"), data.get("bisa_email"), data.get("ringkasan"),
-                                      data.get("instruksi_pribadi"))
+                                      data.get("instruksi_pribadi"), data.get("bisa_ubah_instruksi"))
                 kabar("selesai", penyaring.saring_hasil(hasil))
             except (BrokenPipeError, ConnectionResetError, denyut.Dihentikan):
                 logging.info("backend menutup stream sebelum jawaban selesai (dihentikan pengguna)")

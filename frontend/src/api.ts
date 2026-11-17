@@ -9,6 +9,8 @@ const GUEST_TOKEN_KEY = "chatbot_guest_token";
 export type Conversation = { id: string; title: string; pinned: boolean; answering: boolean; failed: boolean; folderId: string };
 export type Folder = { id: string; name: string; count: number };
 export type Source = { title: string; url: string };
+// A picture found on the internet for an answer; src and download go through the backend, which keeps nothing
+export type WebImage = { url: string; title: string; page: string; src: string; download: string };
 export type Message = {
   id: string;
   sender: "user" | "bot";
@@ -22,6 +24,16 @@ export type Message = {
   retry?: { attachment: Attachment | null };
   // follow-up questions suggested with a fresh answer; never saved, so only the newest answer has them
   suggestions?: string[];
+  // set when this answer changed the personal instructions; never saved, like suggestions
+  instructionChange?: InstructionChange;
+  images?: WebImage[];
+};
+// Personal instructions after a change asked for in the chat, and which parts were replaced, removed, or added
+export type InstructionChange = {
+  text: string;
+  replaced: { from: string; to: string }[];
+  removed: string[];
+  added: string[];
 };
 export type Rating = 1 | -1 | 0;
 // Text read from an uploaded file; it is sent along with the next question
@@ -126,17 +138,23 @@ type RawMessage = {
   pengirim: "user" | "asisten";
   isi: string;
   sumber: RawSource[] | null;
+  gambar?: RawImage[] | null;
   favorit: boolean;
   penilaian?: number;
   lampiran?: string;
   dibuat_pada: string;
 };
 type RawFavorite = RawMessage & { percakapan_id: string; judul_percakapan: string };
-type RawSendResult = { judul: string; pesan: RawMessage; jawaban: RawMessage; saran?: string[] };
+type RawInstructionChange = {
+  teks: string;
+  perubahan: { diganti: { lama: string; baru: string }[] | null; dihapus: string[] | null; ditambah: string[] | null };
+};
+type RawSendResult = { judul: string; pesan: RawMessage; jawaban: RawMessage; saran?: string[]; instruksi?: RawInstructionChange };
 type RawAccount = { id: string; nama: string; jenis: Role; email?: string };
 type RawSession = { token: string; pengguna: RawAccount };
 type RawSignIn = RawSession | { perlu_verifikasi: true; email: string };
-type RawAnswer = { jawaban: string; sumber: RawSource[] | null; saran?: string[] };
+type RawImage = { url: string; judul: string; halaman: string; tanda: string };
+type RawAnswer = { jawaban: string; sumber: RawSource[] | null; gambar?: RawImage[] | null; saran?: string[] };
 type RawFile = { nama: string; teks: string; terpotong: boolean; halaman: number | null };
 type RawStats = {
   profil: string;
@@ -472,12 +490,20 @@ function toAccount(raw: RawAccount): Account {
 }
 
 // Converts a backend message into the shape used by the UI
+function toImages(raw: RawImage[] | null | undefined): WebImage[] {
+  return (raw ?? []).map((image) => {
+    const src = `${API_URL}/gambar?url=${encodeURIComponent(image.url)}&tanda=${image.tanda}`;
+    return { url: image.url, title: image.judul, page: image.halaman, src, download: `${src}&unduh=1` };
+  });
+}
+
 function toMessage(raw: RawMessage): Message {
   return {
     id: raw.id,
     sender: raw.pengirim === "user" ? "user" : "bot",
     text: raw.isi,
     sources: (raw.sumber ?? []).map((source) => ({ title: source.judul, url: source.url })),
+    images: toImages(raw.gambar),
     sentAt: raw.dibuat_pada,
     favorite: raw.favorit,
     attachment: raw.lampiran ?? "",
@@ -589,7 +615,17 @@ export async function stopServerAnswer(conversationId: string): Promise<void> {
 }
 
 function toSendResult(raw: RawSendResult): SendResult {
-  return { title: raw.judul, question: toMessage(raw.pesan), answer: { ...toMessage(raw.jawaban), suggestions: raw.saran } };
+  const answer: Message = { ...toMessage(raw.jawaban), suggestions: raw.saran };
+  if (raw.instruksi) {
+    const changes = raw.instruksi.perubahan;
+    answer.instructionChange = {
+      text: raw.instruksi.teks,
+      replaced: (changes.diganti ?? []).map((item) => ({ from: item.lama, to: item.baru })),
+      removed: changes.dihapus ?? [],
+      added: changes.ditambah ?? [],
+    };
+  }
+  return { title: raw.judul, question: toMessage(raw.pesan), answer };
 }
 
 // The question of a running answer, shown like a question that was just sent
@@ -625,6 +661,7 @@ signal?: AbortSignal,
     sender: "bot",
     text: data.jawaban,
     sources: (data.sumber ?? []).map((source) => ({ title: source.judul, url: source.url })),
+    images: toImages(data.gambar),
     sentAt: new Date().toISOString(),
     favorite: false,
     attachment: "",
@@ -779,6 +816,13 @@ export async function getInstructions(): Promise<{ text: string; limit: number }
 
 export async function saveInstructions(text: string): Promise<string> {
   const data = await request<{ instruksi: string }>("PATCH", "/akun/instruksi", { instruksi: text });
+  return data.instruksi;
+}
+
+// Brings back the instructions from before a change made in the chat; current is the text that change saved.
+// Fails with 409 when the instructions were changed again since then
+export async function undoInstructionChange(current: string): Promise<string> {
+  const data = await request<{ instruksi: string }>("POST", "/akun/instruksi/batalkan", { instruksi: current });
   return data.instruksi;
 }
 

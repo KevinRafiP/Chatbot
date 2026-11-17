@@ -14,12 +14,14 @@ import (
 )
 
 type HasilChat struct {
-	Jawaban       string         `json:"jawaban"`
-	Sumber        []model.Sumber `json:"sumber"`
-	PakaiInternet bool           `json:"pakai_internet"`
-	Penjawab      string         `json:"penjawab"`
-	Saran         []string       `json:"saran,omitempty"` // pertanyaan lanjutan usulan AI, untuk tombol di bawah jawaban
-	Email         *agen.Email    `json:"-"`
+	Jawaban       string                   `json:"jawaban"`
+	Sumber        []model.Sumber           `json:"sumber"`
+	Gambar        []model.Gambar           `json:"gambar,omitempty"`
+	PakaiInternet bool                     `json:"pakai_internet"`
+	Penjawab      string                   `json:"penjawab"`
+	Saran         []string                 `json:"saran,omitempty"` // pertanyaan lanjutan usulan AI, untuk tombol di bawah jawaban
+	Email         *agen.Email              `json:"-"`
+	Instruksi     *agen.PerubahanInstruksi `json:"-"`
 }
 
 // ErrAgentMati dipakai fitur yang hanya bisa jalan lewat agent, misalnya membaca berkas
@@ -159,13 +161,20 @@ func (s *ChatbotService) tanyaAgen(ctx context.Context, pertanyaan string, dafta
 		sumber = append(sumber, model.Sumber{Judul: sm.Judul, URL: sm.URL})
 	}
 
+	gambar := []model.Gambar{}
+	for _, g := range jawaban.Gambar {
+		gambar = append(gambar, model.Gambar{URL: g.URL, Judul: g.Judul, Halaman: g.Halaman})
+	}
+
 	return HasilChat{
 		Jawaban:       jawaban.Jawaban,
 		Sumber:        sumber,
+		Gambar:        gambar,
 		PakaiInternet: jawaban.PakaiInternet,
 		Penjawab:      "agent",
 		Saran:         jawaban.Saran,
 		Email:         jawaban.Email,
+		Instruksi:     jawaban.Instruksi,
 	}, jawaban.Kinerja, nil
 }
 

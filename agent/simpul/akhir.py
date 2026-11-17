@@ -114,6 +114,10 @@ def hasil(keadaan, teks):
     hasil_akhir = {"jawaban": teks, "sumber": sumber, "pakai_internet": any(s["url"] for s in semua)}
     if catatan.get("email"):
         hasil_akhir["email"] = catatan["email"]
+    if catatan.get("instruksi"):
+        hasil_akhir["instruksi"] = catatan["instruksi"]
+    if catatan.get("gambar"):
+        hasil_akhir["gambar"] = catatan["gambar"]
     if saran:
         hasil_akhir["saran"] = saran
     return hasil_akhir

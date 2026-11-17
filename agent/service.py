@@ -3,6 +3,7 @@ from ingatan import ringkas
 from llm import pemakaian
 from pengaman.teks import bersihkan_data
 from ringkasan import BATAS_RINGKASAN, ringkas_percakapan
+from alat.instruksi import buat_penggabung
 from simpul.aksi import buat_aksi
 from prompt import INSTRUKSI_SISTEM
 from simpul.akhir import buat_batas, jawab, tolak
@@ -27,7 +28,7 @@ class Agen:
     def rakit(self, klien, kotak_alat):
         """Menyusun simpul dan sisi. Tambah agent/simpul baru cukup di sini."""
         graf = Graf()
-        graf.tambah_simpul("siapkan", buat_siapkan(kotak_alat, self.penulis))
+        graf.tambah_simpul("siapkan", buat_siapkan(kotak_alat, self.penulis, buat_penggabung(klien)))
         graf.tambah_simpul("pikir", buat_pikir(klien, self.instruksi, kotak_alat.cfg.paksa_cari))
         graf.tambah_simpul("aksi", buat_aksi(kotak_alat, self.maks_langkah))
         graf.tambah_simpul("verifikasi", verifikasi)
@@ -66,18 +67,19 @@ class Agen:
         return "verifikasi" if self.verifikasi else "jawab"
 
     def jawab(self, pertanyaan, konteks=None, riwayat=None, ingatan=None, kabar=None, lampiran=None, bisa_email=False,
-              ringkasan=None, instruksi_pribadi=None):
+              ringkasan=None, instruksi_pribadi=None, bisa_ubah_instruksi=False):
         """kabar(jenis, isi) dipanggil setiap ada langkah atau potongan teks baru; kosong berarti tanpa stream.
         lampiran {"nama", "teks"} adalah berkas dari pengguna; bisa_email True jika akun pengguna bisa menerima email.
         ringkasan adalah ringkasan pesan lama percakapan ini yang tidak lagi dikirim utuh di riwayat.
-        instruksi_pribadi adalah instruksi gaya jawaban yang ditulis pengguna di akunnya."""
+        instruksi_pribadi adalah instruksi gaya jawaban yang ditulis pengguna di akunnya;
+        bisa_ubah_instruksi True jika pengguna masuk dengan akun, jadi instruksi itu boleh diubah lewat chat."""
         pemakaian.mulai()
         pertanyaan, konteks, riwayat, lampiran, instruksi_pribadi = bersihkan_data((pertanyaan, konteks, riwayat, lampiran, instruksi_pribadi))
         keadaan = self.graf.jalankan({
             "pertanyaan": pertanyaan, "konteks": konteks, "riwayat": riwayat, "ingatan": ingatan, "kabar": kabar,
             "lampiran": lampiran if isinstance(lampiran, dict) else None, "bisa_email": bisa_email is True,
             "ringkasan": str(ringkasan)[:BATAS_RINGKASAN] if isinstance(ringkasan, str) else "",
-            "instruksi_pribadi": instruksi_pribadi,
+            "instruksi_pribadi": instruksi_pribadi, "bisa_ubah_instruksi": bisa_ubah_instruksi is True,
         })
         # token, jumlah panggilan model, dan alat yang dipakai dikirim ke backend untuk halaman kinerja admin
         return {**keadaan["hasil"], "kinerja": {**pemakaian.ambil(), "alat": keadaan.get("alat_dipakai", [])}}

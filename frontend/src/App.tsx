@@ -1904,6 +1904,7 @@ function App() {
               onEditDone={(text) => finishEdit(message, text)}
               onRegenerate={message.id === freshAnswerId ? () => regenerate(message) : undefined}
               onSuggest={message.id === freshAnswerId ? ask : undefined}
+              onViewInstructions={isGuest ? undefined : () => openDialog("instruksi")}
             />
           ))}
 

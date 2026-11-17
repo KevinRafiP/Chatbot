@@ -1,3 +1,4 @@
+from alat.catatan import kunci
 from alat.jaringan import GalatAlat, ambil_json
 
 
@@ -23,10 +24,11 @@ class AlatPengetahuan:
 
 def tambah_internal(catatan, judul, isi):
     """Data pengetahuan tidak punya URL, jadi dicatat berdasarkan judulnya agar nomor sitasinya tidak tertukar."""
-    for i, sumber in enumerate(catatan["sumber"], start=1):
-        if not sumber["url"] and sumber["judul"] == judul:
-            return i
-    catatan["sumber"].append({"judul": judul, "url": ""})
-    nomor = len(catatan["sumber"])
-    catatan["bukti"][nomor] = {"tingkat": "internal", "isi": isi[:3000]}
-    return nomor
+    with kunci(catatan):
+        for i, sumber in enumerate(catatan["sumber"], start=1):
+            if not sumber["url"] and sumber["judul"] == judul:
+                return i
+        catatan["sumber"].append({"judul": judul, "url": ""})
+        nomor = len(catatan["sumber"])
+        catatan["bukti"][nomor] = {"tingkat": "internal", "isi": isi[:3000]}
+        return nomor
