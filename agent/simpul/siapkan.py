@@ -2,7 +2,7 @@ import random
 import re
 from datetime import datetime, timedelta, timezone
 
-from alat.gambar_web import POLA_PENANDA_GAMBAR
+from alat.gambar_web import POLA_PENANDA_GAMBAR, siapkan_gambar
 from alat.instruksi import DEKLARASI_UBAH_INSTRUKSI
 from ingatan import pilih_ingatan
 from prompt import butuh_analisis, instruksi_pribadi, instruksi_tambahan, mirip_lirik
@@ -33,9 +33,9 @@ MAKS_HURUF_RUJUKAN = 200
 # menandai bagian tengah pesan lama yang dilewati saat riwayat dipersingkat
 TANDA_DIPERSINGKAT = "[...]"
 
-def buat_siapkan(kotak_alat, penulis=None, penggabung=None):
+def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
     """Simpul pertama: memeriksa pertanyaan dan menyusun pesan untuk LLM.
-    penulis(riwayat, pertanyaan) menulis ulang pesan lanjutan menjadi pertanyaan lengkap; None = hanya pola kata.
+    perencana(riwayat, pertanyaan) memahami pertanyaan sebelum mencari (lihat pahami.py); None = hanya pola kata.
     penggabung(lama, permintaan) dipakai alat ubah_instruksi; None = instruksi pribadi tidak bisa diubah lewat chat."""
 
     def siapkan(keadaan):
@@ -48,13 +48,14 @@ def buat_siapkan(kotak_alat, penulis=None, penggabung=None):
         if kotak_alat.cfg.hemat_obrolan and not keadaan.get("lampiran") and obrolan_ringan(pertanyaan, keadaan.get("riwayat")):
             return siapkan_obrolan(keadaan, pertanyaan, pribadi)
 
-        # pesan yang punya riwayat ditulis ulang LLM menjadi pertanyaan lengkap ("kalau inggris?" -> "... dalam bahasa Inggris?");
-        # jika gagal atau dilewati, pola kata lanjutan dipakai sebagai cadangan
-        lengkap = None
-        if penulis and keadaan.get("riwayat"):
+        # LLM memahami pertanyaan dulu: pertanyaan lengkap ("kalau inggris?" -> "... dalam bahasa Inggris?"), nama lengkap subjek,
+        # karya yang dimaksud, dan gambar yang perlu dicari; jika gagal, pola kata lanjutan dipakai sebagai cadangan
+        rencana = None
+        if perencana:
             if keadaan.get("kabar"):
                 keadaan["kabar"]("status", {"teks": "Memahami pertanyaan"})
-            lengkap = penulis(keadaan.get("riwayat"), pertanyaan)
+            rencana = perencana(keadaan.get("riwayat"), pertanyaan)
+        lengkap = rencana["lengkap"] if rencana else None
         keadaan["pertanyaan_lengkap"] = lengkap or ""
         maksud = lengkap or pertanyaan
 
@@ -66,9 +67,6 @@ def buat_siapkan(kotak_alat, penulis=None, penggabung=None):
         # pesan pendek seperti "kalau inggris?" ditandai sebagai lanjutan pertanyaan sebelumnya, agar tidak dianggap topik baru
         bisa_lanjut = lengkap is None and lanjutan(pertanyaan, keadaan.get("riwayat"))
         keadaan["rujukan"] = pertanyaan_sebelumnya(keadaan.get("riwayat")) if bisa_lanjut else ""
-        pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal,
-                            pilih_ingatan(keadaan.get("ingatan"), pertanyaan, keadaan.get("riwayat"), kotak_alat.cfg.ingatan_rujukan), selera,
-                            keadaan.get("lampiran"), keadaan["rujukan"], keadaan["pertanyaan_lengkap"])
 
         # alat internet selalu diberikan, karena data internal bisa cocok sebagian saja (misalnya hanya nama gamenya);
         # kirim_email hanya diberikan jika pengguna memintanya dan akunnya bisa menerima email
@@ -94,9 +92,7 @@ def buat_siapkan(kotak_alat, penulis=None, penggabung=None):
                                  or kotak_alat.wajib_alat_khusus(pertanyaan, perlu_cari))
         # jika ada data internal, model yang memutuskan; jawaban "tidak ada informasi" tanpa mencari diulang di simpul pikir
         keadaan["cari_cadangan"] = perlu_cari and not keadaan["wajib_cari"] and kotak_alat.wajib_cari(paksa=True)
-        keadaan["isi"] = susun_isi(keadaan.get("riwayat"), pesan, kotak_alat.cfg.riwayat_pesan, kotak_alat.cfg.riwayat_huruf_terbaru,
-                                   keadaan.get("ringkasan"))
-        keadaan["catatan"] = {
+        keadaan["catatan"] = catatan = {
             "sumber": sumber_internal(keadaan.get("konteks")),
             "bukti": bukti_internal(keadaan.get("konteks")),
             "jumlah_baca": 0,
@@ -105,11 +101,26 @@ def buat_siapkan(kotak_alat, penulis=None, penggabung=None):
             "bisa_email": bisa_email,
             # maksud dipakai memilih bagian halaman yang relevan; kabar dipakai alat yang berjalan di browser pengguna
             "maksud": maksud,
+            # fokus (nama lengkap subjek, karya, dan kata kunci fakta) ikut dipakai memilih bagian halaman
+            "fokus": " ".join(rencana["subjek"] + [rencana["karya"], rencana["fakta"]]) if rencana else "",
+            # kata yang ditulis pengguna menentukan gambar yang boleh tampil, misalnya kerangka hanya jika diminta
+            "teks_pengguna": f"{pertanyaan} {lengkap or ''}",
             "kabar": keadaan.get("kabar"),
             "instruksi_lama": str(keadaan.get("instruksi_pribadi") or "").strip(),
         }
         if bisa_ubah:
-            keadaan["catatan"]["gabung_instruksi"] = penggabung
+            catatan["gabung_instruksi"] = penggabung
+        # gambar dari rencana dicari di latar belakang selagi model mencari dan menulis jawaban
+        kelompok = []
+        if (rencana and rencana["gambar"] != "tidak" and kotak_alat.pencari.ada_gambar()
+                and any(d["name"] == "cari_gambar" for d in keadaan["deklarasi"])):
+            kelompok = siapkan_gambar(kotak_alat.pencari, rencana["kueri_gambar"], rencana["subjek"], catatan,
+                                      kotak_alat.cfg.domain_diblokir, kotak_alat.cfg.batas_waktu)
+        pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal,
+                            pilih_ingatan(keadaan.get("ingatan"), pertanyaan, keadaan.get("riwayat"), kotak_alat.cfg.ingatan_rujukan), selera,
+                            keadaan.get("lampiran"), keadaan["rujukan"], keadaan["pertanyaan_lengkap"], teks_rencana(rencana, catatan, kelompok))
+        keadaan["isi"] = susun_isi(keadaan.get("riwayat"), pesan, kotak_alat.cfg.riwayat_pesan, kotak_alat.cfg.riwayat_huruf_terbaru,
+                                   keadaan.get("ringkasan"))
         keadaan["putaran_llm"] = 0
         return keadaan
 
@@ -205,7 +216,26 @@ def pertanyaan_sebelumnya(riwayat):
             break
     return " ".join(bagian)
 
-def susun_pesan(pertanyaan, konteks, minimal, maksimal, ingatan=None, selera=False, lampiran=None, rujukan="", lengkap=""):
+def teks_rencana(rencana, catatan, kelompok):
+    """Hasil memahami pertanyaan untuk model utama: nama lengkap subjek, karya yang dimaksud, dan gambar yang sudah dicari."""
+    if not rencana:
+        return ""
+    baris = []
+    if rencana["subjek"]:
+        baris.append("Nama lengkap hal yang ditanyakan: " + "; ".join(rencana["subjek"]) + ".")
+    if rencana["karya"]:
+        baris.append(f"Karya atau versi yang ditanyakan: {rencana['karya']}. Cari dan jawab untuk karya ini, bukan karya lain dengan nama sama.")
+    if kelompok and rencana["gambar"] == "tiap":
+        daftar = "; ".join(f"[[gambar:{nomor}]] = {nama}" for nama, nomor in catatan.get("rencana_gambar", []))
+        baris.append(f"Gambar sudah dicari otomatis: {daftar}. Tulis tiap penanda sekali tepat di bawah penjelasan hal itu. "
+                     "Jangan memanggil cari_gambar untuk hal-hal ini lagi; panggil hanya untuk hal berwujud lain yang kamu bahas.")
+    elif kelompok:
+        baris.append("Gambar hal ini sudah dicari otomatis dan tampil di akhir jawaban. Jangan menulis penanda gambar dan jangan memanggil cari_gambar untuk hal ini.")
+    if not baris:
+        return ""
+    return "Hasil memahami pertanyaan (bantuan; jika hasil pencarian menunjukkan lain, ikuti hasil pencarian):\n" + "\n".join(baris)
+
+def susun_pesan(pertanyaan, konteks, minimal, maksimal, ingatan=None, selera=False, lampiran=None, rujukan="", lengkap="", rencana=""):
     tanggal = f"Tanggal hari ini: {datetime.now(ZONA_WIB):%Y-%m-%d}"
     aturan_sumber = f"Sumber luar: paling banyak {maksimal}."
     if minimal:
@@ -233,4 +263,6 @@ def susun_pesan(pertanyaan, konteks, minimal, maksimal, ingatan=None, selera=Fal
     elif rujukan:
         baris.append(f'Pertanyaan ini lanjutan dari pertanyaan pengguna sebelumnya: "{rujukan}". '
                      "Pahami, cari, dan jawab sebagai lanjutan topik itu, bukan topik baru.")
+    if rencana:
+        baris.append(rencana)
     return "\n\n".join(baris)

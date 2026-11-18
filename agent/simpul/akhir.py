@@ -1,7 +1,7 @@
 import logging
 import re
 
-from alat.gambar_web import POLA_PENANDA_GAMBAR
+from alat.gambar_web import BATAS_TUNGGU_GAMBAR, POLA_PENANDA_GAMBAR, tunggu_gambar
 from llm.client import GalatLLM
 from simpul.siapkan import TANDA_DIPERSINGKAT
 
@@ -107,6 +107,8 @@ def pisah_saran(teks):
 
 def hasil(keadaan, teks):
     catatan = keadaan["catatan"]
+    # gambar dari rencana pemahaman dicari di latar belakang; ditunggu sebentar agar ikut tampil
+    tunggu_gambar(catatan, BATAS_TUNGGU_GAMBAR)
     semua = catatan["sumber"]
     teks, saran = pisah_saran(teks)
     if semua:

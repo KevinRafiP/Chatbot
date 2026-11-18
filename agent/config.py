@@ -73,11 +73,11 @@ class Config:
     verifikasi_jawaban: bool
     periksa_logika: bool
     llm_model_periksa: str
-    llm_model_tulis: str
+    llm_model_pahami: str
     baca_isi_halaman: int
     baca_isi_huruf: int
     sumber_utama: dict
-    tulis_batas_detik: int
+    pahami_batas_detik: int
     periksa_huruf_sumber: int
     wajib_cari: bool
     cari_walau_data: bool
@@ -193,7 +193,7 @@ def muat():
     cepat_wajib_cari = ambil_ya("CEPAT_WAJIB_CARI", False)
     model_cepat, model_tamu, model_cadangan = ambil("LLM_MODEL_CEPAT"), ambil("LLM_MODEL_TAMU"), ambil("LLM_MODEL_CADANGAN")
     model_periksa, model_gambar = ambil("LLM_MODEL_PERIKSA"), ambil("LLM_MODEL_GAMBAR")
-    model_tulis = ambil("LLM_MODEL_TULIS_ULANG")
+    model_pahami = ambil("LLM_MODEL_PAHAMI", ambil("LLM_MODEL_TULIS_ULANG"))
     if provider == "local":
         # model di laptop lebih lambat, jadi jumlah langkah dan halaman yang dibaca dibatasi tersendiri
         maks_langkah = ambil_angka("LOCAL_MAKS_LANGKAH", 3)
@@ -213,7 +213,7 @@ def muat():
         # nama model AWS tidak dikenal Ollama, jadi model tambahan dibaca dari LOCAL_MODEL_*; kosong = LOCAL_MODEL
         model_cepat, model_tamu, model_cadangan = ambil("LOCAL_MODEL_CEPAT"), ambil("LOCAL_MODEL_TAMU"), ambil("LOCAL_MODEL_CADANGAN")
         model_periksa, model_gambar = ambil("LOCAL_MODEL_PERIKSA"), ambil("LOCAL_MODEL_GAMBAR")
-        model_tulis = ambil("LOCAL_MODEL_TULIS_ULANG")
+        model_pahami = ambil("LOCAL_MODEL_PAHAMI", ambil("LOCAL_MODEL_TULIS_ULANG"))
 
     kurs_provider = "exchangerate" if ambil("KURS_PROVIDER", "frankfurter").lower() == "exchangerate" else "frankfurter"
     alat = PengaturanAlat(
@@ -287,14 +287,15 @@ def muat():
         periksa_logika=ambil_ya("AGENT_PERIKSA_LOGIKA", provider != "local"),
         # kosong = LLM_MODEL_CEPAT (atau LLM_MODEL jika itu juga kosong)
         llm_model_periksa=model_periksa,
-        # penulis ulang pertanyaan lanjutan; kosong = LLM_MODEL (atau LOCAL_MODEL); lewat batas waktu = pakai pola kata
-        llm_model_tulis=model_tulis,
+        # model yang memahami pertanyaan sebelum mencari; kosong = LLM_MODEL (atau LOCAL_MODEL); lewat batas waktu = pakai pola kata
+        llm_model_pahami=model_pahami,
         # halaman teratas hasil cari_web yang dibuka otomatis (minimal 1), dan panjang bagian relevan per halaman
         baca_isi_halaman=ambil_angka("CARI_BACA_ISI", 3),
         baca_isi_huruf=ambil_angka("CARI_ISI_HURUF", 2000),
         # domain yang diutamakan per topik; isi "tidak" untuk mematikan satu topik
         sumber_utama={topik: ambil_domain(f"SUMBER_UTAMA_{topik.upper()}", domain) for topik, domain in domain_bawaan().items()},
-        tulis_batas_detik=ambil_angka("TULIS_ULANG_BATAS_DETIK", 20),
+        # model lokal butuh waktu lebih lama, apalagi saat Ollama baru memuat model
+        pahami_batas_detik=ambil_angka("PAHAMI_BATAS_DETIK", ambil_angka("TULIS_ULANG_BATAS_DETIK", 60 if provider == "local" else 20)),
         periksa_huruf_sumber=ambil_angka("AGENT_PERIKSA_HURUF_SUMBER", 12000),
         wajib_cari=wajib_cari,
         cari_walau_data=cari_walau_data,

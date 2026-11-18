@@ -16,11 +16,11 @@ from llm.cari_gambar import buat_pencari_gambar
 from llm.embedding import buat_pembuat_embedding
 from llm.gambar import PembacaGambar
 from log_awal import aktif_mati, cetak_tabel
+from pahami import pahami_pertanyaan
 from pelapor import pasang_pelapor
 from pengaman.keluaran import PenyaringKeluaran
 from prompt import INSTRUKSI_BACA_BANYAK, INSTRUKSI_CEPAT, INSTRUKSI_MENDALAM, INSTRUKSI_SISTEM, INSTRUKSI_TAMU
 from service import Agen
-from tulis_ulang import tulis_ulang
 
 NAMA_PENYEDIA_LLM = {"local": "Lokal (Ollama)", "aws": "AWS Bedrock", "api": "API berformat OpenAI"}
 
@@ -59,9 +59,9 @@ def main():
         klien_tamu, nama_tamu = buat_klien(cfg, cfg.llm_model_tamu) if cfg.llm_model_tamu else (klien_cepat, nama_cepat)
         klien_gambar = buat_klien(cfg, cfg.model_gambar)[0] if cfg.model_gambar else klien
         klien_periksa = buat_klien(cfg, cfg.llm_model_periksa)[0] if cfg.llm_model_periksa else klien_cepat
-        # penulis ulang pertanyaan lanjutan memakai model utama kecuali LLM_MODEL_TULIS_ULANG diisi, dengan batas waktu sendiri
-        klien_tulis = buat_klien(cfg, cfg.llm_model_tulis)[0]
-        klien_tulis.batas_waktu = cfg.tulis_batas_detik
+        # pemaham pertanyaan memakai model utama kecuali LLM_MODEL_PAHAMI diisi, dengan batas waktu sendiri
+        klien_pahami = buat_klien(cfg, cfg.llm_model_pahami)[0]
+        klien_pahami.batas_waktu = cfg.pahami_batas_detik
         if cfg.llm_model_cadangan:
             cadangan, _ = buat_klien(cfg, cfg.llm_model_cadangan)
             klien, klien_cepat, klien_tamu = (KlienCadangan(k, cadangan) for k in (klien, klien_cepat, klien_tamu))
@@ -81,13 +81,13 @@ def main():
     tambahan = AlatTambahan(cfg.alat)
     # pemeriksa logika hanya untuk mode mendalam, karena menambah satu panggilan model
     pemeriksa = (klien_periksa, cfg.periksa_huruf_sumber) if cfg.periksa_logika else None
-    penulis = functools.partial(tulis_ulang, klien_tulis)
+    perencana = functools.partial(pahami_pertanyaan, klien_pahami)
     daftar_agen = {
         "mendalam": Agen(klien, KotakAlat(cfg, cache, tambahan, pencari), cfg.maks_langkah, cfg.verifikasi_jawaban,
                          INSTRUKSI_SISTEM + INSTRUKSI_MENDALAM + (INSTRUKSI_BACA_BANYAK if cfg.baca_banyak else ""),
-                         pemeriksa, penulis),
-        "cepat": Agen(klien_cepat, KotakAlat(cfg_cepat, cache, tambahan, pencari), cfg.cepat_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_CEPAT, penulis=penulis),
-        "tamu": Agen(klien_tamu, KotakAlat(cfg_tamu, cache, tambahan, pencari), cfg.tamu_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_TAMU, penulis=penulis),
+                         pemeriksa, perencana),
+        "cepat": Agen(klien_cepat, KotakAlat(cfg_cepat, cache, tambahan, pencari), cfg.cepat_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_CEPAT, perencana=perencana),
+        "tamu": Agen(klien_tamu, KotakAlat(cfg_tamu, cache, tambahan, pencari), cfg.tamu_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_TAMU, perencana=perencana),
     }
 
     pembuat_embedding, ket_embedding = buat_pembuat_embedding(cfg)
@@ -112,6 +112,7 @@ def main():
     if tambahan.tidak_aktif:
         baris.append(("Alat belum diatur", ", ".join(tambahan.tidak_aktif)))
     baris += [
+        ("Pahami pertanyaan", f"aktif, model {cfg.llm_model_pahami or nama_model}, batas {cfg.pahami_batas_detik} detik"),
         ("Pemeriksa logika", aktif_mati(pemeriksa is not None, "mode mendalam" if pemeriksa else "")),
         ("Verifikasi jawaban", aktif_mati(cfg.verifikasi_jawaban)),
         ("Penyaring jawaban", f"aktif, {len(penyaring.rahasia)} rahasia dan {len(penyaring.instruksi)} baris instruksi dijaga"),

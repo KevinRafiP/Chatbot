@@ -108,7 +108,7 @@ class KotakAlat:
                 if hasil is None:
                     hasil = self.pencari.cari(kueri, self.cfg.domain_diblokir, self.cfg.batas_waktu,
                                               maks_hasil=maks_hasil, kedalaman=self.cfg.cari_kedalaman)
-                    hasil = self.lengkapi(hasil, kueri, f"{kueri} {catatan.get('maksud', '')}", maks_hasil)
+                    hasil = self.lengkapi(hasil, kueri, f"{kueri} {catatan.get('maksud', '')} {catatan.get('fokus', '')}", maks_hasil)
                     # teks halaman penuh tidak ikut disimpan di cache agar memori tetap kecil
                     self.cache.simpan(kueri, self.cfg.cari_kedalaman, maks_hasil,
                                       [{k: v for k, v in item.items() if k != "teks_penuh"} for item in hasil])
