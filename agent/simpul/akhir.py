@@ -5,6 +5,7 @@ from alat.gambar_web import (BATAS_TUNGGU_GAMBAR, BATAS_TUNGGU_SUSULAN, POLA_PEN
                              tunggu_gambar)
 from llm.client import GalatLLM
 from simpul.siapkan import TANDA_DIPERSINGKAT
+from simpul.verifikasi import pecah_sitasi_gabungan
 
 POLA_PEMISAH_TABEL = re.compile(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
 POLA_SITASI = re.compile(r"\s*\[(?:data internal|sumber|source)?\s*(\d+)\]", re.IGNORECASE)
@@ -130,6 +131,7 @@ def hasil(keadaan, teks):
     tunggu_gambar(catatan, BATAS_TUNGGU_GAMBAR)
     semua = catatan["sumber"]
     teks, saran = pisah_saran(teks)
+    teks = pecah_sitasi_gabungan(teks, len(semua))
     if semua:
         teks = POLA_DAFTAR_SUMBER.sub("", teks).strip()
     gambar_karangan = bool(POLA_GAMBAR_MD.search(re.sub(r"```.*?```", "", teks, flags=re.DOTALL))) and not catatan.get("gambar")
@@ -137,6 +139,7 @@ def hasil(keadaan, teks):
     if gambar_karangan:
         teks += "\n\n*Gambar belum bisa ditampilkan.*"
     sembunyi = set()
+    teks = penanda_teks(teks, catatan)
     if catatan.get("mode_gambar") == "tiap":
         teks, sembunyi = tempatkan_gambar(teks, catatan.get("rencana_gambar") or [],
                                           lambda daftar: gambar_susulan(catatan, daftar, BATAS_TUNGGU_SUSULAN))
@@ -198,11 +201,40 @@ def ujung_penjelasan(baris, awal, akhir):
     return i
 
 
-def nama_butir(baris):
-    """Nama hal di judul butir, tanpa nomor, tanda Markdown, dan penjelasan sesudah titik dua atau tanda pisah; "" jika bukan nama."""
+def bersihkan_judul(baris):
     teks = POLA_PENANDA_GAMBAR.sub(" ", baris)
     teks = re.sub(r"^\s*(#{1,6}\s+|\d+(?:\s*(?:,|&|-|–|dan|and)\s*\d+)*[.)]\s+|[-*+]\s+)", "", teks)
-    teks = re.split(r":\s|:$|\s[—–-]\s", re.sub(r"[*_`]", "", teks))[0].strip(" .")
+    return re.sub(r"[*_`]", "", teks).strip()
+
+
+def judul_butir(baris):
+    """Bagian judul butir sebelum titik dua atau tanda pisah. Nama subjek dicocokkan di sini saja, bukan di penjelasannya,
+    agar "Beam Barrier — mirip Xi Gundam" tidak dianggap butir Xi Gundam."""
+    return re.split(r":\s|:$|\s[—–-]\s", bersihkan_judul(baris))[0].strip(" .")
+
+
+# penanda yang ditulis model dengan kueri, bukan nomor, misalnya [[gambar:Xi Gundam RX-105 full body]]
+POLA_PENANDA_TEKS = re.compile(r"[*_]{0,2}\[\[\s*gambar\s*[:#]\s*([^\]\d\s][^\]]{1,150})\]\][*_]{0,2}", re.IGNORECASE)
+
+
+def penanda_teks(teks, catatan):
+    """Penanda berisi kueri dicarikan gambarnya seperti gambar susulan lalu diganti nomor kelompoknya; jika tidak ada gambar, dibuang."""
+    potongan = re.split(r"(```.*?```)", teks, flags=re.DOTALL)
+    daftar = list(dict.fromkeys(k.strip() for p in potongan if not p.startswith("```") for k in POLA_PENANDA_TEKS.findall(p)))
+    if not daftar:
+        return teks
+    ciri = ciri_subjek([(k, i) for i, k in enumerate(daftar)])
+    hasil = gambar_susulan(catatan, [(k, ciri.get(i)) for i, k in enumerate(daftar)], BATAS_TUNGGU_SUSULAN)
+    ganti = lambda c: f"[[gambar:{hasil[c.group(1).strip()]}]]" if c.group(1).strip() in hasil else ""
+    return "".join(p if p.startswith("```") else POLA_PENANDA_TEKS.sub(ganti, p) for p in potongan)
+
+
+def nama_butir(baris):
+    """Nama hal di judul butir untuk gambar susulan; "" jika bukan nama, termasuk label seperti "Spesifikasi Teknis:" atau
+    "Tinggi keseluruhan: 28 meter", karena itu keterangan, bukan hal berwujud."""
+    if ":" in bersihkan_judul(baris):
+        return ""
+    teks = judul_butir(baris)
     if not 3 <= len(teks) <= MAKS_HURUF_NAMA_BUTIR or len(teks.split()) > MAKS_KATA_NAMA_BUTIR or teks.endswith("?"):
         return ""
     return teks
@@ -234,7 +266,7 @@ def tempatkan_gambar(teks, rencana, susulan=None):
     for i, j in enumerate(jenis):
         if j:
             akhir = next((k for k in range(i + 1, len(baris)) if jenis[k] == j or jenis[k] == "judul"), len(baris))
-            butir.append((i, akhir, subjek_disebut(baris[i], ciri)))
+            butir.append((i, akhir, subjek_disebut(judul_butir(baris[i]), ciri)))
     ditemukan = {k for _, _, s in butir for k in s} | {k for i in tabel for k in subjek_disebut(baris[i], ciri)}
 
     for i, b in enumerate(baris):
@@ -281,6 +313,8 @@ def butir_susulan(baris, jenis, butir, sisipan, susulan):
     ciri = ciri_subjek([(n, a) for a, _, n in calon])
     kosong = [(a, z, n) for a, z, n in calon if not any(POLA_PENANDA_GAMBAR.search(baris[k]) for k in range(a, z))
               and ujung_penjelasan(baris, a, z) not in terisi and not any(s for x, _, s in butir if x == a)]
+    if not kosong:
+        return []
     hasil = susulan([(n, ciri.get(a)) for a, _, n in kosong])
     return [(ujung_penjelasan(baris, a, z), [hasil[n]]) for a, z, n in kosong if n in hasil]
 

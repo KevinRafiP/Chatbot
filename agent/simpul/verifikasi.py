@@ -11,9 +11,32 @@ POLA_RUMUS = re.compile(r"\$\$.+?\$\$|\\\[.+?\\\]|\\\(.+?\\\)|\$(?=\S)[^$\n]+?(?
 # hitungan seperti "7,5 mg/kg × 15 kg = 112,5 mg": hasilnya dihitung model, jadi wajar tidak ada di sumber
 POLA_OPERASI = re.compile(r"[×÷]|\d\s*[*/+^−]\s*[\w(\\]|\d\s*-\s*\(?\d")
 
+# sitasi gabungan seperti [1, 3, 4] atau [2-4]; bagian lain hanya mengenal [n]
+POLA_SITASI_GABUNGAN = re.compile(r"\[\s*(\d+(?:\s*(?:,|;|-|–)\s*\d+)+)\s*\]")
+MAKS_RENTANG_SITASI = 20
+
 # jika lebih dari separuh kalimat harus dibuang, jawaban dipakai utuh dengan catatan agar tidak tersisa potongan
 RASIO_BUANG_MAKSIMAL = 0.5
 CATATAN_RAGU = "Catatan: sebagian angka di jawaban ini tidak ditemukan di sumber, jadi mohon dicek ulang."
+
+
+def pecah_sitasi_gabungan(teks, jumlah_sumber):
+    """[1, 3, 4] menjadi [1] [3] [4] dan [2-4] menjadi [2] [3] [4], hanya jika semua nomornya ada di daftar sumber,
+    agar daftar biasa seperti [0, 1] atau isi kode tidak ikut diubah."""
+    def ganti(cocok):
+        nomor = []
+        for bagian in re.split(r"\s*[,;]\s*", cocok.group(1)):
+            ujung = [int(u) for u in re.split(r"\s*[-–]\s*", bagian)]
+            if len(ujung) == 2 and ujung[0] < ujung[1] <= ujung[0] + MAKS_RENTANG_SITASI:
+                nomor += range(ujung[0], ujung[1] + 1)
+            else:
+                nomor += ujung
+        if not all(1 <= n <= jumlah_sumber for n in nomor):
+            return cocok.group(0)
+        return " ".join(f"[{n}]" for n in dict.fromkeys(nomor))
+
+    potongan = re.split(r"(```.*?```|`[^`\n]*`)", teks, flags=re.DOTALL)
+    return "".join(p if p.startswith("`") else POLA_SITASI_GABUNGAN.sub(ganti, p) for p in potongan)
 
 
 def verifikasi(keadaan):
@@ -26,6 +49,7 @@ def verifikasi(keadaan):
     draf = "".join(b.get("text", "") for b in keadaan["konten_terakhir"].get("content", [])).strip()
     if not draf:
         return keadaan
+    draf = pecah_sitasi_gabungan(draf, len(catatan["sumber"]))
 
     rujukan = rapikan_angka(teks_terbaca(keadaan).lower())
     angka_rujukan = set(POLA_ANGKA.findall(rujukan))

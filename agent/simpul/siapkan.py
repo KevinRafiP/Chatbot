@@ -112,8 +112,12 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
             catatan["gabung_instruksi"] = penggabung
         # gambar dari rencana dicari di latar belakang selagi model mencari dan menulis jawaban
         kelompok = []
-        if (rencana and rencana["gambar"] != "tidak" and kotak_alat.pencari.ada_gambar()
-                and any(d["name"] == "cari_gambar" for d in keadaan["deklarasi"])):
+        bisa_gambar = kotak_alat.pencari.ada_gambar() and any(d["name"] == "cari_gambar" for d in keadaan["deklarasi"])
+        if bisa_gambar:
+            # dipakai juga untuk penanda gambar yang ditulis model dengan kueri, bukan nomor (lihat akhir.penanda_teks)
+            catatan["alat_gambar"] = (kotak_alat.pencari, kotak_alat.cfg.domain_diblokir, kotak_alat.cfg.batas_waktu,
+                                      rencana["karya"] if rencana else "")
+        if rencana and rencana["gambar"] != "tidak" and bisa_gambar:
             kelompok = siapkan_gambar(kotak_alat.pencari, rencana["kueri_gambar"], rencana["subjek"], catatan,
                                       kotak_alat.cfg.domain_diblokir, kotak_alat.cfg.batas_waktu, rencana["karya"])
             catatan["mode_gambar"] = rencana["gambar"]
