@@ -213,21 +213,26 @@ class PencariBerantai:
         mentah = self.coba(PENYEDIA, lambda fungsi, kunci: fungsi(kueri[:300], kunci, maks_hasil, kedalaman, batas_waktu, domain))
         return saring(mentah, daftar_blokir)
 
-    def cari_gambar(self, kueri, daftar_blokir, batas_waktu):
-        mentah = self.coba(PENYEDIA_GAMBAR, lambda fungsi, kunci: fungsi(kueri[:300], kunci, batas_waktu))
-        hasil = []
-        for url, judul, halaman in mentah:
-            if url and not domain_diblokir(urlparse(url).hostname or "", daftar_blokir):
-                hasil.append({"url": url, "judul": judul or "", "halaman": halaman or ""})
-        return hasil
+    def cari_gambar(self, kueri, daftar_blokir, batas_waktu, cocok=None):
+        """cocok(daftar gambar) False berarti tidak ada gambar yang dipakai, jadi penyedia berikutnya dicoba."""
+        def ubah(mentah):
+            return [{"url": url, "judul": judul or "", "halaman": halaman or ""} for url, judul, halaman in mentah
+                    if url and not domain_diblokir(urlparse(url).hostname or "", daftar_blokir)]
+        cukup = (lambda mentah: cocok(ubah(mentah))) if cocok else None
+        return ubah(self.coba(PENYEDIA_GAMBAR, lambda fungsi, kunci: fungsi(kueri[:300], kunci, batas_waktu), cukup))
 
-    def coba(self, peta, panggil):
-        """Memanggil penyedia pertama di peta yang belum habis; pindah ke berikutnya jika habis atau sibuk."""
+    def coba(self, peta, panggil, cukup=None):
+        """Memanggil penyedia pertama di peta yang belum habis; pindah ke berikutnya jika habis atau sibuk.
+        cukup(hasil) False juga membuat penyedia berikutnya dicoba, kecuali penyedia terakhir (Serper) yang kuotanya tidak pulih;
+        jika tidak ada yang cukup, hasil pertama dikembalikan."""
         pertama = True
+        cadangan = None
         for nama, kunci in self.daftar:
             fungsi = peta.get(jenis_penyedia(nama))
             if fungsi is None:
                 continue
+            if cadangan is not None and jenis_penyedia(nama) in PENYEDIA_TERAKHIR:
+                break
             with self.gembok:
                 if time.monotonic() < self.habis_sampai.get(nama, 0):
                     pertama = False
@@ -246,9 +251,16 @@ class PencariBerantai:
                     pertama = False
                     continue
                 raise
+            if cukup and not cukup(mentah):
+                logging.info("hasil penyedia %s tidak ada yang cocok, coba penyedia berikutnya", nama)
+                cadangan = mentah if cadangan is None else cadangan
+                pertama = False
+                continue
             if not pertama:
                 logging.info("pencarian memakai penyedia %s", nama)
             return mentah
+        if cadangan is not None:
+            return cadangan
         raise GalatHabis("semua penyedia pencarian sedang habis kuotanya atau sibuk")
 
 

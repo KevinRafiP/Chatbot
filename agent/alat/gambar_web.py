@@ -1,6 +1,7 @@
 import http.client
 import logging
 import re
+import threading
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -42,6 +43,13 @@ PENGECUALIAN_GAMBAR = {
 API_WIKIPEDIA = "https://en.wikipedia.org/w/api.php"
 UKURAN_GAMBAR_WIKI = 960
 POLA_REKONSTRUKSI = re.compile(r"\b(reconstruction|restoration|paleoart|artist)\b", re.IGNORECASE)
+# tokoh atau benda dari suatu karya (game, anime, film) biasanya tidak punya artikel Wikipedia, tetapi punya halaman di wiki fandom karyanya
+API_FANDOM = "https://{}.fandom.com/api.php"
+KATA_UMUM_KARYA = {"the", "and", "wiki", "game", "series"}
+wiki_karya = {}
+gembok_fandom = threading.Lock()
+# pencarian gambar ke mesin pencari yang berjalan bersamaan, agar penyedia tidak membalas sibuk lalu pindah ke Serper
+pembatas_cari = threading.BoundedSemaphore(4)
 # backend memakai agen pengguna yang sama saat meneruskan gambar ke browser
 AGEN_PENGGUNA = "Mozilla/5.0 (compatible; Vokapas/1.0)"
 
@@ -199,6 +207,59 @@ def gambar_wikipedia(subjek, batas_waktu, karya=""):
     return None
 
 
+def wiki_fandom(karya, batas_waktu):
+    """Alamat API dan nama wiki fandom karya ini (misalnya skullgirls.fandom.com untuk Skullgirls), atau None. Hasilnya diingat,
+    dan dicari sekali saja walau banyak tokoh dicari bersamaan."""
+    kata = re.findall(r"[a-z0-9]+", karya.lower())
+    if not kata:
+        return None
+    with gembok_fandom:
+        if " ".join(kata) in wiki_karya:
+            return wiki_karya[" ".join(kata)]
+        hasil = None
+        perlu = kata_kunci(karya) - KATA_UMUM_KARYA
+        for nama in dict.fromkeys(["".join(kata), "-".join(kata), kata[0]]):
+            try:
+                isi = ambil_json(API_FANDOM.format(nama), {"action": "query", "meta": "siteinfo", "format": "json", "formatversion": 2},
+                                 batas_waktu, AGEN_PENGGUNA)
+            except Exception:
+                continue
+            situs = ((isi.get("query") or {}).get("general") or {}).get("sitename", "")
+            if perlu and perlu <= kata_kunci(situs):
+                hasil = (API_FANDOM.format(nama), situs, f"https://{nama}.fandom.com/wiki/")
+                break
+        wiki_karya[" ".join(kata)] = hasil
+    return hasil
+
+
+def gambar_fandom(subjek, karya, batas_waktu):
+    """Gambar utama halaman subjek di wiki fandom karyanya; judul halamannya harus memuat nama subjek."""
+    wiki = wiki_fandom(karya, batas_waktu)
+    nama = nama_wikipedia(subjek, karya)
+    if not wiki or not nama:
+        return None
+    api, situs, dasar = wiki
+    try:
+        isi = ambil_json(api, {"action": "query", "format": "json", "formatversion": 2, "redirects": 1, "prop": "pageimages",
+                               "piprop": "thumbnail", "pithumbsize": UKURAN_GAMBAR_WIKI, "titles": "|".join(nama)}, batas_waktu, AGEN_PENGGUNA)
+    except Exception as galat:
+        logging.info("gambar fandom %r gagal: %s", subjek, galat)
+        return None
+    kueri = isi.get("query") or {}
+    arah = {a["from"]: a["to"] for a in (kueri.get("normalized") or []) + (kueri.get("redirects") or [])}
+    halaman = {h.get("title"): h for h in kueri.get("pages") or []}
+    for n in nama:
+        judul = n
+        while judul in arah and arah[judul] != judul:
+            judul = arah[judul]
+        h = halaman.get(judul) or {}
+        sumber = (h.get("thumbnail") or {}).get("source")
+        sendiri = kata_kunci(n) - kata_kunci(karya)
+        if sumber and not h.get("missing") and sendiri and sendiri & kata_kunci(judul):
+            return {"url": sumber, "judul": f"{judul} - {situs}", "halaman": dasar + quote(judul.replace(" ", "_"))}
+    return None
+
+
 def ada_pembeda(calon, pembeda):
     return bool(pembeda & kata_kunci(f"{calon['judul']} {calon['url']} {calon['halaman']}"))
 
@@ -214,10 +275,21 @@ def isi_kelompok(pencari, kueri, kelompok, catatan, daftar_blokir, batas_waktu, 
         return "kueri gambar kosong"
     dilarang = kata_dilarang(bersih, minus, catatan.get("teks_pengguna"))
     wiki = gambar_wikipedia(subjek, batas_waktu, karya) if subjek and not POLA_REKONSTRUKSI.search(bersih) else None
+    if not wiki and subjek and karya:
+        wiki = gambar_fandom(subjek, karya, batas_waktu)
     if wiki and not (lolos_pengecualian(wiki, dilarang) and bisa_dibuka(wiki["url"], daftar_blokir, BATAS_WAKTU_CEK)):
         wiki = None
-    semua = [] if wiki and cukup_satu else pencari.cari_gambar(bersih, daftar_blokir, batas_waktu)
-    calon = [c for c in semua if lolos_pengecualian(c, dilarang) and (not pembeda or ada_pembeda(c, pembeda))]
+
+    def cocok(c):
+        return lolos_pengecualian(c, dilarang) and (not pembeda or ada_pembeda(c, pembeda))
+
+    if wiki and cukup_satu:
+        semua = []
+    else:
+        # jika semua gambar dari satu penyedia tersaring, penyedia berikutnya dicoba (kecuali Serper, lihat cari.PencariBerantai.coba)
+        with pembatas_cari:
+            semua = pencari.cari_gambar(bersih, daftar_blokir, batas_waktu, lambda daftar: any(cocok(c) for c in daftar))
+    calon = [c for c in semua if cocok(c)]
     calon = ([wiki] if wiki else []) + urutkan_calon(bersih, calon)[:MAKS_CALON]
     if not calon:
         logging.info("cari_gambar %r: %d calon, semua tidak cocok", bersih, len(semua))
