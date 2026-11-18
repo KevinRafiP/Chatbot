@@ -116,6 +116,7 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
                 and any(d["name"] == "cari_gambar" for d in keadaan["deklarasi"])):
             kelompok = siapkan_gambar(kotak_alat.pencari, rencana["kueri_gambar"], rencana["subjek"], catatan,
                                       kotak_alat.cfg.domain_diblokir, kotak_alat.cfg.batas_waktu)
+            catatan["mode_gambar"] = rencana["gambar"]
         pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal,
                             pilih_ingatan(keadaan.get("ingatan"), pertanyaan, keadaan.get("riwayat"), kotak_alat.cfg.ingatan_rujukan), selera,
                             keadaan.get("lampiran"), keadaan["rujukan"], keadaan["pertanyaan_lengkap"], teks_rencana(rencana, catatan, kelompok))
@@ -227,13 +228,15 @@ def teks_rencana(rencana, catatan, kelompok):
         baris.append(f"Karya atau versi yang ditanyakan: {rencana['karya']}. Cari dan jawab untuk karya ini, bukan karya lain dengan nama sama.")
     if kelompok and rencana["gambar"] == "tiap":
         daftar = "; ".join(f"[[gambar:{nomor}]] = {nama}" for nama, nomor in catatan.get("rencana_gambar", []))
-        baris.append(f"Gambar sudah dicari otomatis: {daftar}. Tulis tiap penanda sekali tepat di bawah penjelasan hal itu. "
+        baris.append(f"Gambar sudah dicari otomatis: {daftar}. Tulis tiap penanda sekali tepat di bawah penjelasan hal itu, "
+                     "dan tulis nama hal itu seperti di daftar ini (boleh ditambah nama Indonesianya) di judul butirnya. "
                      "Jangan memanggil cari_gambar untuk hal-hal ini lagi; panggil hanya untuk hal berwujud lain yang kamu bahas.")
     elif kelompok:
         baris.append("Gambar hal ini sudah dicari otomatis dan tampil di akhir jawaban. Jangan menulis penanda gambar dan jangan memanggil cari_gambar untuk hal ini.")
     if not baris:
         return ""
-    return "Hasil memahami pertanyaan (bantuan; jika hasil pencarian menunjukkan lain, ikuti hasil pencarian):\n" + "\n".join(baris)
+    return ("Rencana jawaban (catatan sistem; jangan disebut di jawaban; jika hasil pencarian menunjukkan lain, ikuti hasil pencarian):\n"
+            + "\n".join(baris))
 
 def susun_pesan(pertanyaan, konteks, minimal, maksimal, ingatan=None, selera=False, lampiran=None, rujukan="", lengkap="", rencana=""):
     tanggal = f"Tanggal hari ini: {datetime.now(ZONA_WIB):%Y-%m-%d}"

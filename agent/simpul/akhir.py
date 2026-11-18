@@ -1,7 +1,7 @@
 import logging
 import re
 
-from alat.gambar_web import BATAS_TUNGGU_GAMBAR, POLA_PENANDA_GAMBAR, tunggu_gambar
+from alat.gambar_web import BATAS_TUNGGU_GAMBAR, POLA_PENANDA_GAMBAR, ciri_subjek, kata_kunci, tunggu_gambar
 from llm.client import GalatLLM
 from simpul.siapkan import TANDA_DIPERSINGKAT
 
@@ -73,7 +73,7 @@ def tolak(keadaan):
 POLA_DAFTAR_SUMBER = re.compile(r"\n\s*(?:[-*_]{3,}\s*\n\s*)?(?:#{1,6}\s*)?[*_]{0,2}(?:sumber(?: referensi)?|referensi|rujukan)\s*(?::[*_]{0,2}|[*_]{0,2}:).*\Z",
                                 re.IGNORECASE | re.DOTALL)
 
-ISTILAH = r"(?:data internal|catatan saya|ingatan saya)(?:\s+(?:yang\s+)?(?:tersedia|ada|saya miliki|saya punya|kami))?"
+ISTILAH = r"(?:data internal|catatan saya|ingatan saya|(?:hasil )?(?:pemahaman|memahami) pertanyaan(?: ini)?)(?:\s+(?:yang\s+)?(?:tersedia|ada|saya miliki|saya punya|kami))?"
 # "Dari data internal yang tersedia, Kevin ..." di awal kalimat
 POLA_PEMBUKA_INTERNAL = re.compile(rf"(^|(?<=[.!?]\s)|(?<=\n))(?:dari|berdasarkan|menurut|sesuai(?: dengan)?|di|dalam)\s+{ISTILAH}\s*,\s*(\w)", re.IGNORECASE | re.MULTILINE)
 # "... tentang X dalam data internal yang tersedia." di akhir kalimat atau anak kalimat
@@ -117,7 +117,10 @@ def hasil(keadaan, teks):
     teks, sumber = rapikan_sitasi(hapus_istilah_internal(bersihkan_format(teks)), semua, catatan["maks_sumber_luar"])
     if gambar_karangan:
         teks += "\n\n*Gambar belum bisa ditampilkan.*"
-    teks, gambar = rapikan_gambar(teks, catatan.get("gambar") or [])
+    sembunyi = set()
+    if catatan.get("mode_gambar") == "tiap":
+        teks, sembunyi = tempatkan_gambar(teks, catatan.get("rencana_gambar") or [])
+    teks, gambar = rapikan_gambar(teks, [g for g in catatan.get("gambar") or [] if g["kelompok"] not in sembunyi])
     hasil_akhir = {"jawaban": teks, "sumber": sumber, "pakai_internet": any(s["url"] for s in semua)}
     if catatan.get("email"):
         hasil_akhir["email"] = catatan["email"]
@@ -134,7 +137,96 @@ def hasil(keadaan, teks):
 POLA_GAMBAR_MD = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 
 
-MAKS_GAMBAR_TAMPIL = 12
+MAKS_GAMBAR_TAMPIL = 20
+# awal butir yang bisa menjadi tempat gambar: judul, nomor, poin, atau baris yang diawali teks tebal
+POLA_AWAL_BUTIR = re.compile(r"^(#{1,6}\s|\d+(?:\s*(?:,|&|-|–|dan|and)\s*\d+)*[.)]\s|[-*+]\s|\*\*|__)")
+
+
+def jenis_butir(baris):
+    cocok = POLA_AWAL_BUTIR.match(baris)
+    if not cocok:
+        return None
+    awal = cocok.group(1)
+    return "judul" if awal[0] == "#" else "nomor" if awal[0].isdigit() else "tebal" if awal in ("**", "__") else "poin"
+
+
+def subjek_disebut(teks, ciri):
+    """Kelompok yang kata pembeda subjeknya disebut di teks, urut sesuai tempat pertama disebut."""
+    kecil = POLA_PENANDA_GAMBAR.sub(" ", teks).lower()
+    kata = kata_kunci(kecil)
+    posisi = {}
+    for kelompok, pembeda in ciri.items():
+        sama = pembeda & kata
+        if sama:
+            posisi[kelompok] = min(re.search(rf"(?<![a-z0-9]){re.escape(k)}(?![a-z0-9])", kecil).start() for k in sama)
+    return sorted(posisi, key=posisi.get)
+
+
+def ujung_penjelasan(baris, awal, akhir):
+    """Baris terakhir paragraf pertama sesudah judul butir, agar gambar tepat di bawah penjelasannya, bukan di bawah kesimpulan jawaban."""
+    i = awal + 1
+    while i < akhir and not baris[i].strip():
+        i += 1
+    if i >= akhir or (baris[i].lstrip().startswith("|") and not baris[awal].lstrip().startswith("|")):
+        return awal
+    while i + 1 < akhir and baris[i + 1].strip():
+        i += 1
+    return i
+
+
+def tempatkan_gambar(teks, rencana):
+    """Gambar yang dicari otomatis per subjek ditaruh di butir yang judulnya menyebut nama subjek itu, karena model sering salah
+    menulis nomor penanda. Penanda di butir subjek lain dipindah; penanda di butir yang tidak menyebut subjek mana pun dibiarkan.
+    Di tabel, penanda di baris yang menyebut subjek lain diganti nomornya. Mengembalikan teks dan kelompok yang disembunyikan:
+    subjek yang tidak dibahas jawaban, jika subjek lain berhasil ditemukan namanya."""
+    ciri = ciri_subjek(rencana)
+    if not ciri:
+        return teks, set()
+    baris = teks.split("\n")
+    di_kode, kode, jenis = False, [], []
+    for b in baris:
+        if b.lstrip().startswith("```"):
+            di_kode = not di_kode
+            kode.append(True)
+        else:
+            kode.append(di_kode)
+        jenis.append(None if kode[-1] or b.lstrip().startswith("|") else jenis_butir(b))
+
+    def ganti_tabel(i):
+        cocok = subjek_disebut(baris[i], ciri)
+        if cocok:
+            baris[i] = POLA_PENANDA_GAMBAR.sub(lambda c: c.group(0) if int(c.group(1)) in cocok or int(c.group(1)) not in ciri
+                                               else f"[[gambar:{cocok[0]}]]", baris[i])
+
+    # butir: dari awal butir sampai awal butir berikutnya yang sejenis, atau judul
+    butir = []
+    for i, j in enumerate(jenis):
+        if j:
+            akhir = next((k for k in range(i + 1, len(baris)) if jenis[k] == j or jenis[k] == "judul"), len(baris))
+            butir.append((i, akhir, subjek_disebut(baris[i], ciri)))
+    for i, b in enumerate(baris):
+        if kode[i] or not POLA_PENANDA_GAMBAR.search(b):
+            continue
+        if b.lstrip().startswith("|"):
+            ganti_tabel(i)
+            continue
+        milik = next((s for a, z, s in reversed(butir) if a <= i < z), None)
+        if milik:
+            baris[i] = POLA_PENANDA_GAMBAR.sub(lambda c: c.group(0) if int(c.group(1)) in milik or int(c.group(1)) not in ciri else "", b)
+
+    sudah = {int(n) for i, b in enumerate(baris) if not kode[i] for n in POLA_PENANDA_GAMBAR.findall(b)}
+    ditemukan, sisipan = set(), []
+    for a, z, subjek in butir:
+        ditemukan.update(subjek)
+        kurang = [k for k in subjek if k not in sudah]
+        if kurang:
+            sisipan.append((ujung_penjelasan(baris, a, z), "\n".join(f"[[gambar:{k}]]" for k in kurang)))
+            sudah.update(kurang)
+    for ujung, isi in sorted(sisipan, key=lambda s: -s[0]):
+        baris.insert(ujung + 1, isi)
+    ditemukan |= {k for i, b in enumerate(baris) if b.lstrip().startswith("|") for k in subjek_disebut(b, ciri)}
+    sembunyi = set(ciri) - sudah if ditemukan else set()
+    return "\n".join(baris), sembunyi
 
 
 def rapikan_gambar(teks, gambar):

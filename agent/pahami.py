@@ -11,14 +11,14 @@ MAKS_HURUF_ASISTEN = 800
 MAKS_HURUF_PERTANYAAN = 300
 MAKS_HURUF_DIKIRIM = 1500
 MAKS_HURUF_HASIL = 400
-MAKS_SUBJEK = 12
+MAKS_SUBJEK = 20
 POLA_BARIS = re.compile(r"^\W*(PERTANYAAN|SUBJEK|KARYA|FAKTA|GAMBAR|KUERI_GAMBAR)\W*:\s*(.*)$", re.IGNORECASE)
 
 INSTRUKSI_PAHAMI = """Kamu memahami pesan terakhir pengguna sebelum chatbot mencari dan menjawab. Kamu tidak menjawab pertanyaannya.
 
 Tulis tepat enam baris dengan format ini:
 PERTANYAAN: pesan terakhir pengguna sebagai pertanyaan lengkap yang bisa dipahami tanpa membaca percakapan
-SUBJEK: nama lengkap setiap hal yang dibahas, dipisah titik koma; tulis - jika tidak ada
+SUBJEK: nama setiap hal yang dibahas, dipisah titik koma, dengan format "nama Indonesia / nama Inggris atau resmi (nama ilmiah)"; tulis - jika tidak ada
 KARYA: judul karya, game, franchise, produk, atau versi tempat subjek itu berada; tulis - jika tidak ada
 FAKTA: kata kunci bahasa Inggris untuk fakta yang perlu dicari, dipisah koma; tulis - jika tidak perlu mencari
 GAMBAR: tidak, satu, atau tiap
@@ -26,7 +26,7 @@ KUERI_GAMBAR: kueri gambar bahasa Inggris, satu untuk tiap subjek sesuai urutan 
 
 Aturan:
 - PERTANYAAN: ganti rujukan seperti "itu", "dia", "-nya", "yang kedua", atau "kalau inggris?" dengan nama atau topik dari percakapan. Jika pesan sudah lengkap, tulis persis seperti aslinya. Pertahankan bahasa pengguna dan permintaan format, jumlah sumber, atau bahasa jawaban. Nama dan judul ditulis persis, tanpa diterjemahkan.
-- SUBJEK: hal yang ditanyakan pesan terakhir; jika pesan terakhir menyebut subjeknya sendiri, ambil dari pesan itu, bukan dari topik lama. Tulis nama paling spesifik dan resmi, ditambah nama ilmiah jika ada. Singkatan atau ejaan pengguna dilengkapi, misalnya "brachio" menjadi Brachiosaurus altithorax.
+- SUBJEK: hal yang ditanyakan pesan terakhir; jika pesan terakhir menyebut subjeknya sendiri, ambil dari pesan itu, bukan dari topik lama. Tulis nama paling spesifik dan resmi, misalnya "Harimau Benggala / Bengal tiger (Panthera tigris tigris)"; bagian yang sama atau tidak ada boleh dilewati, misalnya "Brachiosaurus (Brachiosaurus altithorax)". Singkatan atau ejaan pengguna dilengkapi, misalnya "brachio" menjadi Brachiosaurus altithorax. Jika pengguna meminta daftar dengan jumlah tertentu, tulis sebanyak itu (paling banyak 20).
 - KARYA: isi jika satu nama bisa berarti beberapa karya atau versi, misalnya Bahamut di Granblue Fantasy berbeda dengan Bahamut di Final Fantasy. Isi hanya jika karyanya disebut pengguna atau pesan terakhir melanjutkan pembahasan karya itu; jangan mengambil karya dari topik lama untuk subjek baru.
 - GAMBAR tiap: jawaban membahas beberapa hal berwujud sekaligus (daftar, beberapa jenis, atau perbandingan yang perbedaannya terlihat seperti bentuk, warna, ukuran, corak, atau desain).
 - GAMBAR satu: jawaban membahas satu hal berwujud yang rupanya membantu pengguna mengenalinya, atau pengguna ingin melihat rupanya.
