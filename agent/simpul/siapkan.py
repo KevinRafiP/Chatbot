@@ -115,7 +115,7 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
         if (rencana and rencana["gambar"] != "tidak" and kotak_alat.pencari.ada_gambar()
                 and any(d["name"] == "cari_gambar" for d in keadaan["deklarasi"])):
             kelompok = siapkan_gambar(kotak_alat.pencari, rencana["kueri_gambar"], rencana["subjek"], catatan,
-                                      kotak_alat.cfg.domain_diblokir, kotak_alat.cfg.batas_waktu)
+                                      kotak_alat.cfg.domain_diblokir, kotak_alat.cfg.batas_waktu, rencana["karya"])
             catatan["mode_gambar"] = rencana["gambar"]
         pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal,
                             pilih_ingatan(keadaan.get("ingatan"), pertanyaan, keadaan.get("riwayat"), kotak_alat.cfg.ingatan_rujukan), selera,
@@ -261,11 +261,11 @@ def susun_pesan(pertanyaan, konteks, minimal, maksimal, ingatan=None, selera=Fal
                      f"{str(lampiran['teks'])[:MAKS_HURUF_LAMPIRAN]}")
     baris.append(f"Pertanyaan: {pertanyaan}")
     if lengkap:
-        baris.append(f'Maksud pertanyaan ini berdasarkan riwayat percakapan: "{lengkap}". '
-                     "Pahami, cari, dan jawab sesuai maksud itu.")
+        baris.append(f'Maksud pesan ini (catatan sistem, jangan disebut di jawaban): "{lengkap}". '
+                     "Cari dan jawab sesuai maksud itu.")
     elif rujukan:
-        baris.append(f'Pertanyaan ini lanjutan dari pertanyaan pengguna sebelumnya: "{rujukan}". '
-                     "Pahami, cari, dan jawab sebagai lanjutan topik itu, bukan topik baru.")
+        baris.append(f'Pesan ini lanjutan dari pesan sebelumnya (catatan sistem, jangan disebut di jawaban): "{rujukan}". '
+                     "Cari dan jawab sebagai lanjutan topik itu, bukan topik baru.")
     if rencana:
         baris.append(rencana)
     return "\n\n".join(baris)

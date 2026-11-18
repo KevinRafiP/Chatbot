@@ -23,6 +23,8 @@ BATAS_WAKTU_CEK = 5
 MAKS_HURUF_JUDUL = 120
 # gambar dari rencana pemahaman ditunggu paling lama sekian detik sebelum jawaban dirapikan
 BATAS_TUNGGU_GAMBAR = 20
+# gambar susulan untuk butir jawaban yang belum bergambar (lihat akhir.tempatkan_gambar) ditunggu paling lama sekian detik
+BATAS_TUNGGU_SUSULAN = 12
 # jenis gambar yang bukan wujud asli hal itu: kata di judul, deskripsi, atau alamat calon, dan kata yang menandakan pengguna memintanya
 PENGECUALIAN_GAMBAR = {
     "kerangka": ({"skeleton", "skeletons", "skeletal"}, ("kerangka", "rangka", "skeleton")),
@@ -137,23 +139,47 @@ def ambil_kelompok(catatan):
     return kelompok
 
 
-def nama_wikipedia(subjek):
-    """Judul artikel yang dicoba untuk satu subjek: nama ilmiah atau resmi di dalam kurung dulu, lalu tiap nama yang dipisah garis miring."""
-    dalam = re.findall(r"\(([^()]+)\)", subjek)
+def nama_wikipedia(subjek, karya=""):
+    """Judul artikel yang dicoba untuk satu subjek: "nama (karya)" untuk tokoh atau benda dari suatu karya, nama ilmiah atau resmi
+    di dalam kurung, lalu tiap nama yang dipisah garis miring. Judul karya sendiri tidak dicoba, karena artikelnya bukan tentang subjek."""
+    dalam = [n for n in re.findall(r"\(([^()]+)\)", subjek) if sederhana(n) != sederhana(karya)]
     luar = re.sub(r"\([^()]*\)", " ", subjek).split("/")
     nama = [" ".join(n.split()) for n in dalam + luar]
-    return list(dict.fromkeys(n for n in nama if len(n) >= 3))[:6]
+    if karya:
+        nama = [f"{n} ({karya})" for n in nama] + nama
+    return list(dict.fromkeys(n for n in nama if len(n) >= 3))[:8]
 
 
-def gambar_wikipedia(subjek, batas_waktu):
-    """Foto utama artikel Wikipedia bahasa Inggris tentang subjek ini, atau None jika artikelnya tidak ada, halaman disambiguasi, atau tanpa foto."""
-    nama = nama_wikipedia(subjek)
+def sederhana(teks):
+    return " ".join(re.findall(r"[a-z0-9]+", (teks or "").lower()))
+
+
+def artikel_cocok(halaman, nama, subjek, karya):
+    """Artikel dipakai hanya jika judul, deskripsi, atau kalimat pembukanya menyebut kata lain dari subjek (bukan kata nama yang dicari),
+    misalnya "whale" untuk Paus biru / Blue whale, menyebut nama yang dicari itu sendiri, dan selalu menyebut karyanya untuk subjek dari suatu karya.
+    Jadi "Cerebella" (Skullgirls) yang dialihkan ke Cerebellum, atau "Paus" yang menjadi Paus family, ditolak."""
+    teks = kata_kunci(f"{halaman.get('title', '')} {halaman.get('description', '')} {halaman.get('extract', '')}")
+    if karya and not kata_kunci(karya) & teks:
+        return False
+    # pengalihan ke halaman daftar atau bagian lain (misalnya "List of ... characters") tidak menyebut nama yang dicari di pembukanya
+    sendiri = kata_kunci(nama) - kata_kunci(karya)
+    if sendiri and not sendiri & teks:
+        return False
+    perlu = kata_kunci(subjek) - kata_kunci(nama) - kata_kunci(karya)
+    return not perlu or bool(perlu & teks)
+
+
+def gambar_wikipedia(subjek, batas_waktu, karya=""):
+    """Foto utama artikel Wikipedia bahasa Inggris tentang subjek ini, atau None jika artikelnya tidak ada, halaman disambiguasi,
+    tanpa foto, atau ternyata membahas hal lain (lihat artikel_cocok)."""
+    nama = nama_wikipedia(subjek, karya)
     if not nama:
         return None
     try:
         isi = ambil_json(API_WIKIPEDIA, {"action": "query", "format": "json", "formatversion": 2, "redirects": 1,
-                                         "prop": "pageimages|pageprops", "piprop": "thumbnail", "pithumbsize": UKURAN_GAMBAR_WIKI,
-                                         "ppprop": "disambiguation", "titles": "|".join(nama)}, batas_waktu, AGEN_PENGGUNA)
+                                         "prop": "pageimages|pageprops|description|extracts", "piprop": "thumbnail",
+                                         "pithumbsize": UKURAN_GAMBAR_WIKI, "ppprop": "disambiguation", "exintro": 1, "explaintext": 1,
+                                         "exsentences": 2, "exlimit": "max", "titles": "|".join(nama)}, batas_waktu, AGEN_PENGGUNA)
     except Exception as galat:
         logging.info("foto Wikipedia %r gagal: %s", subjek, galat)
         return None
@@ -166,7 +192,8 @@ def gambar_wikipedia(subjek, batas_waktu):
             judul = arah[judul]
         h = halaman.get(judul) or {}
         sumber = (h.get("thumbnail") or {}).get("source")
-        if sumber and not h.get("missing") and "disambiguation" not in (h.get("pageprops") or {}):
+        if (sumber and not h.get("missing") and "disambiguation" not in (h.get("pageprops") or {})
+                and artikel_cocok(h, n, subjek, karya)):
             return {"url": sumber, "judul": f"{judul} - Wikipedia",
                     "halaman": "https://en.wikipedia.org/wiki/" + quote(judul.replace(" ", "_"))}
     return None
@@ -176,7 +203,7 @@ def ada_pembeda(calon, pembeda):
     return bool(pembeda & kata_kunci(f"{calon['judul']} {calon['url']} {calon['halaman']}"))
 
 
-def isi_kelompok(pencari, kueri, kelompok, catatan, daftar_blokir, batas_waktu, subjek="", pembeda=None, cukup_satu=False):
+def isi_kelompok(pencari, kueri, kelompok, catatan, daftar_blokir, batas_waktu, subjek="", pembeda=None, cukup_satu=False, karya=""):
     """Mencari gambar untuk satu kelompok, membuang jenis yang tidak diinginkan dan yang tidak bisa dibuka, lalu mencatatnya.
     subjek dari rencana pemahaman: foto artikel Wikipedia-nya dicoba dulu, dan hasil mesin pencari wajib memuat kata pembeda subjek
     (misalnya "apoda" untuk Paradisaea apoda), karena deskripsi gambar yang tidak menyebutnya bisa saja jenis lain.
@@ -186,7 +213,7 @@ def isi_kelompok(pencari, kueri, kelompok, catatan, daftar_blokir, batas_waktu, 
     if not bersih:
         return "kueri gambar kosong"
     dilarang = kata_dilarang(bersih, minus, catatan.get("teks_pengguna"))
-    wiki = gambar_wikipedia(subjek, batas_waktu) if subjek and not POLA_REKONSTRUKSI.search(bersih) else None
+    wiki = gambar_wikipedia(subjek, batas_waktu, karya) if subjek and not POLA_REKONSTRUKSI.search(bersih) else None
     if wiki and not (lolos_pengecualian(wiki, dilarang) and bisa_dibuka(wiki["url"], daftar_blokir, BATAS_WAKTU_CEK)):
         wiki = None
     semua = [] if wiki and cukup_satu else pencari.cari_gambar(bersih, daftar_blokir, batas_waktu)
@@ -263,7 +290,7 @@ def ciri_subjek(rencana):
     return hasil
 
 
-def siapkan_gambar(pencari, daftar_kueri, daftar_subjek, catatan, daftar_blokir, batas_waktu):
+def siapkan_gambar(pencari, daftar_kueri, daftar_subjek, catatan, daftar_blokir, batas_waktu, karya=""):
     """Gambar dari rencana pemahaman dicari di latar belakang selagi model mencari dan menulis jawaban.
     Nomor kelompoknya dipesan sekarang, jadi model sudah bisa menulis penandanya; tunggu_gambar dipanggil sebelum jawaban dirapikan."""
     kelompok = []
@@ -276,15 +303,41 @@ def siapkan_gambar(pencari, daftar_kueri, daftar_subjek, catatan, daftar_blokir,
         return []
     rencana = [(daftar_subjek[i] if i < len(daftar_subjek) else daftar_kueri[i], nomor) for i, nomor in enumerate(kelompok)]
     catatan["rencana_gambar"] = rencana
+    catatan["alat_gambar"] = (pencari, daftar_blokir, batas_waktu, karya)
     # beberapa subjek: tiap gambar wajib memuat nama pembedanya dan cukup satu gambar per subjek
     banyak = len(rencana) > 1
     ciri = ciri_subjek(rencana) if banyak else {}
     pelaksana = ThreadPoolExecutor(max_workers=len(kelompok))
     catatan["tugas_gambar"] = {nomor: pelaksana.submit(isi_kelompok, pencari, kueri, nomor, catatan, daftar_blokir, batas_waktu,
-                                                       nama, ciri.get(nomor), banyak)
+                                                       nama, ciri.get(nomor), banyak, karya)
                                for kueri, (nama, nomor) in zip(daftar_kueri, rencana)}
     pelaksana.shutdown(wait=False)
     return kelompok
+
+
+def gambar_susulan(catatan, daftar, batas_detik):
+    """Gambar untuk butir jawaban yang belum bergambar, misalnya hal yang tidak ada di rencana awal: daftar berisi (nama, pembeda).
+    Dicari bersamaan dan ditunggu paling lama batas_detik. Mengembalikan {nama: kelompok} untuk yang mendapat gambar."""
+    alat = catatan.get("alat_gambar")
+    if not alat or not daftar:
+        return {}
+    pencari, daftar_blokir, batas_waktu, karya = alat
+    pasangan = []
+    for nama, pembeda in daftar:
+        nomor = ambil_kelompok(catatan)
+        if nomor is None:
+            break
+        pasangan.append((nama, pembeda, nomor))
+    if not pasangan:
+        return {}
+    pelaksana = ThreadPoolExecutor(max_workers=len(pasangan))
+    tugas = [pelaksana.submit(isi_kelompok, pencari, f"{nama} {karya}".strip(), nomor, catatan, daftar_blokir, batas_waktu,
+                              nama, pembeda, True, karya) for nama, pembeda, nomor in pasangan]
+    wait(tugas, timeout=batas_detik)
+    pelaksana.shutdown(wait=False, cancel_futures=True)
+    with kunci(catatan):
+        ada = {g["kelompok"] for g in catatan.get("gambar", [])}
+    return {nama: nomor for nama, _, nomor in pasangan if nomor in ada}
 
 
 def kelompok_gagal(catatan, kelompok):
