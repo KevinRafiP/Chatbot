@@ -49,7 +49,7 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
             return siapkan_obrolan(keadaan, pertanyaan, pribadi)
 
         # LLM memahami pertanyaan dulu: pertanyaan lengkap ("kalau inggris?" -> "... dalam bahasa Inggris?"), nama lengkap subjek,
-        # karya yang dimaksud, dan gambar yang perlu dicari; jika gagal, pola kata lanjutan dipakai sebagai cadangan
+        # konteks yang dimaksud, dan gambar yang perlu dicari; jika gagal, pola kata lanjutan dipakai sebagai cadangan
         rencana = None
         if perencana:
             if keadaan.get("kabar"):
@@ -101,8 +101,8 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
             "bisa_email": bisa_email,
             # maksud dipakai memilih bagian halaman yang relevan; kabar dipakai alat yang berjalan di browser pengguna
             "maksud": maksud,
-            # fokus (nama lengkap subjek, karya, dan kata kunci fakta) ikut dipakai memilih bagian halaman
-            "fokus": " ".join(rencana["subjek"] + [rencana["karya"], rencana["fakta"]]) if rencana else "",
+            # fokus (nama lengkap subjek, konteks, dan kata kunci fakta) ikut dipakai memilih bagian halaman
+            "fokus": " ".join(rencana["subjek"] + [rencana["konteks"], rencana["fakta"]]) if rencana else "",
             # kata yang ditulis pengguna menentukan gambar yang boleh tampil, misalnya kerangka hanya jika diminta
             "teks_pengguna": f"{pertanyaan} {lengkap or ''}",
             "kabar": keadaan.get("kabar"),
@@ -116,10 +116,11 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
         if bisa_gambar:
             # dipakai juga untuk penanda gambar yang ditulis model dengan kueri, bukan nomor (lihat akhir.penanda_teks)
             catatan["alat_gambar"] = (kotak_alat.pencari, kotak_alat.cfg.domain_diblokir, kotak_alat.cfg.batas_waktu,
-                                      rencana["karya"] if rencana else "")
+                                      rencana["konteks"] if rencana else "", rencana["jenis_gambar"] if rencana else "")
         if rencana and rencana["gambar"] != "tidak" and bisa_gambar:
             kelompok = siapkan_gambar(kotak_alat.pencari, rencana["kueri_gambar"], rencana["subjek"], catatan,
-                                      kotak_alat.cfg.domain_diblokir, kotak_alat.cfg.batas_waktu, rencana["karya"])
+                                      kotak_alat.cfg.domain_diblokir, kotak_alat.cfg.batas_waktu, rencana["konteks"],
+                                      rencana["jenis_gambar"])
             catatan["mode_gambar"] = rencana["gambar"]
         pesan = susun_pesan(pertanyaan, keadaan.get("konteks"), minimal, maksimal,
                             pilih_ingatan(keadaan.get("ingatan"), pertanyaan, keadaan.get("riwayat"), kotak_alat.cfg.ingatan_rujukan), selera,
@@ -222,14 +223,14 @@ def pertanyaan_sebelumnya(riwayat):
     return " ".join(bagian)
 
 def teks_rencana(rencana, catatan, kelompok):
-    """Hasil memahami pertanyaan untuk model utama: nama lengkap subjek, karya yang dimaksud, dan gambar yang sudah dicari."""
+    """Hasil memahami pertanyaan untuk model utama: nama lengkap subjek, konteks yang dimaksud, dan gambar yang sudah dicari."""
     if not rencana:
         return ""
     baris = []
     if rencana["subjek"]:
         baris.append("Nama lengkap hal yang ditanyakan: " + "; ".join(rencana["subjek"]) + ".")
-    if rencana["karya"]:
-        baris.append(f"Karya atau versi yang ditanyakan: {rencana['karya']}. Cari dan jawab untuk karya ini, bukan karya lain dengan nama sama.")
+    if rencana["konteks"]:
+        baris.append(f"Konteks yang ditanyakan: {rencana['konteks']}. Cari dan jawab dalam konteks ini, bukan arti lain dari nama yang sama.")
     if kelompok and rencana["gambar"] == "tiap":
         daftar = "; ".join(f"[[gambar:{nomor}]] = {nama}" for nama, nomor in catatan.get("rencana_gambar", []))
         baris.append(f"Gambar sudah dicari otomatis: {daftar}. Tulis tiap penanda sekali tepat di bawah penjelasan hal itu, "

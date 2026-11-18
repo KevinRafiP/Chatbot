@@ -1,8 +1,8 @@
 import logging
 import re
 
-from alat.gambar_web import (BATAS_TUNGGU_GAMBAR, BATAS_TUNGGU_SUSULAN, POLA_PENANDA_GAMBAR, ciri_subjek, gambar_susulan, kata_kunci,
-                             tunggu_gambar)
+from alat.gambar_web import (BATAS_TUNGGU_GAMBAR, BATAS_TUNGGU_SUMBER, BATAS_TUNGGU_SUSULAN, POLA_PENANDA_GAMBAR, ciri_subjek,
+                             gambar_susulan, kata_kunci, tunggu_gambar, utamakan_sumber)
 from llm.client import GalatLLM
 from simpul.siapkan import TANDA_DIPERSINGKAT
 from simpul.verifikasi import pecah_sitasi_gabungan
@@ -143,6 +143,8 @@ def hasil(keadaan, teks):
     if catatan.get("mode_gambar") == "tiap":
         teks, sembunyi = tempatkan_gambar(teks, catatan.get("rencana_gambar") or [],
                                           lambda daftar: gambar_susulan(catatan, daftar, BATAS_TUNGGU_SUSULAN))
+    # foto dari halaman sumber jawaban sendiri didahulukan; jika tidak ada, tetap foto yang sudah dicari di web lain
+    utamakan_sumber(catatan, [k for _, k in catatan.get("rencana_gambar") or [] if k not in sembunyi], BATAS_TUNGGU_SUMBER)
     teks, gambar = rapikan_gambar(teks, [g for g in catatan.get("gambar") or [] if g["kelompok"] not in sembunyi])
     hasil_akhir = {"jawaban": teks, "sumber": sumber, "pakai_internet": any(s["url"] for s in semua)}
     if catatan.get("email"):
@@ -322,7 +324,8 @@ def butir_susulan(baris, jenis, butir, sisipan, susulan):
 def rapikan_gambar(teks, gambar):
     """Penanda [[gambar:n]] menampilkan satu gambar kelompok n di tempat itu, misalnya di bawah butir daftar atau di sel tabel:
     gambar terbaik kelompok itu yang belum dipakai butir sebelumnya, karena gambar yang sama di dua butir pasti salah di salah satunya.
-    Penanda yang tidak punya gambar seperti itu, atau ditulis ulang, dibuang. Kelompok tanpa penanda tampil di akhir jawaban."""
+    Penanda yang tidak punya gambar seperti itu, atau ditulis ulang, dibuang. Kelompok tanpa penanda tampil di akhir jawaban;
+    jika ada beberapa kelompok seperti itu, masing-masing cukup satu gambar agar gambar beberapa hal tidak menumpuk tanpa keterangan."""
     dipakai, terpilih, alamat = [], [], set()
 
     def ganti(cocok):
@@ -340,10 +343,13 @@ def rapikan_gambar(teks, gambar):
     potongan = re.split(r"(```.*?```)", teks, flags=re.DOTALL)
     teks = "".join(p if p.startswith("```") else POLA_PENANDA_GAMBAR.sub(ganti, p) for p in potongan)
     teks = re.sub(r"\n{3,}", "\n\n", re.sub(r"[ \t]+\n", "\n", teks)).strip()
-    for g in gambar:
-        if g["kelompok"] not in dipakai and g["url"] not in alamat:
+    sisa = [g for g in gambar if g["kelompok"] not in dipakai]
+    banyak = len({g["kelompok"] for g in sisa}) > 1
+    for g in sisa:
+        if g["url"] not in alamat and not (banyak and g["kelompok"] in dipakai):
             terpilih.append(g)
             alamat.add(g["url"])
+            dipakai.append(g["kelompok"])
     return teks, terpilih[:MAKS_GAMBAR_TAMPIL]
 
 

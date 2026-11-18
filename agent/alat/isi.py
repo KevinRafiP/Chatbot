@@ -62,7 +62,8 @@ def bagian_relevan(teks, kunci, nama, maks_huruf):
 
 def baca_isi(hasil, jumlah, teks_tanya, maks_huruf, daftar_blokir, batas_waktu):
     """Membuka beberapa halaman hasil cari_web bersamaan lalu mengisi item["isi"] dengan bagian yang paling relevan.
-    item["teks_penuh"] menyimpan teks halaman untuk bukti verifikasi. Halaman yang gagal dibuka tetap memakai cuplikan."""
+    item["teks_penuh"] menyimpan teks halaman untuk bukti verifikasi, item["gambar_halaman"] gambar halaman untuk foto jawaban.
+    Halaman yang gagal dibuka tetap memakai cuplikan."""
     if jumlah <= 0 or not hasil:
         return
     # sumber utama dibuka lebih dulu, sumber lemah (video, forum, media sosial) tidak dibuka
@@ -81,7 +82,11 @@ def baca_isi(hasil, jumlah, teks_tanya, maks_huruf, daftar_blokir, batas_waktu):
 
     with ThreadPoolExecutor(max_workers=len(calon)) as pelaksana:
         for item, halaman in pelaksana.map(buka, calon):
-            if not halaman or not halaman.get("teks"):
+            if not halaman:
+                continue
+            if halaman.get("gambar") or halaman.get("gambar_utama"):
+                item["gambar_halaman"] = {"gambar": halaman["gambar"], "utama": halaman["gambar_utama"], "judul": halaman["judul"]}
+            if not halaman.get("teks"):
                 continue
             isi = bagian_relevan(halaman["teks"], kunci, nama, maks_huruf)
             if isi:
