@@ -1,8 +1,9 @@
 import logging
 import re
+from urllib.parse import urlparse
 
 from alat.gambar_web import (BATAS_TUNGGU_GAMBAR, BATAS_TUNGGU_SUMBER, BATAS_TUNGGU_SUSULAN, POLA_PENANDA_GAMBAR, ciri_subjek,
-                             gambar_susulan, kata_kunci, polos, tunggu_gambar, utamakan_sumber)
+                             gambar_susulan, kata_nama, polos, tunggu_gambar, utamakan_sumber)
 from llm.client import GalatLLM
 from simpul.siapkan import TANDA_DIPERSINGKAT
 from simpul.verifikasi import pecah_sitasi_gabungan
@@ -147,9 +148,14 @@ def hasil(keadaan, teks):
                                           lambda daftar: gambar_susulan(catatan, daftar, BATAS_TUNGGU_SUSULAN))
     # foto dari halaman sumber jawaban sendiri didahulukan; jika tidak ada, tetap foto yang sudah dicari di web lain
     utamakan_sumber(catatan, [k for _, k in catatan.get("rencana_gambar") or [] if k not in sembunyi], BATAS_TUNGGU_SUMBER)
+    catatan["tanpa_sisa"] = catatan.get("mode_gambar") == "tiap" and bool(POLA_PENANDA_GAMBAR.search(teks))
     gambar = periksa_gambar(teks, [g for g in catatan.get("gambar") or [] if g["kelompok"] not in sembunyi], catatan)
-    teks, gambar = rapikan_gambar(teks, gambar)
-    gambar = [{k: v for k, v in g.items() if k != "asal"} for g in gambar]
+    teks, gambar = rapikan_gambar(teks, gambar, catatan["tanpa_sisa"])
+    nama = {k: n for k, (n, _) in (catatan.get("nama_kelompok") or {}).items()}
+    if gambar:
+        logging.info("gambar tampil: %s", "; ".join(f"{g['kelompok']} {g.get('asal', '-')} {urlparse(g['url']).path.rsplit('/', 1)[-1][:60]}"
+                                                   for g in gambar))
+    gambar = [{**{k: v for k, v in g.items() if k != "asal"}, "judul": keterangan_gambar(g, nama.get(g["kelompok"]))} for g in gambar]
     hasil_akhir = {"jawaban": teks, "sumber": sumber, "pakai_internet": any(s["url"] for s in semua)}
     if catatan.get("email"):
         hasil_akhir["email"] = catatan["email"]
@@ -185,16 +191,42 @@ def jenis_butir(baris):
     return "judul" if awal[0] == "#" else "nomor" if awal[0].isdigit() else "tebal" if awal in ("**", "__") else "poin"
 
 
-def subjek_disebut(teks, ciri):
-    """Kelompok yang kata pembeda subjeknya disebut di teks, urut sesuai tempat pertama disebut."""
+def subjek_disebut(teks, ciri, penuh=None):
+    """Kelompok yang kata pembeda subjeknya disebut di teks, urut sesuai tempat pertama disebut. Pembeda berupa frasa (lihat ciri_tempat)
+    harus muncul utuh, dan tidak dihitung jika kelompok lain yang namanya memuat frasa itu juga disebut ("Climax Form" di judul
+    "Super Climax Form")."""
     kecil = polos(POLA_PENANDA_GAMBAR.sub(" ", teks))
-    kata = kata_kunci(kecil)
-    posisi = {}
+    kata = kata_nama(kecil)
+    posisi, frasa = {}, {}
     for kelompok, pembeda in ciri.items():
+        if isinstance(pembeda, str):
+            frasa[kelompok] = pembeda
+            continue
         sama = pembeda & kata
         if sama:
             posisi[kelompok] = min(letak(k, kecil) for k in sama)
+    sederhana = " ".join(re.findall(r"[^\W_]+", kecil))
+    for kelompok, isi in frasa.items():
+        tempat = letak(isi, sederhana)
+        lebih_panjang = any(isi != (penuh or {}).get(k, "") and isi in (penuh or {}).get(k, "") for k in posisi)
+        if tempat < len(sederhana) and not lebih_panjang:
+            posisi[kelompok] = tempat
     return sorted(posisi, key=posisi.get)
+
+
+def frasa_nama(nama):
+    """Nama subjek tanpa keterangan dalam kurung, bagian terakhir jika ada garis miring, dalam huruf kecil tanpa tanda baca."""
+    return " ".join(re.findall(r"[^\W_]+", polos(re.sub(r"\([^()]*\)", " ", nama).split("/")[-1])))
+
+
+def ciri_tempat(rencana):
+    """ciri_subjek ditambah frasa nama untuk subjek yang semua katanya juga dipakai subjek lain ("Climax Form" di antara
+    "Super Climax Form"), agar gambarnya tetap bisa ditaruh di butirnya."""
+    ciri = dict(ciri_subjek(rencana))
+    for nama, kelompok in rencana:
+        if kelompok not in ciri and frasa_nama(nama):
+            ciri[kelompok] = frasa_nama(nama)
+    return ciri
 
 
 def letak(kata, teks):
@@ -264,7 +296,8 @@ def tempatkan_gambar(teks, rencana, susulan=None):
     susulan(daftar (nama, pembeda)) -> {nama: kelompok} mencari gambar untuk butir sejenis yang belum bergambar, misalnya hal yang
     tidak ada di rencana awal. Mengembalikan teks dan kelompok yang disembunyikan: subjek rencana yang tidak dibahas jawaban,
     jika subjek lain berhasil ditemukan namanya."""
-    ciri = ciri_subjek(rencana)
+    ciri = ciri_tempat(rencana)
+    penuh = {kelompok: frasa_nama(nama) for nama, kelompok in rencana}
     if not ciri and not susulan:
         return teks, set()
     baris = teks.split("\n")
@@ -283,14 +316,14 @@ def tempatkan_gambar(teks, rencana, susulan=None):
     for i, j in enumerate(jenis):
         if j:
             akhir = next((k for k in range(i + 1, len(baris)) if jenis[k] == j or jenis[k] == "judul"), len(baris))
-            butir.append((i, akhir, subjek_disebut(judul_butir(baris[i]), ciri)))
-    ditemukan = {k for _, _, s in butir for k in s} | {k for i in tabel for k in subjek_disebut(baris[i], ciri)}
+            butir.append((i, akhir, subjek_disebut(judul_butir(baris[i]), ciri, penuh)))
+    ditemukan = {k for _, _, s in butir for k in s} | {k for i in tabel for k in subjek_disebut(baris[i], ciri, penuh)}
 
     for i, b in enumerate(baris):
         if kode[i] or not POLA_PENANDA_GAMBAR.search(b):
             continue
         if i in tabel:
-            cocok = subjek_disebut(b, ciri)
+            cocok = subjek_disebut(b, ciri, penuh)
             if cocok:
                 baris[i] = POLA_PENANDA_GAMBAR.sub(lambda c: c.group(0) if int(c.group(1)) in cocok or int(c.group(1)) not in ciri
                                                    else f"[[gambar:{cocok[0]}]]", b)
@@ -353,7 +386,7 @@ def periksa_gambar(teks, gambar, catatan):
         return konteks or g.get("asal") == "mesin"
 
     for _ in range(PUTARAN_CEK_GAMBAR):
-        _, tampil = rapikan_gambar(teks, gambar)
+        _, tampil = rapikan_gambar(teks, gambar, catatan.get("tanpa_sisa", False))
         cek = [g for g in tampil if dicek(g) and g["url"] not in sudah][:pemeriksa.maks - len(sudah)]
         if not cek:
             break
@@ -368,12 +401,23 @@ def periksa_gambar(teks, gambar, catatan):
     return [g for g in gambar if g["kelompok"] not in kena or g["url"] in sudah or not dicek(g)]
 
 
-def rapikan_gambar(teks, gambar):
+def keterangan_gambar(g, nama):
+    """Keterangan di bawah gambar seperti di Gemini: nama hal itu dan situs asalnya ("Plat Form – kamenrider.fandom.com"),
+    bukan judul halaman yang bisa berupa daftar atau toko."""
+    if not nama:
+        return g["judul"]
+    tampil = re.sub(r"\s*\([^()]*\)", "", nama).split("/")[0].strip() or nama
+    situs = (urlparse(g.get("halaman") or g["url"]).hostname or "").removeprefix("www.")
+    return f"{tampil} – {situs}" if situs else tampil
+
+
+def rapikan_gambar(teks, gambar, tanpa_sisa=False):
     """Penanda [[gambar:n]] menampilkan satu gambar kelompok n di tempat itu, misalnya di bawah butir daftar atau di sel tabel:
     gambar terbaik kelompok itu yang belum dipakai butir sebelumnya, karena gambar yang sama di dua butir pasti salah di salah satunya.
     Penanda yang tidak punya gambar seperti itu, atau ditulis ulang, dibuang. Jika tidak ada penanda yang tampil, kelompok gambar tampil
     di akhir jawaban; jika ada beberapa kelompok, masing-masing cukup satu gambar. Jika ada penanda yang tampil, kelompok tanpa penanda
-    tidak ditampilkan, karena gambar itu tidak punya tempat dan keterangan di jawaban."""
+    tidak ditampilkan, karena gambar itu tidak punya tempat dan keterangan di jawaban. tanpa_sisa: jawaban daftar yang sudah menulis
+    penanda tidak diberi gambar di akhir walaupun semua penandanya kehilangan gambar (misalnya ditolak vision)."""
     dipakai, terpilih, alamat = [], [], set()
 
     def ganti(cocok):
@@ -392,7 +436,7 @@ def rapikan_gambar(teks, gambar):
     teks = "".join(p if p.startswith("```") else POLA_PENANDA_GAMBAR.sub(ganti, p) for p in potongan)
     teks = re.sub(r"\n{3,}", "\n\n", re.sub(r"[ \t]+\n", "\n", teks)).strip()
     # jawaban yang sudah menaruh gambar di butirnya tidak diberi gambar tambahan tanpa keterangan di akhir
-    sisa = [] if dipakai else [g for g in gambar if g["kelompok"] not in dipakai]
+    sisa = [] if dipakai or tanpa_sisa else [g for g in gambar if g["kelompok"] not in dipakai]
     banyak = len({g["kelompok"] for g in sisa}) > 1
     for g in sisa:
         if g["url"] not in alamat and not (banyak and g["kelompok"] in dipakai):

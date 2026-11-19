@@ -92,6 +92,8 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
         data_cocok = keadaan.get("konteks") and not data_tanpa_subjek(rencana, keadaan.get("konteks"))
         langsung_cari = segarkan or minta_internet(pertanyaan) or not data_cocok or kotak_alat.cfg.cari_walau_data
         keadaan["butuh_data"] = butuh_data(maksud)
+        # kueri cari_web cadangan jika model hanya memanggil alat lain di putaran wajib (lihat pikir.tambah_cari_web)
+        keadaan["kueri_rencana"] = " ".join(f"{rencana['konteks']} {rencana['fakta']}".split())[:300] if rencana and rencana.get("fakta") else ""
         keadaan["wajib_cari"] = ((langsung_cari and kotak_alat.wajib_cari(segarkan) and perlu_cari)
                                  or kotak_alat.wajib_alat_khusus(pertanyaan, perlu_cari))
         # jika ada data internal, model yang memutuskan; jawaban "tidak ada informasi" tanpa mencari diulang di simpul pikir
@@ -244,13 +246,22 @@ def teks_rencana(rencana, catatan, kelompok):
     if not rencana:
         return ""
     baris = []
-    if rencana["subjek"]:
+    dugaan = rencana.get("dugaan")
+    if rencana["subjek"] and dugaan:
+        # tebakan anggota dari ingatan model pemahaman (misalnya Grimnir di antara Primarch) tidak boleh menjadi daftar jawaban
+        baris.append("Dugaan awal dari ingatan, belum tentu benar atau lengkap: " + "; ".join(rencana["subjek"]) + ". Tentukan anggota "
+                     "atau isi daftar dari hasil pencarian, bukan dari dugaan ini, dan jangan menyalin dugaan ini ke kueri cari_web.")
+    elif rencana["subjek"]:
         baris.append("Nama lengkap hal yang ditanyakan: " + "; ".join(rencana["subjek"]) + ".")
     if rencana["konteks"]:
         baris.append(f"Konteks yang ditanyakan: {rencana['konteks']}. Cari dan jawab dalam konteks ini, bukan arti lain dari nama yang sama.")
     if rencana["fakta"]:
         baris.append(f"Kata kunci pencarian: {rencana['fakta']}. Jika ada istilah beraksara asli, cari juga dengan istilah itu.")
-    if kelompok and rencana["gambar"] == "tiap":
+    if kelompok and rencana["gambar"] == "tiap" and dugaan:
+        daftar = "; ".join(f"[[gambar:{nomor}]] = {nama}" for nama, nomor in catatan.get("rencana_gambar", []))
+        baris.append(f"Gambar untuk dugaan itu sudah dicari: {daftar}. Tulis penanda hanya di bawah butir yang memang ada di sumber. "
+                     "Butir lain dicarikan gambarnya otomatis dari nama di judul butirnya, jadi jangan memanggil cari_gambar.")
+    elif kelompok and rencana["gambar"] == "tiap":
         daftar = "; ".join(f"[[gambar:{nomor}]] = {nama}" for nama, nomor in catatan.get("rencana_gambar", []))
         baris.append(f"Gambar sudah dicari otomatis: {daftar}. Tulis tiap penanda sekali tepat di bawah penjelasan hal itu, "
                      "dan tulis nama hal itu seperti di daftar ini (boleh ditambah nama Indonesianya) di judul butirnya. "

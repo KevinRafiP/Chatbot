@@ -13,6 +13,10 @@ class GalatAlat(Exception):
     """Galat yang pesannya aman ditampilkan ke model, misalnya kota tidak ditemukan."""
 
 
+class GalatSibuk(GalatAlat):
+    """Layanan membalas 429 (terlalu banyak permintaan); boleh dicoba sekali lagi setelah jeda."""
+
+
 def ambil_json(alamat, parameter=None, batas_waktu=15, agen_pengguna="Vokapas/1.0", metode="GET", badan=None, header=None):
     """Memanggil API JSON dan mengembalikan isinya; balasan dibatasi BATAS_BYTE agar memori aman."""
     if parameter:
@@ -29,7 +33,7 @@ def ambil_json(alamat, parameter=None, batas_waktu=15, agen_pengguna="Vokapas/1.
         if galat.code == 404:
             raise GalatAlat("data tidak ditemukan")
         if galat.code == 429:
-            raise GalatAlat("layanan sedang sibuk, coba lagi sebentar lagi")
+            raise GalatSibuk("layanan sedang sibuk, coba lagi sebentar lagi")
         raise
     if len(isi) > BATAS_BYTE:
         raise GalatAlat("balasan layanan terlalu besar")

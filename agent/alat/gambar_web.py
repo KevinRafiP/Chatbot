@@ -1,7 +1,9 @@
 import http.client
 import logging
+import os
 import re
 import threading
+import time
 import unicodedata
 import urllib.error
 import urllib.request
@@ -10,7 +12,7 @@ from urllib.parse import quote, urljoin, urlparse
 
 from alat.baca import KODE_PENGALIHAN, MAKS_PENGALIHAN, pembuka
 from alat.catatan import kunci
-from alat.jaringan import ambil_json
+from alat.jaringan import GalatSibuk, ambil_json
 from llm.gambar import MAKS_BYTE_GAMBAR, jenis_gambar
 from pengaman.aturan import GalatPengaman, periksa_url
 from pengaman.teks import bersihkan_tak_terlihat
@@ -40,6 +42,9 @@ PENGECUALIAN_GAMBAR = {
     "lego": ({"lego"}, ("lego",)),
     "logo": ({"logo", "logos"}, ("logo",)),
     "clipart": ({"clipart"}, ("clipart", "klipart")),
+    "koleksi": ({"figuarts", "figma", "nendoroid", "gunpla", "amiibo", "merchandise", "merch"},
+                ("mainan", "figur", "figure", "koleksi", "merchandise", "merch", "gunpla", "nendoroid")),
+    "cosplay": ({"cosplay", "cosplayer", "cosplays"}, ("cosplay",)),
 }
 # foto utama artikel Wikipedia tentang subjek itu dipakai lebih dulu, karena artikelnya memang membahas hal itu;
 # tidak untuk hal yang wujud hidupnya tidak bisa difoto, karena foto artikelnya biasanya kerangka atau fosil
@@ -63,6 +68,19 @@ KATA_HIASAN = {"logo", "icon", "icons", "ikon", "sprite", "avatar", "emoji", "ba
 MAKS_CALON_SUMBER = 3
 # backend memakai agen pengguna yang sama saat meneruskan gambar ke browser
 AGEN_PENGGUNA = "Mozilla/5.0 (compatible; Vokapas/1.0)"
+# Wikipedia dan wiki lain membalas 429 jika banyak permintaan datang bersamaan dari satu IP, apalagi tanpa alamat kontak di agen pengguna
+# pembatas per situs, jadi Wikipedia dan wiki fandom tidak saling menunggu
+pembatas_wiki = {}
+gembok_pembatas = threading.Lock()
+MAKS_BERSAMAAN_WIKI = 3
+JEDA_SIBUK_WIKI = 1.5
+# wiki dari sumber jawaban (misalnya wiki fandom karya itu) yang dicoba untuk gambar tiap butir
+MAKS_WIKI_SUMBER = 2
+SITUS_BUKAN_WIKI_SUMBER = ("wikipedia.org", "wikimedia.org", "wikidata.org", "wiktionary.org")
+api_situs = {}
+gembok_situs = threading.Lock()
+# kata yang ditambahkan ke kueri gambar oleh pemahaman, bukan bagian nama hal itu
+KATA_TAMBAHAN_KUERI = {"full", "body", "life", "reconstruction", "official", "art", "image", "photo"}
 
 DEKLARASI_CARI_GAMBAR = {
     "name": "cari_gambar",
@@ -126,6 +144,11 @@ def kata_kunci(teks):
     teks = polos(teks)
     gabungan = [k.replace("-", "") for k in re.findall(r"[^\W_]+(?:-[^\W_]+)+", teks)]
     return {kata for kata in re.findall(r"[^\W_]+", teks) + gabungan if len(kata) >= 3}
+
+
+def kata_nama(teks):
+    """kata_kunci ditambah kata dua huruf ("Ax Form"), dipakai untuk nama butir dan pembeda subjek."""
+    return kata_kunci(teks) | {k for k in re.findall(r"[^\W_]+", polos(teks)) if len(k) == 2}
 
 
 def akar_cocok(kata, teks):
@@ -233,12 +256,32 @@ def artikel_cocok(halaman, nama, subjek, konteks):
     return not perlu or bool(perlu & teks)
 
 
+def agen_wiki():
+    """Agen pengguna untuk API wiki; WIKI_KONTAK (alamat situs atau email) dianjurkan aturan Wikimedia agar tidak cepat dibatasi."""
+    kontak = os.environ.get("WIKI_KONTAK", "").strip()
+    return f"Vokapas/1.0 ({kontak})" if kontak else AGEN_PENGGUNA
+
+
+def json_wiki(api, parameter, batas_waktu):
+    """Panggilan API wiki paling banyak MAKS_BERSAMAAN_WIKI bersamaan per situs; balasan sibuk (429) dicoba sekali lagi setelah jeda."""
+    with gembok_pembatas:
+        pembatas = pembatas_wiki.setdefault(urlparse(api).hostname, threading.BoundedSemaphore(MAKS_BERSAMAAN_WIKI))
+    for percobaan in range(2):
+        try:
+            with pembatas:
+                return ambil_json(api, parameter, batas_waktu, agen_wiki())
+        except GalatSibuk:
+            if percobaan:
+                raise
+            time.sleep(JEDA_SIBUK_WIKI)
+
+
 def tanya_wikipedia(tambahan, subjek, batas_waktu):
     try:
-        isi = ambil_json(API_WIKIPEDIA, {"action": "query", "format": "json", "formatversion": 2, "redirects": 1,
-                                         "prop": "pageimages|pageprops|description|extracts", "piprop": "thumbnail",
-                                         "pithumbsize": UKURAN_GAMBAR_WIKI, "ppprop": "disambiguation", "exintro": 1, "explaintext": 1,
-                                         "exsentences": 2, "exlimit": "max", **tambahan}, batas_waktu, AGEN_PENGGUNA)
+        isi = json_wiki(API_WIKIPEDIA, {"action": "query", "format": "json", "formatversion": 2, "redirects": 1,
+                                        "prop": "pageimages|pageprops|description|extracts", "piprop": "thumbnail",
+                                        "pithumbsize": UKURAN_GAMBAR_WIKI, "ppprop": "disambiguation", "exintro": 1, "explaintext": 1,
+                                        "exsentences": 2, "exlimit": "max", **tambahan}, batas_waktu)
     except Exception as galat:
         logging.info("foto Wikipedia %r gagal: %s", subjek, galat)
         return None
@@ -304,8 +347,8 @@ def wiki_fandom(konteks, batas_waktu):
         perlu = kata_kunci(konteks) - KATA_UMUM_KONTEKS
         for nama in dict.fromkeys(["".join(kata), "-".join(kata), kata[0]]):
             try:
-                isi = ambil_json(API_FANDOM.format(nama), {"action": "query", "meta": "siteinfo", "format": "json", "formatversion": 2},
-                                 batas_waktu, AGEN_PENGGUNA)
+                isi = json_wiki(API_FANDOM.format(nama), {"action": "query", "meta": "siteinfo", "format": "json", "formatversion": 2},
+                                batas_waktu)
             except Exception:
                 continue
             situs = ((isi.get("query") or {}).get("general") or {}).get("sitename", "")
@@ -319,33 +362,112 @@ def wiki_fandom(konteks, batas_waktu):
 def gambar_fandom(subjek, konteks, batas_waktu):
     """Gambar utama halaman subjek di wiki fandom karyanya; judul halamannya harus memuat nama subjek."""
     wiki = wiki_fandom(konteks, batas_waktu)
-    nama = nama_wikipedia(subjek, konteks)
-    if not wiki or not nama:
-        return None
+    return gambar_situs_wiki(wiki, subjek, konteks, batas_waktu) if wiki else None
+
+
+def gambar_situs_wiki(wiki, subjek, konteks, batas_waktu):
+    """Gambar utama artikel subjek di satu wiki MediaWiki (fandom atau wiki karya lain): judul langsung dulu, lalu pencarian di wiki itu.
+    Judul artikelnya harus memuat nama subjek sendiri (tanpa kata konteks), agar halaman daftar atau tokoh lain tidak dipakai."""
     api, situs, dasar = wiki
-    try:
-        isi = ambil_json(api, {"action": "query", "format": "json", "formatversion": 2, "redirects": 1, "prop": "pageimages",
-                               "piprop": "thumbnail", "pithumbsize": UKURAN_GAMBAR_WIKI, "titles": "|".join(nama)}, batas_waktu, AGEN_PENGGUNA)
-    except Exception as galat:
-        logging.info("gambar fandom %r gagal: %s", subjek, galat)
+    nama = nama_wikipedia(subjek, konteks)
+    if not nama:
         return None
-    kueri = isi.get("query") or {}
-    arah = {a["from"]: a["to"] for a in (kueri.get("normalized") or []) + (kueri.get("redirects") or [])}
-    halaman = {h.get("title"): h for h in kueri.get("pages") or []}
-    for n in nama:
-        judul = n
-        while judul in arah and arah[judul] != judul:
-            judul = arah[judul]
-        h = halaman.get(judul) or {}
+    dasar_tanya = {"action": "query", "format": "json", "formatversion": 2, "redirects": 1, "prop": "pageimages",
+                   "piprop": "thumbnail", "pithumbsize": UKURAN_GAMBAR_WIKI}
+    sendiri = [v for v in (kata_nama(n) - kata_nama(konteks) for n in varian_nama(subjek, konteks)) if v]
+
+    def pilih(h, judul):
         sumber = (h.get("thumbnail") or {}).get("source")
-        sendiri = kata_kunci(n) - kata_kunci(konteks)
-        if sumber and not h.get("missing") and sendiri and sendiri & kata_kunci(judul):
+        if sumber and not h.get("missing") and any(v <= kata_nama(judul) for v in sendiri):
             return {"url": sumber, "judul": f"{judul} - {situs}", "halaman": dasar + quote(judul.replace(" ", "_"))}
+        return None
+
+    try:
+        kueri = json_wiki(api, {**dasar_tanya, "titles": "|".join(nama)}, batas_waktu).get("query") or {}
+        arah = {a["from"]: a["to"] for a in (kueri.get("normalized") or []) + (kueri.get("redirects") or [])}
+        halaman = {h.get("title"): h for h in kueri.get("pages") or []}
+        for n in nama:
+            judul = n
+            while judul in arah and arah[judul] != judul:
+                judul = arah[judul]
+            foto = pilih(halaman.get(judul) or {}, judul)
+            if foto:
+                return foto
+        cari = json_wiki(api, {**dasar_tanya, "generator": "search", "gsrsearch": varian_nama(subjek, konteks, asing=True)[-1],
+                               "gsrlimit": MAKS_CARI_WIKI, "gsrnamespace": 0}, batas_waktu).get("query") or {}
+    except Exception as galat:
+        logging.info("gambar wiki %s %r gagal: %s", situs, subjek, galat)
+        return None
+    for h in sorted(cari.get("pages") or [], key=lambda h: h.get("index", 0)):
+        foto = pilih(h, h.get("title", ""))
+        if foto:
+            return foto
     return None
 
 
+def wiki_sumber(catatan, daftar_blokir, batas_waktu, konteks=""):
+    """Wiki MediaWiki selain Wikipedia yang muncul di sumber jawaban ini (misalnya kamenrider.fandom.com atau gbf.wiki), sebagai
+    (api, nama situs, alamat dasar artikel). Seperti Gemini, gambar tiap butir diambil dari artikel hal itu di wiki yang dipakai jawaban."""
+    with kunci(catatan):
+        alamat = [s.get("url", "") for s in catatan.get("sumber") or []]
+        alamat += [d.get("url", "") for _, d in sorted((catatan.get("gambar_halaman") or {}).items())]
+    hasil = []
+    for host in dict.fromkeys(urlparse(a).hostname or "" for a in alamat if "/wiki/" in urlparse(a).path or ".fandom.com" in a):
+        if not host or host.endswith(SITUS_BUKAN_WIKI_SUMBER) or len(hasil) >= MAKS_WIKI_SUMBER:
+            continue
+        wiki = cari_api_wiki(host, daftar_blokir, batas_waktu)
+        if wiki:
+            hasil.append(wiki)
+    # wiki yang nama situsnya menyebut konteks (misalnya "Granblue Fantasy Wiki") didahulukan; wiki karya lain dipakai hanya jika
+    # tidak ada, karena nama tokoh yang sama bisa ada di banyak karya
+    perlu = kata_kunci(konteks) - KATA_UMUM_KONTEKS
+    cocok = [w for w in hasil if perlu & kata_kunci(f"{w[1]} {urlparse(w[0]).hostname}")]
+    return cocok or hasil
+
+
+def cari_api_wiki(host, daftar_blokir, batas_waktu):
+    """Alamat api.php situs ini (dicoba /api.php lalu /w/api.php), diingat per situs; None jika bukan MediaWiki."""
+    with gembok_situs:
+        if host in api_situs:
+            return api_situs[host]
+        hasil = None
+        for jalur in ("/api.php", "/w/api.php"):
+            api = f"https://{host}{jalur}"
+            try:
+                periksa_url(api, daftar_blokir)
+                isi = json_wiki(api, {"action": "query", "meta": "siteinfo", "format": "json", "formatversion": 2}, batas_waktu)
+            except Exception:
+                continue
+            umum = (isi.get("query") or {}).get("general") or {}
+            if umum.get("sitename"):
+                dasar = urljoin(f"https://{host}/", (umum.get("articlepath") or "/wiki/$1").replace("$1", ""))
+                hasil = (api, umum["sitename"], dasar)
+                break
+        api_situs[host] = hasil
+    return hasil
+
+
+def gambar_wiki_sumber(catatan, nama, kelompok, konteks, daftar_blokir, batas_waktu):
+    """Foto artikel hal ini di wiki sumber jawaban didahulukan untuk kelompok ini; True jika ada."""
+    for wiki in wiki_sumber(catatan, daftar_blokir, batas_waktu, konteks):
+        foto = gambar_situs_wiki(wiki, nama, konteks, batas_waktu)
+        if not foto or not bisa_dibuka(foto["url"], daftar_blokir, BATAS_WAKTU_CEK):
+            continue
+        with kunci(catatan):
+            semua = catatan.setdefault("gambar", [])
+            semua[:] = [g for g in semua if not (g["kelompok"] == kelompok and g["url"] == foto["url"])]
+            posisi = next((i for i, g in enumerate(semua) if g["kelompok"] == kelompok), len(semua))
+            semua.insert(posisi, {**foto, "kelompok": kelompok, "asal": "sumber"})
+        logging.info("gambar %r dari wiki sumber %s", nama, foto["halaman"])
+        return True
+    return False
+
+
 def ada_pembeda(calon, pembeda):
-    return bool(pembeda & kata_kunci(f"{calon['judul']} {calon['url']} {calon['halaman']}"))
+    """Kata pembeda harus ada di judul, alamat gambar, atau bagian terakhir alamat halaman. Nama domain atau folder halaman tidak
+    dihitung, karena halaman daftar atau kategori (misalnya "SSR Characters List") memuat potongan gambar banyak tokoh lain."""
+    halaman = urlparse(calon["halaman"]).path.rstrip("/").rsplit("/", 1)[-1] if calon.get("halaman") else ""
+    return bool(pembeda & kata_nama(f"{calon['judul']} {calon['url']} {halaman}"))
 
 
 def catat_gambar_halaman(catatan, nomor, url, data):
@@ -429,17 +551,22 @@ def gambar_sumber(catatan, nama, pembeda, kelompok, konteks, daftar_blokir):
 
 
 def utamakan_sumber(catatan, daftar_kelompok, batas_detik):
-    """Kelompok rencana yang tampil di jawaban memakai foto dari halaman sumber jawaban jika ada (lihat gambar_sumber)."""
+    """Kelompok rencana yang tampil di jawaban memakai foto dari halaman sumber jawaban jika ada (lihat gambar_sumber), atau foto
+    artikelnya di wiki sumber jawaban (lihat gambar_wiki_sumber)."""
     alat = catatan.get("alat_gambar")
     with kunci(catatan):
         nama = catatan.get("nama_kelompok") or {}
         daftar = [(k, nama[k]) for k in daftar_kelompok if k in nama]
-        ada_halaman = bool(catatan.get("gambar_halaman"))
-    if not alat or not daftar or not ada_halaman:
+    if not alat or not daftar:
         return
-    _, daftar_blokir, _, konteks, _ = alat
+    _, daftar_blokir, batas_waktu, konteks, _ = alat
+
+    def isi(nama, pembeda, kelompok):
+        return (gambar_sumber(catatan, nama, pembeda, kelompok, konteks, daftar_blokir)
+                or gambar_wiki_sumber(catatan, nama, kelompok, konteks, daftar_blokir, batas_waktu))
+
     pelaksana = ThreadPoolExecutor(max_workers=len(daftar))
-    tugas = [pelaksana.submit(gambar_sumber, catatan, n, p, k, konteks, daftar_blokir) for k, (n, p) in daftar]
+    tugas = [pelaksana.submit(isi, n, p, k) for k, (n, p) in daftar]
     wait(tugas, timeout=batas_detik)
     pelaksana.shutdown(wait=False, cancel_futures=True)
 
@@ -527,6 +654,10 @@ def cari_gambar(pencari, argumen, catatan, daftar_blokir, batas_waktu):
     sudah = kelompok_rencana(kueri, catatan)
     if sudah and not kelompok_gagal(catatan, sudah):
         return {"penanda": f"[[gambar:{sudah}]]", "catatan": "Gambar hal ini sudah dicari otomatis. Pakai penanda ini; jangan mencarinya lagi."}
+    if catatan.get("mode_gambar") == "tiap":
+        # kueri gabungan atau kelompok ("The Primarchs SSR characters") hanya menemukan halaman daftar berisi banyak tokoh
+        return {"catatan": "Gambar tiap butir dicarikan otomatis dari nama di judul butirnya. Tulis butirnya dengan nama yang jelas "
+                           "dan jangan memanggil cari_gambar lagi."}
     kelompok = ambil_kelompok(catatan)
     if kelompok is None:
         return {"galat": "batas pencarian gambar untuk jawaban ini sudah tercapai"}
@@ -544,11 +675,19 @@ def ciri_subjek(rencana):
     Greater bird-of-paradise (Paradisaea apoda) di antara cenderawasih lain. Subjek tanpa kata pembeda tidak dimasukkan."""
     hasil = {}
     for i, (nama, kelompok) in enumerate(rencana):
-        lain = set().union(*(kata_kunci(n) for j, (n, _) in enumerate(rencana) if j != i))
-        pembeda = kata_kunci(nama) - lain
+        lain = set().union(*(kata_nama(n) for j, (n, _) in enumerate(rencana) if j != i))
+        pembeda = kata_kunci(nama) - lain or kata_nama(nama) - lain
         if pembeda:
             hasil[kelompok] = pembeda
     return hasil
+
+
+def nama_dari_kueri(kueri, konteks, jenis):
+    """Nama hal dari kueri gambar tanpa kata konteks, jenis gambar, dan kata tambahan ("Kamen Rider Den-O Plat Form full body"
+    menjadi "Plat Form"), dipakai jika SUBJEK tidak menyebut tiap hal satu per satu."""
+    buang = kata_kunci(f"{konteks} {jenis}") | KATA_TAMBAHAN_KUERI
+    kata = [k for k in pisah_kueri(kueri)[0].split() if not (kata_kunci(k) and kata_kunci(k) <= buang)]
+    return " ".join(kata) or kueri
 
 
 def siapkan_gambar(pencari, daftar_kueri, daftar_subjek, catatan, daftar_blokir, batas_waktu, konteks="", jenis=""):
@@ -562,7 +701,11 @@ def siapkan_gambar(pencari, daftar_kueri, daftar_subjek, catatan, daftar_blokir,
         kelompok.append(nomor)
     if not kelompok:
         return []
-    rencana = [(daftar_subjek[i] if i < len(daftar_subjek) else daftar_kueri[i], nomor) for i, nomor in enumerate(kelompok)]
+    # SUBJEK yang jumlahnya tidak sama dengan kueri (misalnya satu nama acara untuk sepuluh wujud) tidak bisa dipasangkan per kelompok
+    if len(daftar_subjek) == len(daftar_kueri):
+        rencana = [(daftar_subjek[i], nomor) for i, nomor in enumerate(kelompok)]
+    else:
+        rencana = [(nama_dari_kueri(daftar_kueri[i], konteks, jenis), nomor) for i, nomor in enumerate(kelompok)]
     catatan["rencana_gambar"] = rencana
     catatan["alat_gambar"] = (pencari, daftar_blokir, batas_waktu, konteks, jenis)
     # beberapa subjek: tiap gambar wajib memuat nama pembedanya dan cukup satu gambar per subjek
@@ -598,7 +741,8 @@ def gambar_susulan(catatan, daftar, batas_detik):
         catatan.setdefault("nama_kelompok", {}).update({nomor: (nama, pembeda) for nama, pembeda, nomor in pasangan})
 
     def isi(nama, pembeda, nomor):
-        if not gambar_sumber(catatan, nama, pembeda, nomor, konteks, daftar_blokir):
+        if not (gambar_sumber(catatan, nama, pembeda, nomor, konteks, daftar_blokir)
+                or gambar_wiki_sumber(catatan, nama, nomor, konteks, daftar_blokir, batas_waktu)):
             isi_kelompok(pencari, " ".join(f"{nama} {konteks} {jenis}".split()), nomor, catatan, daftar_blokir, batas_waktu,
                          nama, pembeda, True, konteks)
 
