@@ -23,6 +23,7 @@ type Config struct {
 	AgentURL            string
 	AgentAPIKey         string
 	AgentStreamMenit    int
+	WikiKontak          string
 	SesiHari            int
 	BatasTamuPerJam     int
 	BatasPesanPerMenit  int
@@ -82,6 +83,7 @@ func Muat() Config {
 		AgentURL:            ambil("AGENT_URL", ""),
 		AgentAPIKey:         ambil("AGENT_API_KEY", ""),
 		AgentStreamMenit:    ambilAngka("AGENT_BATAS_STREAM_MENIT", 5),
+		WikiKontak:          ambil("WIKI_KONTAK", ""),
 		IngestionPort:       ambil("INGESTION_PORT", "8081"),
 		IngestionAPIKey:     ambil("INGESTION_API_KEY", ""),
 		WorkerIntervalMenit: ambilAngka("WORKER_INTERVAL_MENIT", 1),

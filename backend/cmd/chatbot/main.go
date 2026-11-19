@@ -136,7 +136,7 @@ func main() {
 		"redirect URI "+alamatKembaliGoogle(cfg))))
 	tabel.Isi("Laporan galat", logawal.AktifMati(sentry != nil, keteranganJika(sentry != nil, "Sentry ("+sentryHost(sentry)+")")))
 
-	penerusGambar := service.BaruPenerusGambar(cfg.AgentAPIKey)
+	penerusGambar := service.BaruPenerusGambar(cfg.AgentAPIKey, cfg.WikiKontak)
 	model.TandaGambar = penerusGambar.Tanda
 	tabel.Isi("Gambar internet", "aktif, diteruskan lewat /gambar tanpa disimpan")
 

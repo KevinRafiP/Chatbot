@@ -4,10 +4,11 @@ import re
 import threading
 import time
 import unicodedata
+from collections import Counter
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, wait
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import quote, unquote, urljoin, urlparse
 
 from alat.baca import KODE_PENGALIHAN, MAKS_PENGALIHAN, pembuka
 from alat.catatan import kunci
@@ -65,8 +66,13 @@ UKURAN_MIN_SUMBER = 150
 KATA_HIASAN = {"logo", "icon", "icons", "ikon", "sprite", "avatar", "emoji", "badge", "banner", "placeholder", "spacer", "pixel", "blank",
                "favicon", "ads", "iklan"}
 MAKS_CALON_SUMBER = 3
-# backend memakai agen pengguna yang sama saat meneruskan gambar ke browser
+# backend memakai agen pengguna yang sama saat meneruskan gambar ke browser (lihat agen_gambar)
 AGEN_PENGGUNA = "Mozilla/5.0 (compatible; Vokapas/1.0)"
+# aturan agen pengguna Wikimedia juga berlaku untuk berkas gambarnya (upload.wikimedia.org), jadi di sana kontak WIKI_KONTAK ikut dikirim
+SITUS_WIKIMEDIA = ("wikimedia.org", "wikipedia.org")
+# akhiran ukuran di nama berkas: versi lain ukuran dari gambar yang sama, misalnya DeviantArt -pre dan -fullview, WordPress -768x548
+POLA_EKSTENSI_BERKAS = re.compile(r"\.(?:jpe?g|png|gif|webp|svg|avif)$")
+POLA_UKURAN_BERKAS = re.compile(r"(?:[-_](?:\d+x\d+|pre|fullview|scaled|large|medium|small|thumb(?:nail)?)|@\dx)$")
 # Wikipedia dan wiki lain membalas 429 jika banyak permintaan datang bersamaan dari satu IP, apalagi tanpa alamat kontak di agen pengguna
 # pembatas per situs, jadi Wikipedia dan wiki fandom tidak saling menunggu
 pembatas_wiki = {}
@@ -80,6 +86,12 @@ api_situs = {}
 gembok_situs = threading.Lock()
 # kata yang ditambahkan ke kueri gambar oleh pemahaman, bukan bagian nama hal itu
 KATA_TAMBAHAN_KUERI = {"full", "body", "life", "reconstruction", "official", "art", "image", "photo"}
+# gambar asli fandom dan Wikimedia (misalnya official art PNG) sering melebihi MAKS_BYTE_GAMBAR, jadi versi kecilnya diminta lewat alamat;
+# 960 termasuk lebar baku thumbnail Wikimedia
+LEBAR_GAMBAR_KECIL = 960
+POLA_ASLI_FANDOM = re.compile(r"^(https://static\.wikia\.nocookie\.net/.+/revision/latest)/?(\?.*)?$")
+POLA_ASLI_WIKIMEDIA = re.compile(r"^https://upload\.wikimedia\.org/(wikipedia/[^/]+)/([0-9a-f])/([0-9a-f]{2})/([^/?#]+\.(?:jpe?g|png|gif|webp|svg))$",
+                                 re.IGNORECASE)
 
 DEKLARASI_CARI_GAMBAR = {
     "name": "cari_gambar",
@@ -94,39 +106,107 @@ DEKLARASI_CARI_GAMBAR = {
 }
 
 
-def bisa_dibuka(url, daftar_blokir, batas_waktu):
-    """True jika alamatnya aman dan membalas gambar PNG, JPG, WEBP, atau GIF yang tidak lebih dari MAKS_BYTE_GAMBAR; hanya byte awal yang dibaca."""
-    return ambil_gambar(url, daftar_blokir, batas_waktu, 16) is not None
+def agen_gambar(url):
+    """Agen pengguna untuk membuka gambar; sama dengan agenPengguna di backend gambar_service.go."""
+    host = (urlparse(url).hostname or "").lower()
+    if any(host == situs or host.endswith("." + situs) for situs in SITUS_WIKIMEDIA):
+        return agen_wiki()
+    return AGEN_PENGGUNA
+
+
+def kunci_gambar(url):
+    """Host dan nama berkas tanpa ekstensi dan akhiran ukuran, agar ukuran lain dari gambar yang sama dianggap satu gambar
+    (misalnya ...defssz6-pre.png dan ...defssz6-fullview.png, atau thumbnail 960px-Tiger.jpg dan Tiger.jpg)."""
+    bagian = urlparse(url)
+    jalur = unquote(bagian.path.split("/revision/")[0]).rstrip("/")
+    nama = jalur.rsplit("/", 1)[-1].lower()
+    while POLA_EKSTENSI_BERKAS.search(nama):
+        nama = POLA_EKSTENSI_BERKAS.sub("", nama)
+    nama = re.sub(r"^\d+px-", "", nama)
+    while POLA_UKURAN_BERKAS.search(nama):
+        nama = POLA_UKURAN_BERKAS.sub("", nama)
+    return ((bagian.hostname or "").lower(), nama) if nama else url
+
+
+def gambar_sama(a, b):
+    return a == b or kunci_gambar(a) == kunci_gambar(b)
+
+
+def versi_kecil(url):
+    """Alamat versi kecil gambar asli fandom atau Wikimedia (lebar LEBAR_GAMBAR_KECIL); url itu sendiri jika bukan dari sana atau sudah kecil."""
+    cocok = POLA_ASLI_FANDOM.match(url)
+    if cocok:
+        return f"{cocok[1]}/scale-to-width-down/{LEBAR_GAMBAR_KECIL}{cocok[2] or ''}"
+    cocok = POLA_ASLI_WIKIMEDIA.match(url)
+    if cocok:
+        nama = cocok[4]
+        akhiran = ".png" if nama.lower().endswith(".svg") else ""
+        return f"https://upload.wikimedia.org/{cocok[1]}/thumb/{cocok[2]}/{cocok[3]}/{nama}/{LEBAR_GAMBAR_KECIL}px-{nama}{akhiran}"
+    return url
+
+
+def buka_gambar(url, daftar_blokir, batas_waktu):
+    """(alamat yang dipakai, None) jika gambarnya bisa dibuka, dengan versi kecilnya dicoba dulu; (None, alasan gagal) jika tidak.
+    Hanya byte awal yang dibaca."""
+    kecil = versi_kecil(url)
+    alasan_kecil = ambil_gambar(kecil, daftar_blokir, batas_waktu, 16)[1] if kecil != url else None
+    if kecil != url and alasan_kecil is None:
+        return kecil, None
+    alasan = ambil_gambar(url, daftar_blokir, batas_waktu, 16)[1]
+    if alasan is None:
+        return url, None
+    return None, f"{alasan} (versi kecil: {alasan_kecil})" if alasan_kecil else alasan
 
 
 def unduh_gambar(url, daftar_blokir, batas_waktu):
     """Isi gambar (paling banyak MAKS_BYTE_GAMBAR) untuk dicek model vision, atau None."""
-    return ambil_gambar(url, daftar_blokir, batas_waktu, MAKS_BYTE_GAMBAR + 1)
+    return ambil_gambar(url, daftar_blokir, batas_waktu, MAKS_BYTE_GAMBAR + 1)[0]
 
 
 def ambil_gambar(url, daftar_blokir, batas_waktu, jumlah_byte):
+    """(byte awal gambar, None) jika alamatnya aman dan membalas PNG, JPG, WEBP, atau GIF yang tidak lebih dari MAKS_BYTE_GAMBAR
+    (batas yang sama dipakai backend saat meneruskan gambar ke browser); (None, alasan gagal) jika tidak."""
     try:
         for _ in range(MAKS_PENGALIHAN + 1):
             periksa_url(url, daftar_blokir)
-            permintaan = urllib.request.Request(url, headers={"User-Agent": AGEN_PENGGUNA, "Accept": "image/*"})
+            permintaan = urllib.request.Request(url, headers={"User-Agent": agen_gambar(url), "Accept": "image/*"})
             try:
                 respon = pembuka.open(permintaan, timeout=batas_waktu)
             except urllib.error.HTTPError as galat:
                 if galat.code in KODE_PENGALIHAN and galat.headers.get("Location"):
                     url = urljoin(url, galat.headers["Location"])
                     continue
-                return None
+                return None, f"kode {galat.code}"
             break
         else:
-            return None
+            return None, "pengalihan terlalu banyak"
         with respon:
             panjang = respon.headers.get("Content-Length", "")
             if panjang.isdigit() and int(panjang) > MAKS_BYTE_GAMBAR:
-                return None
+                return None, "terlalu besar"
             isi = respon.read(jumlah_byte)
-            return isi if jenis_gambar(isi) is not None and len(isi) <= MAKS_BYTE_GAMBAR else None
-    except (GalatPengaman, OSError, ValueError, http.client.HTTPException):
-        return None
+            if jenis_gambar(isi) is None:
+                return None, f"bukan gambar ({respon.headers.get_content_type()})"
+            return (isi, None) if len(isi) <= MAKS_BYTE_GAMBAR else (None, "terlalu besar")
+    except GalatPengaman as galat:
+        return None, f"diblokir pengaman: {galat}"
+    except TimeoutError:
+        return None, "waktu habis"
+    except urllib.error.URLError as galat:
+        return None, "waktu habis" if isinstance(galat.reason, TimeoutError) else "gagal terhubung"
+    except (OSError, ValueError, http.client.HTTPException):
+        return None, "gagal terhubung"
+
+
+def catat_gagal(nama, gagal):
+    """Satu baris log alasan gambar tidak bisa dibuka, per host, misalnya "static.wikia.nocookie.net: 3x kode 403, 1x waktu habis"."""
+    if not gagal:
+        return
+    per_host = {}
+    for url, alasan in gagal:
+        per_host.setdefault(urlparse(url).hostname or url, Counter())[alasan] += 1
+    ringkas = "; ".join(f"{host}: " + ", ".join(f"{n}x {alasan}" for alasan, n in hitung.most_common()) for host, hitung in per_host.items())
+    logging.info("gambar %r tidak bisa dibuka: %s", nama, ringkas)
 
 
 # penanda tempat gambar di jawaban; kelompok n adalah hasil panggilan cari_gambar ke-n
@@ -262,7 +342,7 @@ def json_wiki(api, parameter, batas_waktu):
     for percobaan in range(2):
         try:
             with pembatas:
-                return ambil_json(api, parameter, batas_waktu, agen_wiki())
+                return ambil_json(api, parameter, batas_waktu, agen_wiki(), hanya_umum=True)
         except GalatSibuk:
             if percobaan:
                 raise
@@ -444,11 +524,16 @@ def gambar_wiki_sumber(catatan, nama, kelompok, konteks, daftar_blokir, batas_wa
     """Foto artikel hal ini di wiki sumber jawaban didahulukan untuk kelompok ini; True jika ada."""
     for wiki in wiki_sumber(catatan, daftar_blokir, batas_waktu, konteks):
         foto = gambar_situs_wiki(wiki, nama, konteks, batas_waktu)
-        if not foto or not bisa_dibuka(foto["url"], daftar_blokir, BATAS_WAKTU_CEK):
+        if not foto:
             continue
+        alamat, alasan = buka_gambar(foto["url"], daftar_blokir, BATAS_WAKTU_CEK)
+        if not alamat:
+            catat_gagal(nama, [(foto["url"], alasan)])
+            continue
+        foto = {**foto, "url": alamat}
         with kunci(catatan):
             semua = catatan.setdefault("gambar", [])
-            semua[:] = [g for g in semua if not (g["kelompok"] == kelompok and g["url"] == foto["url"])]
+            semua[:] = [g for g in semua if not (g["kelompok"] == kelompok and gambar_sama(g["url"], foto["url"]))]
             posisi = next((i for i, g in enumerate(semua) if g["kelompok"] == kelompok), len(semua))
             semua.insert(posisi, {**foto, "kelompok": kelompok, "asal": "sumber"})
         logging.info("gambar %r dari wiki sumber %s", nama, foto["halaman"])
@@ -528,18 +613,26 @@ def gambar_sumber(catatan, nama, pembeda, kelompok, konteks, daftar_blokir):
     with kunci(catatan):
         nama_lain = [n for k, (n, _) in (catatan.get("nama_kelompok") or {}).items() if k != kelompok]
     dilarang = kata_dilarang(nama, set(), catatan.get("teks_pengguna"))
+    gagal = []
     for c in calon_sumber(catatan, nama, pembeda, konteks, nama_lain)[:MAKS_CALON_SUMBER]:
-        if not lolos_pengecualian(c, dilarang) or not bisa_dibuka(c["url"], daftar_blokir, BATAS_WAKTU_CEK):
+        if not lolos_pengecualian(c, dilarang):
             continue
+        alamat, alasan = buka_gambar(c["url"], daftar_blokir, BATAS_WAKTU_CEK)
+        if not alamat:
+            gagal.append((c["url"], alasan))
+            continue
+        c = {**c, "url": alamat}
         judul = " ".join(bersihkan_tak_terlihat(c["judul"]).split())[:MAKS_HURUF_JUDUL]
         with kunci(catatan):
             semua = catatan.setdefault("gambar", [])
-            semua[:] = [g for g in semua if not (g["kelompok"] == kelompok and g["url"] == c["url"])]
+            semua[:] = [g for g in semua if not (g["kelompok"] == kelompok and gambar_sama(g["url"], c["url"]))]
             posisi = next((i for i, g in enumerate(semua) if g["kelompok"] == kelompok), len(semua))
             semua.insert(posisi, {"url": c["url"], "judul": judul, "halaman": alamat_halaman(c["halaman"]), "kelompok": kelompok,
                                   "asal": "sumber"})
         logging.info("gambar %r dari halaman sumber %s", nama, c["halaman"])
+        catat_gagal(nama, gagal)
         return True
+    catat_gagal(nama, gagal)
     return False
 
 
@@ -579,8 +672,14 @@ def isi_kelompok(pencari, kueri, kelompok, catatan, daftar_blokir, batas_waktu, 
     wiki = gambar_wikipedia(subjek, batas_waktu, konteks) if subjek and not POLA_REKONSTRUKSI.search(bersih) else None
     if not wiki and subjek and konteks:
         wiki = gambar_fandom(subjek, konteks, batas_waktu)
-    if wiki and not (lolos_pengecualian(wiki, dilarang) and bisa_dibuka(wiki["url"], daftar_blokir, BATAS_WAKTU_CEK)):
+    gagal = []
+    if wiki and not lolos_pengecualian(wiki, dilarang):
         wiki = None
+    if wiki:
+        alamat, alasan = buka_gambar(wiki["url"], daftar_blokir, BATAS_WAKTU_CEK)
+        if not alamat:
+            gagal.append((wiki["url"], alasan))
+        wiki = {**wiki, "url": alamat} if alamat else None
 
     # dalam konteks tertentu (misalnya Chinese zodiac), gambar mesin pencari yang tidak menyebut konteksnya biasanya arti umum nama itu
     wajib = kata_konteks(konteks) if subjek and konteks else set()
@@ -600,28 +699,36 @@ def isi_kelompok(pencari, kueri, kelompok, catatan, daftar_blokir, batas_waktu, 
     calon = ([wiki] if wiki else []) + nama_di_berkas(urutkan_calon(bersih, calon), kata_nama)[:MAKS_CALON]
     if not calon:
         logging.info("cari_gambar %r: %d calon, semua tidak cocok", bersih, len(semua))
+        catat_gagal(bersih, gagal)
         return "tidak ada gambar yang cocok"
 
     # dicek bersamaan; gambar yang lambat dianggap tidak bisa dibuka
     pelaksana = ThreadPoolExecutor(max_workers=len(calon))
-    tugas = [pelaksana.submit(bisa_dibuka, c["url"], daftar_blokir, BATAS_WAKTU_CEK) for c in calon]
+    tugas = [pelaksana.submit(buka_gambar, c["url"], daftar_blokir, BATAS_WAKTU_CEK) for c in calon]
     wait(tugas, timeout=BATAS_WAKTU_CEK * 2)
     pelaksana.shutdown(wait=False, cancel_futures=True)
-    lolos = [c for c, t in zip(calon, tugas) if t.done() and not t.cancelled() and t.result()]
+    lolos = []
+    for c, t in zip(calon, tugas):
+        alamat, alasan = t.result() if t.done() and not t.cancelled() else (None, "waktu habis")
+        if alamat:
+            lolos.append(({**c, "url": alamat}, c is wiki))
+        else:
+            gagal.append((c["url"], alasan))
 
     hasil = []
     with kunci(catatan):
-        for c in lolos:
+        for c, dari_wiki in lolos:
             if len(hasil) >= MAKS_GAMBAR_KUERI:
                 break
-            if any(g["url"] == c["url"] and g["kelompok"] == kelompok for g in catatan["gambar"]):
+            if any(g["kelompok"] == kelompok and gambar_sama(g["url"], c["url"]) for g in catatan["gambar"]):
                 continue
             judul = " ".join(bersihkan_tak_terlihat(c["judul"]).split())[:MAKS_HURUF_JUDUL]
             # asal menentukan gambar yang dicek model vision (lihat akhir.periksa_gambar): hanya gambar mesin pencari
             catatan["gambar"].append({"url": c["url"], "judul": judul, "halaman": alamat_halaman(c["halaman"]), "kelompok": kelompok,
-                                      "asal": "wiki" if c is wiki else "mesin"})
+                                      "asal": "wiki" if dari_wiki else "mesin"})
             hasil.append({"judul": judul})
     logging.info("cari_gambar %r: %d calon, %d lolos pengecualian, %d bisa dibuka", bersih, len(semua), len(calon), len(hasil))
+    catat_gagal(bersih, gagal)
     return hasil or "gambar yang ditemukan tidak bisa dibuka"
 
 

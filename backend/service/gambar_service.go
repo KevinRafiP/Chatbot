@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -20,8 +21,11 @@ import (
 // MaksByteGambar sama dengan batas agent saat memeriksa gambar
 const MaksByteGambar = 3_000_000
 
-// agen pengguna yang sama dengan agent, agar situs yang lolos dicek agent juga mau dibuka di sini
+// agen pengguna yang sama dengan agent (gambar_web.agen_gambar), agar situs yang lolos dicek agent juga mau dibuka di sini
 const agenPenggunaGambar = "Mozilla/5.0 (compatible; Vokapas/1.0)"
+
+// aturan agen pengguna Wikimedia juga berlaku untuk berkas gambarnya, jadi di sana kontak WIKI_KONTAK ikut dikirim
+var situsWikimedia = []string{"wikimedia.org", "wikipedia.org"}
 
 var ErrGambarTidakAda = errors.New("gambar tidak tersedia")
 
@@ -36,13 +40,14 @@ var jaringanTerlarang = []netip.Prefix{
 
 // PenerusGambar meneruskan gambar dari internet ke browser tanpa menyimpannya, hanya untuk alamat yang ditandatangani backend
 type PenerusGambar struct {
-	kunci []byte
-	klien *http.Client
+	kunci    []byte
+	klien    *http.Client
+	agenWiki string
 }
 
 // BaruPenerusGambar memakai AGENT_API_KEY sebagai bahan kunci tanda; jika kosong kuncinya acak,
 // sehingga tanda gambar lama tidak berlaku lagi setelah backend dinyalakan ulang
-func BaruPenerusGambar(rahasia string) *PenerusGambar {
+func BaruPenerusGambar(rahasia, kontakWiki string) *PenerusGambar {
 	kunci := sha256.Sum256([]byte("gambar|" + rahasia))
 	if rahasia == "" {
 		rand.Read(kunci[:])
@@ -65,7 +70,21 @@ func BaruPenerusGambar(rahasia string) *PenerusGambar {
 			return nil
 		},
 	}
-	return &PenerusGambar{kunci: kunci[:], klien: klien}
+	agenWiki := agenPenggunaGambar
+	if kontakWiki != "" {
+		agenWiki = "Vokapas/1.0 (" + kontakWiki + ")"
+	}
+	return &PenerusGambar{kunci: kunci[:], klien: klien, agenWiki: agenWiki}
+}
+
+func (p *PenerusGambar) agenPengguna(host string) string {
+	host = strings.ToLower(host)
+	for _, situs := range situsWikimedia {
+		if host == situs || strings.HasSuffix(host, "."+situs) {
+			return p.agenWiki
+		}
+	}
+	return agenPenggunaGambar
 }
 
 // Tanda dikirim bersama alamat gambar di setiap pesan, agar /gambar tidak bisa dipakai sebagai proxy untuk alamat lain
@@ -90,7 +109,7 @@ func (p *PenerusGambar) Ambil(ctx context.Context, alamat string) (io.ReadCloser
 	if err != nil {
 		return nil, "", ErrGambarTidakAda
 	}
-	req.Header.Set("User-Agent", agenPenggunaGambar)
+	req.Header.Set("User-Agent", p.agenPengguna(u.Hostname()))
 	req.Header.Set("Accept", "image/*")
 	resp, err := p.klien.Do(req)
 	if err != nil {

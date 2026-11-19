@@ -4,7 +4,7 @@ import urllib.request
 from html.parser import HTMLParser
 from urllib.parse import unquote, urljoin, urlparse
 
-from alat.jaringan import agen_wiki, ambil_json
+from alat.jaringan import PenanganHTTPAman, PenanganHTTPSAman, agen_wiki, ambil_json
 from pengaman.aturan import BATAS_TEKS_WEB, GalatPengaman, periksa_url, potong
 
 BATAS_BYTE = 1_000_000
@@ -116,7 +116,7 @@ class PengambilTeks(HTMLParser):
                             "bagian": self.bagian, "keterangan": "", "ukuran": min(ukuran) if ukuran else 0})
 
 
-pembuka = urllib.request.build_opener(TanpaPengalihanOtomatis)
+pembuka = urllib.request.build_opener(TanpaPengalihanOtomatis, PenanganHTTPAman, PenanganHTTPSAman)
 
 
 def baca(url, daftar_blokir, batas_waktu, batas_huruf=BATAS_TEKS_WEB):
@@ -204,7 +204,7 @@ def baca_api_wiki(url, daftar_blokir, batas_waktu, batas_huruf):
         try:
             periksa_url(api, daftar_blokir)
             data = ambil_json(api, {"action": "parse", "page": judul, "prop": "text", "redirects": 1, "disablelimitreport": 1,
-                                    "format": "json", "formatversion": 2}, batas_waktu, agen_wiki())
+                                    "format": "json", "formatversion": 2}, batas_waktu, agen_wiki(), hanya_umum=True)
         except Exception:
             continue
         isi = data.get("parse") or {}

@@ -278,16 +278,21 @@ def periksa_url(url, daftar_blokir):
         raise GalatPengaman("alamat berisi login tidak diizinkan")
     if domain_diblokir(bagian.hostname, daftar_blokir):
         raise GalatPengaman("domain diblokir")
+    alamat_umum(bagian.hostname)
+    return url
 
+
+def alamat_umum(host, port=None):
+    """Alamat IP internet umum milik host. Alamat privat yang ikut terdaftar di DNS dilewati, misalnya AAAA fd00:: yang salah setel
+    di samping IPv4 umum (situs Tsuburaya); GalatPengaman jika domain tidak ditemukan atau tidak punya alamat umum sama sekali."""
     try:
-        alamat_ip = {info[4][0] for info in socket.getaddrinfo(bagian.hostname, None)}
+        semua = {info[4][0] for info in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)}
     except socket.gaierror:
         raise GalatPengaman("domain tidak ditemukan")
-
-    for ip in alamat_ip:
-        if not ipaddress.ip_address(ip.split("%")[0]).is_global:
-            raise GalatPengaman("alamat jaringan internal tidak diizinkan")
-    return url
+    umum = [ip for ip in semua if ipaddress.ip_address(ip.split("%")[0]).is_global]
+    if not umum:
+        raise GalatPengaman("alamat jaringan internal tidak diizinkan")
+    return umum
 
 
 def potong(teks, batas=BATAS_TEKS_WEB):
