@@ -88,6 +88,8 @@ def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM, paksa_cari=False):
             if not ada_panggilan(konten) or harus_web:
                 konten = paksa_panggil_cari(klien, sistem, keadaan, harus_web)
             luruskan_kueri(konten, keadaan)
+        if wajib and ada_alat(keadaan, "cari_web") and ada_panggilan(konten) and not memanggil(konten, "cari_web"):
+            tambah_cari_web(konten, keadaan)
 
         keadaan["isi"].append(konten)
         keadaan["konten_terakhir"] = konten
@@ -136,6 +138,22 @@ def paksa_panggil_cari(klien, sistem, keadaan, harus_web=False):
     asli = {"id": nomor, "type": "function",
             "function": {"name": "cari_web", "arguments": json.dumps(argumen, ensure_ascii=False)}}
     return {"role": "assistant", "content": [{"toolUse": {"toolUseId": nomor, "name": "cari_web", "input": argumen, "asli": asli}}]}
+
+def tambah_cari_web(konten, keadaan):
+    """Pilihan "wajib memakai alat" Bedrock sudah terpenuhi oleh alat apa pun, misalnya cari_gambar, sehingga fakta tetap ditulis dari
+    ingatan. Jika pemahaman punya kata kunci fakta, agent menambahkan satu cari_web sendiri tanpa memanggil model lagi."""
+    kueri = keadaan.get("kueri_rencana") or (kueri_sendiri(keadaan) if (keadaan.get("catatan") or {}).get("dugaan") else "")
+    if not kueri:
+        return
+    nomor = f"cari_tambahan_{keadaan['putaran_llm']}"
+    argumen = {"kueri": kueri}
+    panggilan = {"toolUseId": nomor, "name": "cari_web", "input": argumen}
+    # "asli" hanya untuk format OpenAI (model lokal); Bedrock menolak kunci yang tidak dikenalnya
+    if any("asli" in b["toolUse"] for b in konten.get("content", []) if "toolUse" in b):
+        panggilan["asli"] = {"id": nomor, "type": "function",
+                             "function": {"name": "cari_web", "arguments": json.dumps(argumen, ensure_ascii=False)}}
+    konten.setdefault("content", []).append({"toolUse": panggilan})
+    logging.info("model tidak memanggil cari_web di putaran wajib, agent menambahkan: %s", kueri)
 
 def kueri_sendiri(keadaan):
     """Pertanyaan terakhir tanpa kata perintah sebagai kueri; jika sisanya terlalu pendek, pesan pengguna sebelumnya ikut dipakai."""

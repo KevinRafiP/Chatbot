@@ -63,7 +63,9 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
         segarkan = minta_cari_ulang(pertanyaan)
         selera = tanya_selera(pertanyaan)
         # kata kunci FAKTA dari pemahaman berarti ada fakta yang perlu dicari, walaupun pesannya pendek (misalnya lanjutan "versi aslinya?")
-        perlu_cari = segarkan or ((butuh_cari(maksud) or bool(rencana and rencana.get("fakta"))) and not selera)
+        # daftar yang namanya ditebak pemahaman (DUGAAN) selalu dicari, karena tebakan dari ingatan sering salah anggota
+        dugaan = bool(rencana and rencana.get("dugaan"))
+        perlu_cari = segarkan or ((butuh_cari(maksud) or dugaan or bool(rencana and rencana.get("fakta"))) and not selera)
         # pertanyaan fakta yang tidak menyebut jumlah sumber memakai minimal bawaan (AGENT_MIN_SUMBER)
         minimal, maksimal = batas_sumber(pertanyaan, kotak_alat.cfg.min_sumber if perlu_cari else 0)
         # pesan pendek seperti "kalau inggris?" ditandai sebagai lanjutan pertanyaan sebelumnya, agar tidak dianggap topik baru
@@ -89,7 +91,7 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
         # pertanyaan fakta wajib dicari dulu di putaran pertama jika tidak ada data internal yang cocok;
         # permintaan cari ulang selalu dicari, pertanyaan selera tidak perlu dicari
         # data internal yang tidak menyebut satu pun subjek rencana dianggap tidak cocok, jadi pencarian tetap diwajibkan
-        data_cocok = keadaan.get("konteks") and not data_tanpa_subjek(rencana, keadaan.get("konteks"))
+        data_cocok = keadaan.get("konteks") and not dugaan and not data_tanpa_subjek(rencana, keadaan.get("konteks"))
         langsung_cari = segarkan or minta_internet(pertanyaan) or not data_cocok or kotak_alat.cfg.cari_walau_data
         keadaan["butuh_data"] = butuh_data(maksud)
         # kueri cari_web cadangan jika model hanya memanggil alat lain di putaran wajib (lihat pikir.tambah_cari_web)
@@ -105,6 +107,9 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
             "maks_sumber_luar": maksimal,
             "segarkan": segarkan,
             "bisa_email": bisa_email,
+            # butir daftar yang namanya tidak ada di sumber mana pun dibuang (lihat akhir.buang_butir_tanpa_sumber)
+            "dugaan": dugaan,
+            "konteks_rencana": rencana["konteks"] if rencana else "",
             # maksud dipakai memilih bagian halaman yang relevan; kabar dipakai alat yang berjalan di browser pengguna
             "maksud": maksud,
             # fokus (nama lengkap subjek, konteks, dan kata kunci fakta) ikut dipakai memilih bagian halaman

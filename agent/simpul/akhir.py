@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 from alat.gambar_web import (BATAS_TUNGGU_GAMBAR, BATAS_TUNGGU_SUMBER, BATAS_TUNGGU_SUSULAN, POLA_PENANDA_GAMBAR, ciri_subjek,
                              gambar_susulan, kata_nama, polos, tunggu_gambar, utamakan_sumber)
+from alat.catatan import kunci as kunci_catatan
 from llm.client import GalatLLM
 from simpul.siapkan import TANDA_DIPERSINGKAT
 from simpul.verifikasi import pecah_sitasi_gabungan
@@ -83,6 +84,10 @@ POLA_PEMBUKA_INTERNAL = re.compile(rf"(^|(?<=[.!?]\s)|(?<=\n))(?:dari|berdasarka
 POLA_KETERANGAN_INTERNAL = re.compile(rf"\s+(?:dari|berdasarkan|menurut|di|dalam)\s+{ISTILAH}(?=[.,!?;:\n]|$)", re.IGNORECASE)
 
 # kalimat pembuka yang menceritakan catatan sistem atau permintaan pengguna, misalnya "Berdasarkan riwayat percakapan, pengguna meminta ..."
+# kalimat model yang menceritakan kerja alat atau penanda gambar, misalnya "Hmm, ternyata butir pertama gak keluar penandanya.
+# Tapi oke, aku catat dulu."; boleh muncul di mana saja, jadi dicek di semua paragraf
+POLA_KALIMAT_ALAT = re.compile(r"\bpenanda\w*\b.*\b(?:gambar|butir)\w*|\b(?:gambar|butir)\w*\b.*\bpenanda|\b(?:cari_web|cari_gambar|baca_url)\b"
+                               r"|\bgambar\w*\b.*\b(?:gak|ga|nggak|enggak)\b|\b(?:aku|saya)\s+catat\s+dulu\b|^\W*hmm+\b", re.IGNORECASE)
 POLA_KALIMAT_META = re.compile(r"\b(?:riwayat percakapan|catatan sistem|rencana jawaban|(?:pemahaman|memahami) pertanyaan)\b"
                                r"|^\W*(?:pengguna|user)\s+(?:meminta|menanyakan|ingin|bertanya|mencari|menginginkan)\b", re.IGNORECASE)
 
@@ -99,9 +104,29 @@ def buang_kalimat_meta(teks):
     return "\n\n".join(([sisa] if sisa else []) + bagian[1:])
 
 
+def buang_kalimat_alat(teks):
+    """Kalimat yang menceritakan alat atau penanda dibuang dari paragraf biasa; blok kode, tabel, judul butir, dan penanda gambar
+    itu sendiri (baris yang hanya berisi [[gambar:n]]) dibiarkan."""
+    hasil, di_kode = [], False
+    for baris in teks.split("\n"):
+        if baris.lstrip().startswith("```"):
+            di_kode = not di_kode
+        polos_baris = POLA_PENANDA_GAMBAR.sub("", baris).strip(" *_")
+        if di_kode or not polos_baris or baris.lstrip().startswith(("|", "#")) or jenis_butir(baris) in ("nomor", "tebal"):
+            hasil.append(baris)
+            continue
+        kalimat = re.split(r"(?<=[.!?])\s+", baris)
+        sisa = [k for k in kalimat if not POLA_KALIMAT_ALAT.search(POLA_PENANDA_GAMBAR.sub("", k))]
+        if len(sisa) == len(kalimat):
+            hasil.append(baris)
+        elif sisa:
+            hasil.append(" ".join(sisa))
+    return "\n".join(hasil)
+
+
 def hapus_istilah_internal(teks):
     """Membuang frasa yang menyebut data internal atau catatan, karena asal jawaban tidak boleh ditampilkan."""
-    teks = buang_kalimat_meta(teks)
+    teks = buang_kalimat_alat(buang_kalimat_meta(teks))
     teks = POLA_PEMBUKA_INTERNAL.sub(lambda c: c.group(1) + c.group(2).upper(), teks)
     teks = POLA_KETERANGAN_INTERNAL.sub("", teks)
     return re.sub(r"\b(d)ata internal\b", lambda c: f"{c.group(1)}ata yang saya punya", teks, flags=re.IGNORECASE)
@@ -142,6 +167,8 @@ def hasil(keadaan, teks):
     if gambar_karangan:
         teks += "\n\n*Gambar belum bisa ditampilkan.*"
     sembunyi = set()
+    if catatan.get("dugaan"):
+        teks = buang_butir_tanpa_sumber(teks, catatan)
     teks = penanda_teks(teks, catatan)
     if catatan.get("mode_gambar") == "tiap":
         teks, sembunyi = tempatkan_gambar(teks, catatan.get("rencana_gambar") or [],
@@ -287,6 +314,41 @@ def nama_butir(baris):
     if not 3 <= len(teks) <= MAKS_HURUF_NAMA_BUTIR or len(teks.split()) > MAKS_KATA_NAMA_BUTIR or teks.endswith("?"):
         return ""
     return teks
+
+
+def buang_butir_tanpa_sumber(teks, catatan):
+    """Untuk daftar yang anggotanya ditebak pemahaman (DUGAAN), butir jenis utama yang nama di judulnya tidak ada di sumber mana pun
+    (isi halaman, cuplikan, atau data internal) dibuang bersama penjelasannya, misalnya Grimnir di daftar Primarch. Jika tidak ada
+    satu pun nama yang ditemukan (misalnya semua halaman gagal dibaca), jawaban dibiarkan agar tidak kosong."""
+    konteks = catatan.get("konteks_rencana", "")
+    with kunci_catatan(catatan):
+        sumber = set().union(*(kata_nama(b.get("isi", "")) for b in (catatan.get("bukti") or {}).values()))
+    if not sumber:
+        return teks
+    baris = teks.split("\n")
+    jenis = [None if b.lstrip().startswith(("|", "```")) else jenis_butir(b) for b in baris]
+    jumlah = {j: jenis.count(j) for j in URUTAN_JENIS_BUTIR if j != "judul"}
+    utama = next((j for j in URUTAN_JENIS_BUTIR if jumlah.get(j, 0) >= 2), None)
+    if not utama:
+        return teks
+    buang_kata = kata_nama(konteks)
+    butir = []
+    for i, j in enumerate(jenis):
+        if j != utama:
+            continue
+        akhir = next((k for k in range(i + 1, len(baris)) if jenis[k] in (utama, "judul")), len(baris))
+        nama = re.sub(r"\([^()]*\)", " ", nama_butir(baris[i]))
+        kata = kata_nama(nama) - buang_kata
+        butir.append((i, akhir, kata, bool(kata) and kata <= sumber))
+    bernama = [b for b in butir if b[2]]
+    hilang = [b for b in bernama if not b[3]]
+    if not hilang or len(hilang) == len(bernama):
+        return teks
+    logging.info("butir tanpa sumber dibuang: %s", ", ".join(nama_butir(baris[a]) for a, _, _, _ in hilang))
+    # butir terakhir hanya sampai paragraf penjelasannya, agar kesimpulan jawaban di bawahnya tidak ikut terbuang
+    terakhir = butir[-1][0]
+    buang = {k for a, z, _, _ in hilang for k in range(a, z if a != terakhir else ujung_penjelasan(baris, a, z) + 1)}
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(b for k, b in enumerate(baris) if k not in buang))
 
 
 def tempatkan_gambar(teks, rencana, susulan=None):

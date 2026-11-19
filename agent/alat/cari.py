@@ -11,6 +11,7 @@ from pengaman.aturan import domain_diblokir, potong
 
 ALAMAT_TAVILY = "https://api.tavily.com/search"
 ALAMAT_EXA = "https://api.exa.ai/search"
+ALAMAT_EXA_ISI = "https://api.exa.ai/contents"
 ALAMAT_LANGSEARCH = "https://api.langsearch.com/v1/web-search"
 ALAMAT_SERPER = "https://google.serper.dev/search"
 ALAMAT_SERPER_GAMBAR = "https://google.serper.dev/images"
@@ -78,6 +79,14 @@ def cari_exa(kueri, kunci, maks_hasil, kedalaman, batas_waktu, domain=None):
     data = kirim(ALAMAT_EXA, badan, {"x-api-key": kunci}, batas_waktu)
     return [(item.get("url", ""), item.get("title") or "", " ... ".join(item.get("highlights") or []) or item.get("text") or "")
             for item in data.get("results", [])]
+
+
+def isi_exa(url, kunci, batas_waktu, maks_huruf):
+    """Teks halaman dari crawler dan cache Exa ($1 per 1.000 halaman, dari kuota gratis bulanan yang sama), untuk halaman yang
+    menolak IP server (lihat baca.baca_tahan)."""
+    data = kirim(ALAMAT_EXA_ISI, {"urls": [url], "text": {"maxCharacters": maks_huruf}}, {"x-api-key": kunci}, batas_waktu)
+    item = next(iter(data.get("results") or []), {})
+    return {"url": url, "judul": item.get("title") or "", "teks": item.get("text") or ""}
 
 
 def cari_langsearch(kueri, kunci, maks_hasil, kedalaman, batas_waktu, domain=None):
@@ -177,6 +186,10 @@ PENYEDIA_GAMBAR = {"tavily": gambar_tavily, "exa": gambar_exa, "firecrawl": gamb
                    "brightdata": gambar_brightdata, "serper": gambar_serper}
 
 
+# penyedia yang bisa mengambil isi satu halaman: fungsi(url, kunci, batas_waktu, maks_huruf) -> {"url", "judul", "teks"}
+PENYEDIA_ISI = {"exa": isi_exa}
+
+
 def jenis_penyedia(nama):
     """exa_2 tetap memakai fungsi exa, jadi satu penyedia boleh punya beberapa akun."""
     return re.sub(r"_\d+$", "", nama)
@@ -212,6 +225,10 @@ class PencariBerantai:
     def cari(self, kueri, daftar_blokir, batas_waktu, maks_hasil=5, kedalaman="advanced", domain=None):
         mentah = self.coba(PENYEDIA, lambda fungsi, kunci: fungsi(kueri[:300], kunci, maks_hasil, kedalaman, batas_waktu, domain))
         return saring(mentah, daftar_blokir)
+
+    def isi_halaman(self, url, batas_waktu, maks_huruf):
+        """Isi halaman lewat penyedia (lihat PENYEDIA_ISI); galat jika tidak ada penyedia yang bisa."""
+        return self.coba(PENYEDIA_ISI, lambda fungsi, kunci: fungsi(url, kunci, batas_waktu, maks_huruf))
 
     def cari_gambar(self, kueri, daftar_blokir, batas_waktu, cocok=None):
         """cocok(daftar gambar) False berarti tidak ada gambar yang dipakai, jadi penyedia berikutnya dicoba."""

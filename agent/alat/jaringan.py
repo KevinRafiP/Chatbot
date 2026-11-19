@@ -1,4 +1,5 @@
 import json
+import os
 import time
 import threading
 import urllib.error
@@ -11,6 +12,12 @@ TAMBAHAN_BATAS_DETIK = 5
 
 class GalatAlat(Exception):
     """Galat yang pesannya aman ditampilkan ke model, misalnya kota tidak ditemukan."""
+
+
+def agen_wiki():
+    """Agen pengguna untuk API wiki; WIKI_KONTAK (alamat situs atau email) dianjurkan aturan Wikimedia agar tidak cepat dibatasi."""
+    kontak = os.environ.get("WIKI_KONTAK", "").strip()
+    return f"Vokapas/1.0 ({kontak})" if kontak else "Mozilla/5.0 (compatible; Vokapas/1.0)"
 
 
 class GalatSibuk(GalatAlat):

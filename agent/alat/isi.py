@@ -2,7 +2,7 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 
-from alat.baca import baca
+from alat.baca import baca_tahan
 
 # halaman dipotong per bagian; bagian yang paling banyak memuat kata pertanyaan yang dikirim ke model
 HURUF_PER_BAGIAN = 700
@@ -60,7 +60,7 @@ def bagian_relevan(teks, kunci, nama, maks_huruf):
     return " ... ".join(isi for _, isi in sorted(terpilih))
 
 
-def baca_isi(hasil, jumlah, teks_tanya, maks_huruf, daftar_blokir, batas_waktu):
+def baca_isi(hasil, jumlah, teks_tanya, maks_huruf, daftar_blokir, batas_waktu, cadangan=None):
     """Membuka beberapa halaman hasil cari_web bersamaan lalu mengisi item["isi"] dengan bagian yang paling relevan.
     item["teks_penuh"] menyimpan teks halaman untuk bukti verifikasi, item["gambar_halaman"] gambar halaman untuk foto jawaban.
     Halaman yang gagal dibuka tetap memakai cuplikan."""
@@ -75,7 +75,7 @@ def baca_isi(hasil, jumlah, teks_tanya, maks_huruf, daftar_blokir, batas_waktu):
 
     def buka(item):
         try:
-            return item, baca(item["url"], daftar_blokir, batas_waktu, BATAS_HURUF_HALAMAN)
+            return item, baca_tahan(item["url"], daftar_blokir, batas_waktu, BATAS_HURUF_HALAMAN, cadangan)
         except Exception as galat:
             logging.info("baca isi %s gagal: %s", item["url"], galat)
             return item, None

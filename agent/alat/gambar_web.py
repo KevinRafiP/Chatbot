@@ -1,6 +1,5 @@
 import http.client
 import logging
-import os
 import re
 import threading
 import time
@@ -12,7 +11,7 @@ from urllib.parse import quote, urljoin, urlparse
 
 from alat.baca import KODE_PENGALIHAN, MAKS_PENGALIHAN, pembuka
 from alat.catatan import kunci
-from alat.jaringan import GalatSibuk, ambil_json
+from alat.jaringan import GalatSibuk, agen_wiki, ambil_json
 from llm.gambar import MAKS_BYTE_GAMBAR, jenis_gambar
 from pengaman.aturan import GalatPengaman, periksa_url
 from pengaman.teks import bersihkan_tak_terlihat
@@ -254,12 +253,6 @@ def artikel_cocok(halaman, nama, subjek, konteks):
         return True
     perlu = kata_kunci(" ".join(varian_nama(subjek, asing=True))) - kata_kunci(nama)
     return not perlu or bool(perlu & teks)
-
-
-def agen_wiki():
-    """Agen pengguna untuk API wiki; WIKI_KONTAK (alamat situs atau email) dianjurkan aturan Wikimedia agar tidak cepat dibatasi."""
-    kontak = os.environ.get("WIKI_KONTAK", "").strip()
-    return f"Vokapas/1.0 ({kontak})" if kontak else AGEN_PENGGUNA
 
 
 def json_wiki(api, parameter, batas_waktu):

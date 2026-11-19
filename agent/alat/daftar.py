@@ -1,7 +1,7 @@
 import logging
 import re
 
-from alat.baca import baca
+from alat.baca import baca_tahan
 from alat.catatan import kunci
 from alat.cache_cari import CacheCari
 from alat.cari import GalatHabis, PencariBerantai
@@ -132,7 +132,8 @@ class KotakAlat:
                     if catatan["jumlah_baca"] >= self.cfg.maks_baca_url:
                         return {"galat": "batas membuka halaman untuk pertanyaan ini sudah habis"}
                     catatan["jumlah_baca"] += 1
-                halaman = baca(str(argumen.get("url", "")), self.cfg.domain_diblokir, self.cfg.batas_waktu)
+                halaman = baca_tahan(str(argumen.get("url", "")), self.cfg.domain_diblokir, self.cfg.batas_waktu,
+                                     cadangan=getattr(self.pencari, "isi_halaman", None))
                 halaman["tingkat"] = tingkat_sumber(halaman["url"])
                 halaman["nomor"] = tambah_sumber(catatan, halaman["judul"], halaman["url"], halaman["teks"])
                 catat_gambar_halaman(catatan, halaman["nomor"], halaman["url"],
@@ -178,7 +179,7 @@ class KotakAlat:
                 item["utama"] = True
         hasil = sorted(hasil, key=lambda item: not item.get("utama"))[:maks_hasil]
         baca_isi(hasil, self.cfg.baca_isi_halaman, teks_tanya, self.cfg.baca_isi_huruf, self.cfg.domain_diblokir,
-                 min(self.cfg.batas_waktu, BATAS_WAKTU_BACA_ISI))
+                 min(self.cfg.batas_waktu, BATAS_WAKTU_BACA_ISI), getattr(self.pencari, "isi_halaman", None))
         return hasil
 
 
