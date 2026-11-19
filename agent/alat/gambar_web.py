@@ -361,6 +361,14 @@ def kata_berkas(url):
     return kata_kunci(re.sub(r"\.\w{2,4}$", "", urlparse(url).path.rsplit("/", 1)[-1]))
 
 
+def nama_di_berkas(calon, kata):
+    """Calon yang nama berkasnya menyebut subjek didahulukan (urutan lain tetap). Gambar pratinjau halaman (og:image) sering
+    bernama umum seperti "og-image.jpg" dan bisa berisi tokoh lain dari halaman yang sama."""
+    if not kata:
+        return calon
+    return sorted(calon, key=lambda c: not akar_cocok(kata, kata_berkas(c["url"])))
+
+
 def calon_sumber(catatan, nama, pembeda, konteks, nama_lain):
     """Gambar dari halaman sumber jawaban sendiri yang menyebut subjek ini: teks alt, keterangan, atau nama berkasnya memuat salah satu
     nama subjek, lalu gambar pertama di bawah judul bagian yang memuat namanya, lalu gambar utama halaman yang judulnya memuat namanya.
@@ -468,7 +476,8 @@ def isi_kelompok(pencari, kueri, kelompok, catatan, daftar_blokir, batas_waktu, 
         with pembatas_cari:
             semua = pencari.cari_gambar(bersih, daftar_blokir, batas_waktu, lambda daftar: any(cocok(c) for c in daftar))
     calon = [c for c in semua if cocok(c)]
-    calon = ([wiki] if wiki else []) + urutkan_calon(bersih, calon)[:MAKS_CALON]
+    kata_nama = pembeda or kata_kunci(" ".join(varian_nama(subjek, konteks)))
+    calon = ([wiki] if wiki else []) + nama_di_berkas(urutkan_calon(bersih, calon), kata_nama)[:MAKS_CALON]
     if not calon:
         logging.info("cari_gambar %r: %d calon, semua tidak cocok", bersih, len(semua))
         return "tidak ada gambar yang cocok"

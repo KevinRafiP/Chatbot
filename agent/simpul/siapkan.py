@@ -2,7 +2,7 @@ import random
 import re
 from datetime import datetime, timedelta, timezone
 
-from alat.gambar_web import POLA_PENANDA_GAMBAR, siapkan_gambar
+from alat.gambar_web import POLA_PENANDA_GAMBAR, kata_kunci, siapkan_gambar, varian_nama
 from alat.instruksi import DEKLARASI_UBAH_INSTRUKSI
 from ingatan import pilih_ingatan
 from prompt import butuh_analisis, instruksi_pribadi, instruksi_tambahan, mirip_lirik
@@ -18,6 +18,7 @@ MAKS_HURUF_LAMA = 500
 MAKS_HURUF_PILIH_LAMPIRAN = 3000
 
 MAKS_KONTEKS = 10
+MIN_HURUF_SUBJEK = 4
 MAKS_HURUF_LAMPIRAN = 30000
 # undian disiapkan untuk 2 sampai MAKS_PILIHAN pilihan, karena kode tidak tahu berapa pilihan yang disebut pengguna
 MAKS_PILIHAN = 6
@@ -61,7 +62,8 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
 
         segarkan = minta_cari_ulang(pertanyaan)
         selera = tanya_selera(pertanyaan)
-        perlu_cari = segarkan or (butuh_cari(maksud) and not selera)
+        # kata kunci FAKTA dari pemahaman berarti ada fakta yang perlu dicari, walaupun pesannya pendek (misalnya lanjutan "versi aslinya?")
+        perlu_cari = segarkan or ((butuh_cari(maksud) or bool(rencana and rencana.get("fakta"))) and not selera)
         # pertanyaan fakta yang tidak menyebut jumlah sumber memakai minimal bawaan (AGENT_MIN_SUMBER)
         minimal, maksimal = batas_sumber(pertanyaan, kotak_alat.cfg.min_sumber if perlu_cari else 0)
         # pesan pendek seperti "kalau inggris?" ditandai sebagai lanjutan pertanyaan sebelumnya, agar tidak dianggap topik baru
@@ -86,7 +88,9 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
         keadaan["analisis"] = butuh_analisis(teks_pilih)
         # pertanyaan fakta wajib dicari dulu di putaran pertama jika tidak ada data internal yang cocok;
         # permintaan cari ulang selalu dicari, pertanyaan selera tidak perlu dicari
-        langsung_cari = segarkan or minta_internet(pertanyaan) or not keadaan.get("konteks") or kotak_alat.cfg.cari_walau_data
+        # data internal yang tidak menyebut satu pun subjek rencana dianggap tidak cocok, jadi pencarian tetap diwajibkan
+        data_cocok = keadaan.get("konteks") and not data_tanpa_subjek(rencana, keadaan.get("konteks"))
+        langsung_cari = segarkan or minta_internet(pertanyaan) or not data_cocok or kotak_alat.cfg.cari_walau_data
         keadaan["butuh_data"] = butuh_data(maksud)
         keadaan["wajib_cari"] = ((langsung_cari and kotak_alat.wajib_cari(segarkan) and perlu_cari)
                                  or kotak_alat.wajib_alat_khusus(pertanyaan, perlu_cari))
@@ -193,6 +197,18 @@ def ringkas_teks(teks, batas):
     awal = re.sub(r"\S*$", "", teks[:batas - akhir]).rstrip()
     ujung = re.sub(r"^\S*", "", teks[-akhir:]).lstrip()
     return f"{awal}\n{TANDA_DIPERSINGKAT}\n{ujung}"
+
+
+def data_tanpa_subjek(rencana, konteks):
+    """True jika rencana punya FAKTA untuk dicari tetapi data internal (hasil pencarian makna) tidak menyebut nama subjeknya,
+    misalnya catatan yang hanya mirip topiknya. Kata pendek seperti "the" tidak dihitung."""
+    if not rencana or not rencana.get("fakta") or not rencana.get("subjek"):
+        return False
+    nama = {k for s in rencana["subjek"] for n in varian_nama(s, rencana.get("konteks", "")) for k in kata_kunci(n) if len(k) >= MIN_HURUF_SUBJEK}
+    if not nama:
+        return False
+    isi = set().union(*(kata_kunci(f"{item.get('judul', '')} {item.get('isi', '')}") for item in konteks[:MAKS_KONTEKS]))
+    return not nama & isi
 
 
 def sumber_internal(konteks):

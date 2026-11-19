@@ -338,7 +338,7 @@ def butir_susulan(baris, jenis, butir, sisipan, susulan):
 
 def periksa_gambar(teks, gambar, catatan):
     """Gambar yang akan tampil dicek model vision dalam satu panggilan; yang ditolak dibuang, lalu calon berikutnya di kelompok yang
-    sama ikut dicek sekali lagi selama jatah CEK_GAMBAR_MAKS masih ada. Tanpa konteks hanya gambar mesin pencari yang dicek; dengan
+    sama ikut dicek sekali lagi selama jatah CEK_GAMBAR_MAKS masih ada. Kelompok yang punya penolakan tidak menampilkan calon yang belum dicek. Tanpa konteks hanya gambar mesin pencari yang dicek; dengan
     konteks (misalnya lima raja naga), foto Wikipedia, fandom, dan halaman sumber juga dicek, karena nama terjemahan umum seperti
     "White dragon" bisa menemukan artikel tentang hal lain."""
     pemeriksa, alat = catatan.get("cek_gambar"), catatan.get("alat_gambar")
@@ -347,18 +347,25 @@ def periksa_gambar(teks, gambar, catatan):
     _, daftar_blokir, _, konteks, jenis = alat
     nama = {k: n for k, (n, _) in (catatan.get("nama_kelompok") or {}).items()}
     nama = {**(catatan.get("kueri_kelompok") or {}), **nama}
-    sudah = set()
+    sudah, kena = set(), set()
+
+    def dicek(g):
+        return konteks or g.get("asal") == "mesin"
+
     for _ in range(PUTARAN_CEK_GAMBAR):
         _, tampil = rapikan_gambar(teks, gambar)
-        cek = [g for g in tampil if (konteks or g.get("asal") == "mesin") and g["url"] not in sudah][:pemeriksa.maks - len(sudah)]
+        cek = [g for g in tampil if dicek(g) and g["url"] not in sudah][:pemeriksa.maks - len(sudah)]
         if not cek:
             break
         ditolak = pemeriksa.periksa([(g["url"], nama.get(g["kelompok"]) or g["judul"]) for g in cek], konteks, jenis, daftar_blokir)
         sudah |= {g["url"] for g in cek}
         if not ditolak:
             break
+        kena |= {g["kelompok"] for g in cek if g["url"] in ditolak}
         gambar = [g for g in gambar if g["url"] not in ditolak]
-    return gambar
+    # kelompok yang calonnya pernah ditolak hanya menampilkan gambar yang sudah lolos cek; calon yang belum dicek
+    # (karena putaran atau jatah habis) tidak ditampilkan, lebih baik tanpa gambar daripada gambar yang salah
+    return [g for g in gambar if g["kelompok"] not in kena or g["url"] in sudah or not dicek(g)]
 
 
 def rapikan_gambar(teks, gambar):
