@@ -232,6 +232,8 @@ def teks_rencana(rencana, catatan, kelompok):
         baris.append("Nama lengkap hal yang ditanyakan: " + "; ".join(rencana["subjek"]) + ".")
     if rencana["konteks"]:
         baris.append(f"Konteks yang ditanyakan: {rencana['konteks']}. Cari dan jawab dalam konteks ini, bukan arti lain dari nama yang sama.")
+    if rencana["fakta"]:
+        baris.append(f"Kata kunci pencarian: {rencana['fakta']}. Jika ada istilah beraksara asli, cari juga dengan istilah itu.")
     if kelompok and rencana["gambar"] == "tiap":
         daftar = "; ".join(f"[[gambar:{nomor}]] = {nama}" for nama, nomor in catatan.get("rencana_gambar", []))
         baris.append(f"Gambar sudah dicari otomatis: {daftar}. Tulis tiap penanda sekali tepat di bawah penjelasan hal itu, "

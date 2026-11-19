@@ -104,8 +104,10 @@ def hapus_istilah_internal(teks):
     teks = POLA_PEMBUKA_INTERNAL.sub(lambda c: c.group(1) + c.group(2).upper(), teks)
     teks = POLA_KETERANGAN_INTERNAL.sub("", teks)
     return re.sub(r"\b(d)ata internal\b", lambda c: f"{c.group(1)}ata yang saya punya", teks, flags=re.IGNORECASE)
-# baris penanda pertanyaan lanjutan (lihat bagian "Pertanyaan lanjutan:" di prompt), boleh ditulis tebal
-POLA_LANJUTAN = re.compile(r"[ \t]*[*_]{0,2}\[\[\s*lanjutan\s*\]\][*_]{0,2}[ \t]*", re.IGNORECASE)
+# baris penanda pertanyaan lanjutan (lihat bagian "Pertanyaan lanjutan:" di prompt), boleh ditulis tebal; model kadang menulisnya
+# dengan kurung atau garis tegak lain ("|lanjutan|", "[lanjutan]"), yang diterima jika berdiri sendiri di satu baris
+POLA_LANJUTAN = re.compile(r"[ \t]*[*_]{0,2}\[\[\s*lanjutan\s*\]\][*_]{0,2}[ \t]*"
+                           r"|(?m:^[ \t]*[*_]{0,2}(?:\[|\|{1,2}|\{\{)\s*lanjutan\s*(?:\]|\|{1,2}|\}\})[*_]{0,2}[ \t]*$)", re.IGNORECASE)
 MAKS_SARAN = 3
 PANJANG_SARAN = 120
 
@@ -335,8 +337,10 @@ def butir_susulan(baris, jenis, butir, sisipan, susulan):
 
 
 def periksa_gambar(teks, gambar, catatan):
-    """Gambar mesin pencari yang akan tampil dicek model vision dalam satu panggilan; yang ditolak dibuang, lalu calon berikutnya
-    di kelompok yang sama ikut dicek sekali lagi selama jatah CEK_GAMBAR_MAKS masih ada. Foto halaman sumber dan Wikipedia tidak dicek."""
+    """Gambar yang akan tampil dicek model vision dalam satu panggilan; yang ditolak dibuang, lalu calon berikutnya di kelompok yang
+    sama ikut dicek sekali lagi selama jatah CEK_GAMBAR_MAKS masih ada. Tanpa konteks hanya gambar mesin pencari yang dicek; dengan
+    konteks (misalnya lima raja naga), foto Wikipedia, fandom, dan halaman sumber juga dicek, karena nama terjemahan umum seperti
+    "White dragon" bisa menemukan artikel tentang hal lain."""
     pemeriksa, alat = catatan.get("cek_gambar"), catatan.get("alat_gambar")
     if not pemeriksa or not alat or not gambar:
         return gambar
@@ -346,7 +350,7 @@ def periksa_gambar(teks, gambar, catatan):
     sudah = set()
     for _ in range(PUTARAN_CEK_GAMBAR):
         _, tampil = rapikan_gambar(teks, gambar)
-        cek = [g for g in tampil if g.get("asal") == "mesin" and g["url"] not in sudah][:pemeriksa.maks - len(sudah)]
+        cek = [g for g in tampil if (konteks or g.get("asal") == "mesin") and g["url"] not in sudah][:pemeriksa.maks - len(sudah)]
         if not cek:
             break
         ditolak = pemeriksa.periksa([(g["url"], nama.get(g["kelompok"]) or g["judul"]) for g in cek], konteks, jenis, daftar_blokir)
