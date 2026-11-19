@@ -117,6 +117,7 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
             # dipakai juga untuk penanda gambar yang ditulis model dengan kueri, bukan nomor (lihat akhir.penanda_teks)
             catatan["alat_gambar"] = (kotak_alat.pencari, kotak_alat.cfg.domain_diblokir, kotak_alat.cfg.batas_waktu,
                                       rencana["konteks"] if rencana else "", rencana["jenis_gambar"] if rencana else "")
+            catatan["cek_gambar"] = kotak_alat.cek_gambar
         if rencana and rencana["gambar"] != "tidak" and bisa_gambar:
             kelompok = siapkan_gambar(kotak_alat.pencari, rencana["kueri_gambar"], rencana["subjek"], catatan,
                                       kotak_alat.cfg.domain_diblokir, kotak_alat.cfg.batas_waktu, rencana["konteks"],

@@ -54,8 +54,10 @@ DEKLARASI_HITUNG = {
 }
 
 class KotakAlat:
-    def __init__(self, cfg, cache=None, tambahan=None, pencari=None):
+    def __init__(self, cfg, cache=None, tambahan=None, pencari=None, cek_gambar=None):
         self.cfg = cfg
+        # pemeriksa gambar vision (llm.cek_gambar), None jika mati
+        self.cek_gambar = cek_gambar
         # pencari dipakai bersama agar penyedia yang habis tercatat untuk semua profil
         self.pencari = pencari or PencariBerantai(cfg.penyedia_cari, cfg.cari_jeda_detik)
         # cache boleh dipakai bersama oleh beberapa KotakAlat; None berarti tanpa cache

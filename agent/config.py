@@ -103,6 +103,9 @@ class Config:
     riwayat_huruf_terbaru: int
     baca_gambar: bool
     model_gambar: str
+    cek_gambar_maks: int
+    cek_gambar_piksel: int
+    cek_gambar_batas_detik: int
     cari_gambar_penyedia: str
     saucenao_api_key: str
     saucenao_ambang: int
@@ -335,6 +338,10 @@ def muat():
         baca_gambar=ambil_ya("BACA_GAMBAR", True),
         # kosong = LLM_MODEL; model harus bisa membaca gambar
         model_gambar=model_gambar,
+        # gambar mesin pencari yang dicek model gambar per jawaban (0 = mati), sisi terpanjang setelah diperkecil, dan batas waktunya
+        cek_gambar_maks=0 if ambil("CEK_GAMBAR_MAKS") == "0" else ambil_angka("CEK_GAMBAR_MAKS", 4 if provider == "local" else 8),
+        cek_gambar_piksel=ambil_angka("CEK_GAMBAR_PIKSEL", 336),
+        cek_gambar_batas_detik=ambil_angka("CEK_GAMBAR_BATAS_DETIK", 90 if provider == "local" else 20),
         # asal foto anime, game, atau ilustrasi dicari dulu sebelum dibaca model; kosong atau mati = langsung dibaca model
         cari_gambar_penyedia=ambil("CARI_GAMBAR_PENYEDIA").lower(),
         saucenao_api_key=ambil("SAUCENAO_API_KEY"),

@@ -12,7 +12,9 @@ from alat.tambahan import AlatTambahan
 from config import muat
 from handler import buat_penangan
 from llm.client import CekLLM, KlienCadangan, buat_klien
+from alat.gambar_web import unduh_gambar
 from llm.cari_gambar import buat_pencari_gambar
+from llm.cek_gambar import PemeriksaGambar, ada_pillow
 from llm.embedding import buat_pembuat_embedding
 from llm.gambar import PembacaGambar
 from log_awal import aktif_mati, cetak_tabel
@@ -62,6 +64,12 @@ def main():
         # pemaham pertanyaan memakai model utama kecuali LLM_MODEL_PAHAMI diisi, dengan batas waktu sendiri
         klien_pahami = buat_klien(cfg, cfg.llm_model_pahami)[0]
         klien_pahami.batas_waktu = cfg.pahami_batas_detik
+        # gambar mesin pencari dicek model gambar dalam satu panggilan per jawaban; perlu pillow untuk memperkecil gambar
+        pemeriksa_gambar = None
+        if cfg.cek_gambar_maks and ada_pillow():
+            klien_cek = buat_klien(cfg, cfg.model_gambar)[0]
+            klien_cek.batas_waktu = cfg.cek_gambar_batas_detik
+            pemeriksa_gambar = PemeriksaGambar(klien_cek, cfg.cek_gambar_maks, cfg.cek_gambar_piksel, unduh_gambar)
         if cfg.llm_model_cadangan:
             cadangan, _ = buat_klien(cfg, cfg.llm_model_cadangan)
             klien, klien_cepat, klien_tamu = (KlienCadangan(k, cadangan) for k in (klien, klien_cepat, klien_tamu))
@@ -83,11 +91,11 @@ def main():
     pemeriksa = (klien_periksa, cfg.periksa_huruf_sumber) if cfg.periksa_logika else None
     perencana = functools.partial(pahami_pertanyaan, klien_pahami)
     daftar_agen = {
-        "mendalam": Agen(klien, KotakAlat(cfg, cache, tambahan, pencari), cfg.maks_langkah, cfg.verifikasi_jawaban,
+        "mendalam": Agen(klien, KotakAlat(cfg, cache, tambahan, pencari, pemeriksa_gambar), cfg.maks_langkah, cfg.verifikasi_jawaban,
                          INSTRUKSI_SISTEM + INSTRUKSI_MENDALAM + (INSTRUKSI_BACA_BANYAK if cfg.baca_banyak else ""),
                          pemeriksa, perencana),
-        "cepat": Agen(klien_cepat, KotakAlat(cfg_cepat, cache, tambahan, pencari), cfg.cepat_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_CEPAT, perencana=perencana),
-        "tamu": Agen(klien_tamu, KotakAlat(cfg_tamu, cache, tambahan, pencari), cfg.tamu_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_TAMU, perencana=perencana),
+        "cepat": Agen(klien_cepat, KotakAlat(cfg_cepat, cache, tambahan, pencari, pemeriksa_gambar), cfg.cepat_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_CEPAT, perencana=perencana),
+        "tamu": Agen(klien_tamu, KotakAlat(cfg_tamu, cache, tambahan, pencari, pemeriksa_gambar), cfg.tamu_maks_langkah, cfg.verifikasi_jawaban, INSTRUKSI_SISTEM + INSTRUKSI_TAMU, perencana=perencana),
     }
 
     pembuat_embedding, ket_embedding = buat_pembuat_embedding(cfg)
@@ -121,6 +129,9 @@ def main():
         ("Gambar internet", f"aktif, {', '.join(pencari.nama_gambar())}" if pencari.ada_gambar()
          else "mati, perlu tavily, exa, firecrawl, hasdata, brightdata, atau serper di CARI_PENYEDIA"),
         ("Cari asal gambar", ket_cari_gambar if pembaca_gambar else "mati"),
+        ("Cek gambar vision", f"aktif, model {cfg.model_gambar or nama_model}, maks {cfg.cek_gambar_maks} gambar, {cfg.cek_gambar_piksel} px, "
+                              f"batas {cfg.cek_gambar_batas_detik} detik" if pemeriksa_gambar
+         else "mati, pillow belum terpasang" if cfg.cek_gambar_maks else "mati, CEK_GAMBAR_MAKS=0"),
         ("Laporan galat", ket_pelapor),
         ("Alamat agent", f"http://{cfg.host}:{cfg.port}"),
     ]

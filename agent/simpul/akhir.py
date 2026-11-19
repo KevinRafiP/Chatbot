@@ -145,7 +145,9 @@ def hasil(keadaan, teks):
                                           lambda daftar: gambar_susulan(catatan, daftar, BATAS_TUNGGU_SUSULAN))
     # foto dari halaman sumber jawaban sendiri didahulukan; jika tidak ada, tetap foto yang sudah dicari di web lain
     utamakan_sumber(catatan, [k for _, k in catatan.get("rencana_gambar") or [] if k not in sembunyi], BATAS_TUNGGU_SUMBER)
-    teks, gambar = rapikan_gambar(teks, [g for g in catatan.get("gambar") or [] if g["kelompok"] not in sembunyi])
+    gambar = periksa_gambar(teks, [g for g in catatan.get("gambar") or [] if g["kelompok"] not in sembunyi], catatan)
+    teks, gambar = rapikan_gambar(teks, gambar)
+    gambar = [{k: v for k, v in g.items() if k != "asal"} for g in gambar]
     hasil_akhir = {"jawaban": teks, "sumber": sumber, "pakai_internet": any(s["url"] for s in semua)}
     if catatan.get("email"):
         hasil_akhir["email"] = catatan["email"]
@@ -163,6 +165,8 @@ POLA_GAMBAR_MD = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 
 
 MAKS_GAMBAR_TAMPIL = 20
+# putaran cek vision: gambar pertama tiap kelompok, lalu pengganti untuk yang ditolak
+PUTARAN_CEK_GAMBAR = 2
 # awal butir yang bisa menjadi tempat gambar: judul, nomor, poin, atau baris yang diawali teks tebal
 # jenis butir yang dicoba untuk gambar susulan jika tidak ada butir yang menyebut subjek rencana
 URUTAN_JENIS_BUTIR = ("nomor", "tebal", "judul", "poin")
@@ -328,6 +332,29 @@ def butir_susulan(baris, jenis, butir, sisipan, susulan):
         return []
     hasil = susulan([(n, ciri.get(a)) for a, _, n in kosong])
     return [(ujung_penjelasan(baris, a, z), [hasil[n]]) for a, z, n in kosong if n in hasil]
+
+
+def periksa_gambar(teks, gambar, catatan):
+    """Gambar mesin pencari yang akan tampil dicek model vision dalam satu panggilan; yang ditolak dibuang, lalu calon berikutnya
+    di kelompok yang sama ikut dicek sekali lagi selama jatah CEK_GAMBAR_MAKS masih ada. Foto halaman sumber dan Wikipedia tidak dicek."""
+    pemeriksa, alat = catatan.get("cek_gambar"), catatan.get("alat_gambar")
+    if not pemeriksa or not alat or not gambar:
+        return gambar
+    _, daftar_blokir, _, konteks, jenis = alat
+    nama = {k: n for k, (n, _) in (catatan.get("nama_kelompok") or {}).items()}
+    nama = {**(catatan.get("kueri_kelompok") or {}), **nama}
+    sudah = set()
+    for _ in range(PUTARAN_CEK_GAMBAR):
+        _, tampil = rapikan_gambar(teks, gambar)
+        cek = [g for g in tampil if g.get("asal") == "mesin" and g["url"] not in sudah][:pemeriksa.maks - len(sudah)]
+        if not cek:
+            break
+        ditolak = pemeriksa.periksa([(g["url"], nama.get(g["kelompok"]) or g["judul"]) for g in cek], konteks, jenis, daftar_blokir)
+        sudah |= {g["url"] for g in cek}
+        if not ditolak:
+            break
+        gambar = [g for g in gambar if g["url"] not in ditolak]
+    return gambar
 
 
 def rapikan_gambar(teks, gambar):

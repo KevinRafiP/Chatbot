@@ -79,6 +79,15 @@ DEKLARASI_CARI_GAMBAR = {
 
 def bisa_dibuka(url, daftar_blokir, batas_waktu):
     """True jika alamatnya aman dan membalas gambar PNG, JPG, WEBP, atau GIF yang tidak lebih dari MAKS_BYTE_GAMBAR; hanya byte awal yang dibaca."""
+    return ambil_gambar(url, daftar_blokir, batas_waktu, 16) is not None
+
+
+def unduh_gambar(url, daftar_blokir, batas_waktu):
+    """Isi gambar (paling banyak MAKS_BYTE_GAMBAR) untuk dicek model vision, atau None."""
+    return ambil_gambar(url, daftar_blokir, batas_waktu, MAKS_BYTE_GAMBAR + 1)
+
+
+def ambil_gambar(url, daftar_blokir, batas_waktu, jumlah_byte):
     try:
         for _ in range(MAKS_PENGALIHAN + 1):
             periksa_url(url, daftar_blokir)
@@ -89,17 +98,18 @@ def bisa_dibuka(url, daftar_blokir, batas_waktu):
                 if galat.code in KODE_PENGALIHAN and galat.headers.get("Location"):
                     url = urljoin(url, galat.headers["Location"])
                     continue
-                return False
+                return None
             break
         else:
-            return False
+            return None
         with respon:
             panjang = respon.headers.get("Content-Length", "")
             if panjang.isdigit() and int(panjang) > MAKS_BYTE_GAMBAR:
-                return False
-            return jenis_gambar(respon.read(16)) is not None
+                return None
+            isi = respon.read(jumlah_byte)
+            return isi if jenis_gambar(isi) is not None and len(isi) <= MAKS_BYTE_GAMBAR else None
     except (GalatPengaman, OSError, ValueError, http.client.HTTPException):
-        return False
+        return None
 
 
 # penanda tempat gambar di jawaban; kelompok n adalah hasil panggilan cari_gambar ke-n
@@ -403,7 +413,8 @@ def gambar_sumber(catatan, nama, pembeda, kelompok, konteks, daftar_blokir):
             semua = catatan.setdefault("gambar", [])
             semua[:] = [g for g in semua if not (g["kelompok"] == kelompok and g["url"] == c["url"])]
             posisi = next((i for i, g in enumerate(semua) if g["kelompok"] == kelompok), len(semua))
-            semua.insert(posisi, {"url": c["url"], "judul": judul, "halaman": alamat_halaman(c["halaman"]), "kelompok": kelompok})
+            semua.insert(posisi, {"url": c["url"], "judul": judul, "halaman": alamat_halaman(c["halaman"]), "kelompok": kelompok,
+                                  "asal": "sumber"})
         logging.info("gambar %r dari halaman sumber %s", nama, c["halaman"])
         return True
     return False
@@ -435,6 +446,8 @@ def isi_kelompok(pencari, kueri, kelompok, catatan, daftar_blokir, batas_waktu, 
     if not bersih:
         return "kueri gambar kosong"
     dilarang = kata_dilarang(bersih, minus, catatan.get("teks_pengguna"))
+    with kunci(catatan):
+        catatan.setdefault("kueri_kelompok", {})[kelompok] = bersih
     wiki = gambar_wikipedia(subjek, batas_waktu, konteks) if subjek and not POLA_REKONSTRUKSI.search(bersih) else None
     if not wiki and subjek and konteks:
         wiki = gambar_fandom(subjek, konteks, batas_waktu)
@@ -475,7 +488,9 @@ def isi_kelompok(pencari, kueri, kelompok, catatan, daftar_blokir, batas_waktu, 
             if any(g["url"] == c["url"] and g["kelompok"] == kelompok for g in catatan["gambar"]):
                 continue
             judul = " ".join(bersihkan_tak_terlihat(c["judul"]).split())[:MAKS_HURUF_JUDUL]
-            catatan["gambar"].append({"url": c["url"], "judul": judul, "halaman": alamat_halaman(c["halaman"]), "kelompok": kelompok})
+            # asal menentukan gambar yang dicek model vision (lihat akhir.periksa_gambar): hanya gambar mesin pencari
+            catatan["gambar"].append({"url": c["url"], "judul": judul, "halaman": alamat_halaman(c["halaman"]), "kelompok": kelompok,
+                                      "asal": "wiki" if c is wiki else "mesin"})
             hasil.append({"judul": judul})
     logging.info("cari_gambar %r: %d calon, %d lolos pengecualian, %d bisa dibuka", bersih, len(semua), len(calon), len(hasil))
     return hasil or "gambar yang ditemukan tidak bisa dibuka"

@@ -212,12 +212,12 @@ def ke_format_api(giliran):
             pesan.append({"role": "user", "content": teks})
         return pesan
 
-    gambar = [b["image"] for b in isi if "image" in b]
     pesan = {"role": giliran.get("role", "user"), "content": teks or None}
-    if gambar:
-        # format OpenAI: gambar dikirim sebagai data URL di samping teks
-        pesan["content"] = [{"type": "image_url", "image_url": {"url": f"data:image/{g['format']};base64,{g['source']['bytes']}"}}
-                            for g in gambar] + ([{"type": "text", "text": teks}] if teks else [])
+    if any("image" in b for b in isi):
+        # format OpenAI: gambar dikirim sebagai data URL; urutan gambar dan teks dipertahankan, misalnya "Gambar 1: ..." lalu gambarnya
+        pesan["content"] = [{"type": "image_url", "image_url": {"url": f"data:image/{b['image']['format']};base64,{b['image']['source']['bytes']}"}}
+                            if "image" in b else {"type": "text", "text": b["text"]}
+                            for b in isi if "image" in b or b.get("text")]
     panggilan = [b["toolUse"]["asli"] for b in isi if "toolUse" in b]
     if panggilan:
         pesan["tool_calls"] = panggilan
