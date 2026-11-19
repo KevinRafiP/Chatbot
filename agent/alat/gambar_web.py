@@ -2,6 +2,7 @@ import http.client
 import logging
 import re
 import threading
+import unicodedata
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -47,6 +48,7 @@ UKURAN_GAMBAR_WIKI = 960
 POLA_REKONSTRUKSI = re.compile(r"\b(reconstruction|restoration|paleoart|artist)\b", re.IGNORECASE)
 # artikel dalam konteks yang ditanyakan dicari lewat pencarian Wikipedia jika judul langsung tidak cocok, misalnya "Rat (zodiac)" untuk shio Tikus
 MAKS_CARI_WIKI = 3
+MAKS_JUDUL_WIKI = 10
 # tokoh atau benda dari suatu karya (game, anime, film) biasanya tidak punya artikel Wikipedia, tetapi punya halaman di wiki fandom karyanya
 API_FANDOM = "https://{}.fandom.com/api.php"
 KATA_UMUM_KONTEKS = {"the", "and", "wiki", "game", "series"}
@@ -104,8 +106,25 @@ def bisa_dibuka(url, daftar_blokir, batas_waktu):
 POLA_PENANDA_GAMBAR = re.compile(r"[*_]{0,2}\[\[\s*gambar\s*[:#]?\s*(\d+)\s*\]\][*_]{0,2}", re.IGNORECASE)
 
 
+def polos(teks):
+    """Huruf kecil tanpa diakritik, agar "Zōjōten" sama dengan "Zojoten" dan "Vaiśravaṇa" sama dengan "Vaisravana"."""
+    return "".join(h for h in unicodedata.normalize("NFKD", teks or "") if not unicodedata.combining(h)).lower()
+
+
 def kata_kunci(teks):
-    return {kata for kata in re.findall(r"[a-z0-9]+", teks.lower()) if len(kata) >= 3}
+    """Kata minimal tiga huruf (termasuk aksara seperti kanji), ditambah gabungan kata bertanda hubung ("Tamon-ten" juga "tamonten")."""
+    teks = polos(teks)
+    gabungan = [k.replace("-", "") for k in re.findall(r"[^\W_]+(?:-[^\W_]+)+", teks)]
+    return {kata for kata in re.findall(r"[^\W_]+", teks) + gabungan if len(kata) >= 3}
+
+
+def akar_cocok(kata, teks):
+    """Ada kata yang seakar: awalan yang sama, misalnya "buddhism" dengan "buddhist" atau "zodiac" dengan "zodiacal"."""
+    for k in kata:
+        awal = k[:max(4, len(k) - 3)]
+        if any(t.startswith(awal) for t in teks):
+            return True
+    return False
 
 
 def pisah_kueri(kueri):
@@ -173,16 +192,17 @@ def kata_konteks(konteks):
 
 
 def nama_wikipedia(subjek, konteks=""):
-    """Judul artikel yang dicoba untuk satu subjek: "nama (konteks)", lalu nama ilmiah atau resmi dan nama Inggrisnya.
-    Judul konteks sendiri tidak dicoba, karena artikelnya bukan tentang subjek."""
-    nama = varian_nama(subjek, konteks, asing=True)
+    """Judul artikel yang dicoba untuk satu subjek: "nama (konteks)", lalu nama ilmiah atau resmi, nama Inggrisnya, dan terakhir
+    bagian pertama (biasanya nama Indonesia, tetapi bisa juga nama asli seperti Jikokuten). Judul konteks sendiri tidak dicoba."""
+    asing = varian_nama(subjek, konteks, asing=True)
+    nama = asing + [n for n in varian_nama(subjek, konteks) if n not in asing]
     if konteks:
         nama = [f"{n} ({konteks})" for n in nama] + nama
-    return list(dict.fromkeys(nama))[:8]
+    return list(dict.fromkeys(nama))[:MAKS_JUDUL_WIKI]
 
 
 def sederhana(teks):
-    return " ".join(re.findall(r"[a-z0-9]+", (teks or "").lower()))
+    return " ".join(re.findall(r"[^\W_]+", polos(teks)))
 
 
 def artikel_cocok(halaman, nama, subjek, konteks):
@@ -191,7 +211,7 @@ def artikel_cocok(halaman, nama, subjek, konteks):
     misalnya "whale" untuk Balaenoptera musculus / Blue whale. Jadi "Cerebella" (Skullgirls) yang dialihkan ke Cerebellum, atau artikel
     hewan tikus untuk shio Tikus (konteks Chinese zodiac), ditolak."""
     teks = kata_kunci(f"{halaman.get('title', '')} {halaman.get('description', '')} {halaman.get('extract', '')}")
-    if konteks and not kata_konteks(konteks) & teks:
+    if konteks and not akar_cocok(kata_konteks(konteks), teks):
         return False
     # pengalihan ke halaman daftar atau bagian lain (misalnya "List of ... characters") tidak menyebut nama yang dicari di pembukanya
     sendiri = kata_kunci(nama) - kata_kunci(konteks)
@@ -249,7 +269,12 @@ def gambar_wikipedia(subjek, batas_waktu, konteks=""):
     # nama Inggris (bagian terakhir) ditambah konteks; hasil pencarian tetap harus lolos artikel_cocok
     kueri = tanya_wikipedia({"generator": "search", "gsrsearch": f"{asing[-1]} {konteks}", "gsrlimit": MAKS_CARI_WIKI,
                              "gsrnamespace": 0}, subjek, batas_waktu)
+    # judul hasil pencarian harus memuat salah satu nama subjek; artikel kelompok seperti "Hall of Four Heavenly Kings" ditolak
+    sendiri = [v for v in (kata_kunci(n) - kata_kunci(konteks) for n in varian_nama(subjek, konteks)) if v]
     for h in sorted((kueri or {}).get("pages") or [], key=lambda h: h.get("index", 0)):
+        judul = kata_kunci(h.get("title", ""))
+        if not any(v <= judul for v in sendiri):
+            continue
         foto = foto_artikel(h, asing[-1], subjek, konteks)
         if foto:
             return foto
@@ -259,7 +284,7 @@ def gambar_wikipedia(subjek, batas_waktu, konteks=""):
 def wiki_fandom(konteks, batas_waktu):
     """Alamat API dan nama wiki fandom karya ini (misalnya skullgirls.fandom.com untuk Skullgirls), atau None. Hasilnya diingat,
     dan dicari sekali saja walau banyak tokoh dicari bersamaan."""
-    kata = re.findall(r"[a-z0-9]+", konteks.lower())
+    kata = re.findall(r"[a-z0-9]+", polos(konteks))
     if not kata:
         return None
     with gembok_fandom:
@@ -421,7 +446,7 @@ def isi_kelompok(pencari, kueri, kelompok, catatan, daftar_blokir, batas_waktu, 
 
     def cocok(c):
         return (lolos_pengecualian(c, dilarang) and (not pembeda or ada_pembeda(c, pembeda))
-                and (not wajib or ada_pembeda(c, wajib)))
+                and (not wajib or akar_cocok(wajib, kata_kunci(f"{c['judul']} {c['url']} {c['halaman']}"))))
 
     if wiki and cukup_satu:
         semua = []

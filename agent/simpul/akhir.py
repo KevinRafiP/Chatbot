@@ -2,7 +2,7 @@ import logging
 import re
 
 from alat.gambar_web import (BATAS_TUNGGU_GAMBAR, BATAS_TUNGGU_SUMBER, BATAS_TUNGGU_SUSULAN, POLA_PENANDA_GAMBAR, ciri_subjek,
-                             gambar_susulan, kata_kunci, tunggu_gambar, utamakan_sumber)
+                             gambar_susulan, kata_kunci, polos, tunggu_gambar, utamakan_sumber)
 from llm.client import GalatLLM
 from simpul.siapkan import TANDA_DIPERSINGKAT
 from simpul.verifikasi import pecah_sitasi_gabungan
@@ -181,14 +181,23 @@ def jenis_butir(baris):
 
 def subjek_disebut(teks, ciri):
     """Kelompok yang kata pembeda subjeknya disebut di teks, urut sesuai tempat pertama disebut."""
-    kecil = POLA_PENANDA_GAMBAR.sub(" ", teks).lower()
+    kecil = polos(POLA_PENANDA_GAMBAR.sub(" ", teks))
     kata = kata_kunci(kecil)
     posisi = {}
     for kelompok, pembeda in ciri.items():
         sama = pembeda & kata
         if sama:
-            posisi[kelompok] = min(re.search(rf"(?<![a-z0-9]){re.escape(k)}(?![a-z0-9])", kecil).start() for k in sama)
+            posisi[kelompok] = min(letak(k, kecil) for k in sama)
     return sorted(posisi, key=posisi.get)
+
+
+def letak(kata, teks):
+    """Posisi pertama kata utuh di teks; kata gabungan ("tamonten" dari "Tamon-ten") dicari di teks tanpa tanda hubung."""
+    for isi in (teks, teks.replace("-", "")):
+        cocok = re.search(rf"(?<![^\W_]){re.escape(kata)}(?![^\W_])", isi)
+        if cocok:
+            return cocok.start()
+    return len(teks)
 
 
 def ujung_penjelasan(baris, awal, akhir):
@@ -324,8 +333,9 @@ def butir_susulan(baris, jenis, butir, sisipan, susulan):
 def rapikan_gambar(teks, gambar):
     """Penanda [[gambar:n]] menampilkan satu gambar kelompok n di tempat itu, misalnya di bawah butir daftar atau di sel tabel:
     gambar terbaik kelompok itu yang belum dipakai butir sebelumnya, karena gambar yang sama di dua butir pasti salah di salah satunya.
-    Penanda yang tidak punya gambar seperti itu, atau ditulis ulang, dibuang. Kelompok tanpa penanda tampil di akhir jawaban;
-    jika ada beberapa kelompok seperti itu, masing-masing cukup satu gambar agar gambar beberapa hal tidak menumpuk tanpa keterangan."""
+    Penanda yang tidak punya gambar seperti itu, atau ditulis ulang, dibuang. Jika tidak ada penanda yang tampil, kelompok gambar tampil
+    di akhir jawaban; jika ada beberapa kelompok, masing-masing cukup satu gambar. Jika ada penanda yang tampil, kelompok tanpa penanda
+    tidak ditampilkan, karena gambar itu tidak punya tempat dan keterangan di jawaban."""
     dipakai, terpilih, alamat = [], [], set()
 
     def ganti(cocok):
@@ -343,7 +353,8 @@ def rapikan_gambar(teks, gambar):
     potongan = re.split(r"(```.*?```)", teks, flags=re.DOTALL)
     teks = "".join(p if p.startswith("```") else POLA_PENANDA_GAMBAR.sub(ganti, p) for p in potongan)
     teks = re.sub(r"\n{3,}", "\n\n", re.sub(r"[ \t]+\n", "\n", teks)).strip()
-    sisa = [g for g in gambar if g["kelompok"] not in dipakai]
+    # jawaban yang sudah menaruh gambar di butirnya tidak diberi gambar tambahan tanpa keterangan di akhir
+    sisa = [] if dipakai else [g for g in gambar if g["kelompok"] not in dipakai]
     banyak = len({g["kelompok"] for g in sisa}) > 1
     for g in sisa:
         if g["url"] not in alamat and not (banyak and g["kelompok"] in dipakai):
