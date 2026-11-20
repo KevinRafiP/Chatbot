@@ -96,8 +96,11 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
         keadaan["butuh_data"] = butuh_data(maksud)
         # kueri cari_web cadangan jika model hanya memanggil alat lain di putaran wajib (lihat pikir.tambah_cari_web)
         keadaan["kueri_rencana"] = " ".join(f"{rencana['konteks']} {rencana['fakta']}".split())[:300] if rencana and rencana.get("fakta") else ""
-        keadaan["wajib_cari"] = ((langsung_cari and kotak_alat.wajib_cari(segarkan) and perlu_cari)
-                                 or kotak_alat.wajib_alat_khusus(pertanyaan, perlu_cari))
+        # wajib_web: pencarian internet yang wajib; tetap dijalankan agent walau model tidak bisa dipaksa memakai alat (lihat pikir)
+        keadaan["wajib_web"] = bool(langsung_cari and kotak_alat.wajib_cari(segarkan) and perlu_cari)
+        keadaan["wajib_cari"] = keadaan["wajib_web"] or kotak_alat.wajib_alat_khusus(pertanyaan, perlu_cari)
+        nama_alat = {d["name"] for d in keadaan["deklarasi"]}
+        keadaan["alat_pasti"] = [n for n in kotak_alat.alat_pasti(maksud) if n in nama_alat]
         # jika ada data internal, model yang memutuskan; jawaban "tidak ada informasi" tanpa mencari diulang di simpul pikir
         keadaan["cari_cadangan"] = perlu_cari and not keadaan["wajib_cari"] and kotak_alat.wajib_cari(paksa=True)
         keadaan["catatan"] = catatan = {
@@ -151,6 +154,8 @@ def siapkan_obrolan(keadaan, pertanyaan, pribadi=""):
         "deklarasi": None,
         "instruksi_tambahan": pribadi,
         "wajib_cari": False,
+        "wajib_web": False,
+        "alat_pasti": [],
         "cari_cadangan": False,
         "isi": susun_isi((keadaan.get("riwayat") or [])[-JUMLAH_RIWAYAT_OBROLAN:], pertanyaan),
         "catatan": {"sumber": [], "bukti": {}, "jumlah_baca": 0, "maks_sumber_luar": 0, "segarkan": False, "bisa_email": False},
@@ -246,6 +251,11 @@ def pertanyaan_sebelumnya(riwayat):
             break
     return " ".join(bagian)
 
+# gambar per hal ditempatkan dan dicarikan menurut nama di judul butir, jadi isi tabel tidak mendapat gambar
+ATURAN_BUTIR_GAMBAR = ("Tulis tiap hal sebagai butir sendiri dengan namanya di judul butir (misalnya ### Nama), bukan sebagai baris tabel, "
+                       "karena gambar ditempatkan di bawah judul butir.")
+
+
 def teks_rencana(rencana, catatan, kelompok):
     """Hasil memahami pertanyaan untuk model utama: nama lengkap subjek, konteks yang dimaksud, dan gambar yang sudah dicari."""
     if not rencana:
@@ -265,12 +275,14 @@ def teks_rencana(rencana, catatan, kelompok):
     if kelompok and rencana["gambar"] == "tiap" and dugaan:
         daftar = "; ".join(f"[[gambar:{nomor}]] = {nama}" for nama, nomor in catatan.get("rencana_gambar", []))
         baris.append(f"Gambar untuk dugaan itu sudah dicari: {daftar}. Tulis penanda hanya di bawah butir yang memang ada di sumber. "
-                     "Butir lain dicarikan gambarnya otomatis dari nama di judul butirnya, jadi jangan memanggil cari_gambar.")
+                     "Butir lain dicarikan gambarnya otomatis dari nama di judul butirnya, jadi jangan memanggil cari_gambar. "
+                     + ATURAN_BUTIR_GAMBAR)
     elif kelompok and rencana["gambar"] == "tiap":
         daftar = "; ".join(f"[[gambar:{nomor}]] = {nama}" for nama, nomor in catatan.get("rencana_gambar", []))
         baris.append(f"Gambar sudah dicari otomatis: {daftar}. Tulis tiap penanda sekali tepat di bawah penjelasan hal itu, "
                      "dan tulis nama hal itu seperti di daftar ini (boleh ditambah nama Indonesianya) di judul butirnya. "
-                     "Jangan memanggil cari_gambar untuk hal-hal ini lagi; panggil hanya untuk hal berwujud lain yang kamu bahas.")
+                     "Jangan memanggil cari_gambar untuk hal-hal ini lagi; panggil hanya untuk hal berwujud lain yang kamu bahas. "
+                     + ATURAN_BUTIR_GAMBAR)
     elif kelompok:
         baris.append("Gambar hal ini sudah dicari otomatis dan tampil di akhir jawaban. Jangan menulis penanda gambar dan jangan memanggil cari_gambar untuk hal ini.")
     if not baris:

@@ -218,10 +218,16 @@ def ke_format_api(giliran):
         pesan["content"] = [{"type": "image_url", "image_url": {"url": f"data:image/{b['image']['format']};base64,{b['image']['source']['bytes']}"}}
                             if "image" in b else {"type": "text", "text": b["text"]}
                             for b in isi if "image" in b or b.get("text")]
-    panggilan = [b["toolUse"]["asli"] for b in isi if "toolUse" in b]
+    panggilan = [b["toolUse"].get("asli") or format_panggilan(b["toolUse"]) for b in isi if "toolUse" in b]
     if panggilan:
         pesan["tool_calls"] = panggilan
     return [pesan]
+
+
+def format_panggilan(pakai):
+    """Panggilan alat buatan agent (tanpa "asli" dari layanan) dalam format OpenAI."""
+    return {"id": pakai["toolUseId"], "type": "function",
+            "function": {"name": pakai["name"], "arguments": json.dumps(pakai.get("input") or {}, ensure_ascii=False)}}
 
 
 def dari_format_api(pesan):

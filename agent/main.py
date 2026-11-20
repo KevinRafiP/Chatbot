@@ -18,6 +18,7 @@ from llm.cek_gambar import PemeriksaGambar, ada_pillow
 from llm.embedding import buat_pembuat_embedding
 from llm.gambar import PembacaGambar
 from log_awal import aktif_mati, cetak_tabel
+import log_harian
 from pahami import pahami_pertanyaan
 from pelapor import pasang_pelapor
 from pengaman.keluaran import PenyaringKeluaran
@@ -48,6 +49,8 @@ def koneksi_llm(klien):
 
 
 def main():
+    # dipasang sebelum logging, agar semua yang tampil di terminal ikut tertulis di log harian
+    ket_log = log_harian.pasang()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     cfg = muat()
     ket_pelapor = pasang_pelapor(os.environ.get("SENTRY_DSN", ""), os.environ.get("SENTRY_LINGKUNGAN", ""))
@@ -133,6 +136,7 @@ def main():
                               f"batas {cfg.cek_gambar_batas_detik} detik" if pemeriksa_gambar
          else "mati, pillow belum terpasang" if cfg.cek_gambar_maks else "mati, CEK_GAMBAR_MAKS=0"),
         ("Laporan galat", ket_pelapor),
+        ("Log harian", ket_log),
         ("Alamat agent", f"http://{cfg.host}:{cfg.port}"),
     ]
     cetak_tabel("Vokapas agent", baris)

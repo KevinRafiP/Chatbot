@@ -210,7 +210,8 @@ def catat_gagal(nama, gagal):
 
 
 # penanda tempat gambar di jawaban; kelompok n adalah hasil panggilan cari_gambar ke-n
-POLA_PENANDA_GAMBAR = re.compile(r"[*_]{0,2}\[\[\s*gambar\s*[:#]?\s*(\d+)\s*\]\][*_]{0,2}", re.IGNORECASE)
+# "!" di depan ("![[gambar:2]]", gaya gambar Markdown) ikut dikenali agar tidak tertinggal saat penandanya dibuang
+POLA_PENANDA_GAMBAR = re.compile(r"!?[*_]{0,2}\[\[\s*gambar\s*[:#]?\s*(\d+)\s*\]\][*_]{0,2}", re.IGNORECASE)
 
 
 def polos(teks):
@@ -449,11 +450,15 @@ def gambar_situs_wiki(wiki, subjek, konteks, batas_waktu):
                    "piprop": "thumbnail", "pithumbsize": UKURAN_GAMBAR_WIKI}
     sendiri = [v for v in (kata_nama(n) - kata_nama(konteks) for n in varian_nama(subjek, konteks)) if v]
 
-    def pilih(h, judul):
+    def pilih(h, judul, pasti=False):
         sumber = (h.get("thumbnail") or {}).get("source")
         if sumber and not h.get("missing") and any(v <= kata_nama(judul) for v in sendiri):
-            return {"url": sumber, "judul": f"{judul} - {situs}", "halaman": dasar + quote(judul.replace(" ", "_"))}
+            return {"url": sumber, "judul": f"{judul} - {situs}", "halaman": dasar + quote(judul.replace(" ", "_")), "pasti": pasti}
         return None
+
+    # artikel yang judulnya nama hal itu sendiri di wiki karya itu (nama situsnya menyebut konteks) pasti tentang hal itu,
+    # jadi gambarnya tidak perlu dicek vision; hasil pencarian di wiki tetap dicek
+    wiki_karya = bool(kata_kunci(konteks) - KATA_UMUM_KONTEKS & kata_kunci(f"{situs} {urlparse(api).hostname}"))
 
     try:
         kueri = json_wiki(api, {**dasar_tanya, "titles": "|".join(nama)}, batas_waktu).get("query") or {}
@@ -463,7 +468,7 @@ def gambar_situs_wiki(wiki, subjek, konteks, batas_waktu):
             judul = n
             while judul in arah and arah[judul] != judul:
                 judul = arah[judul]
-            foto = pilih(halaman.get(judul) or {}, judul)
+            foto = pilih(halaman.get(judul) or {}, judul, wiki_karya)
             if foto:
                 return foto
         cari = json_wiki(api, {**dasar_tanya, "generator": "search", "gsrsearch": varian_nama(subjek, konteks, asing=True)[-1],
@@ -782,10 +787,13 @@ def ciri_subjek(rencana):
     return hasil
 
 
-def nama_dari_kueri(kueri, konteks, jenis):
-    """Nama hal dari kueri gambar tanpa kata konteks, jenis gambar, dan kata tambahan ("Kamen Rider Den-O Plat Form full body"
-    menjadi "Plat Form"), dipakai jika SUBJEK tidak menyebut tiap hal satu per satu."""
+def nama_dari_kueri(kueri, konteks, jenis, umum=frozenset()):
+    """Nama hal dari kueri gambar tanpa kata konteks, jenis gambar, kata tambahan, dan kata yang ada di semua kueri (umum)
+    ("Kamen Rider Den-O Plat Form full body" menjadi "Plat Form"), dipakai jika SUBJEK tidak menyebut tiap hal satu per satu."""
     buang = kata_kunci(f"{konteks} {jenis}") | KATA_TAMBAHAN_KUERI
+    if umum:
+        nama = nama_dari_kueri(kueri, konteks, jenis)
+        return " ".join(k for k in nama.split() if not (kata_kunci(k) and kata_kunci(k) <= umum)) or nama
     kata = [k for k in pisah_kueri(kueri)[0].split() if not (kata_kunci(k) and kata_kunci(k) <= buang)]
     return " ".join(kata) or kueri
 
@@ -805,7 +813,9 @@ def siapkan_gambar(pencari, daftar_kueri, daftar_subjek, catatan, daftar_blokir,
     if len(daftar_subjek) == len(daftar_kueri):
         rencana = [(daftar_subjek[i], nomor) for i, nomor in enumerate(kelompok)]
     else:
-        rencana = [(nama_dari_kueri(daftar_kueri[i], konteks, jenis), nomor) for i, nomor in enumerate(kelompok)]
+        # kata yang ada di semua kueri ("operator vampire race") adalah nama kelompoknya, bukan nama tiap hal
+        umum = set.intersection(*(kata_kunci(pisah_kueri(k)[0]) for k in daftar_kueri)) if len(daftar_kueri) >= 3 else set()
+        rencana = [(nama_dari_kueri(daftar_kueri[i], konteks, jenis, umum), nomor) for i, nomor in enumerate(kelompok)]
     catatan["rencana_gambar"] = rencana
     catatan["alat_gambar"] = (pencari, daftar_blokir, batas_waktu, konteks, jenis)
     # beberapa subjek: tiap gambar wajib memuat nama pembedanya dan cukup satu gambar per subjek

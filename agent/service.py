@@ -1,5 +1,6 @@
 from graf import SELESAI, Graf
 from ingatan import ringkas
+import log_harian
 from llm import pemakaian
 from pengaman.teks import bersihkan_data
 from ringkasan import BATAS_RINGKASAN, ringkas_percakapan
@@ -74,15 +75,26 @@ class Agen:
         instruksi_pribadi adalah instruksi gaya jawaban yang ditulis pengguna di akunnya;
         bisa_ubah_instruksi True jika pengguna masuk dengan akun, jadi instruksi itu boleh diubah lewat chat."""
         pemakaian.mulai()
+        log_harian.mulai_permintaan("jawab", pertanyaan)
         pertanyaan, konteks, riwayat, lampiran, instruksi_pribadi = bersihkan_data((pertanyaan, konteks, riwayat, lampiran, instruksi_pribadi))
-        keadaan = self.graf.jalankan({
+        try:
+            keadaan = self.jalankan_graf(pertanyaan, konteks, riwayat, ingatan, kabar, lampiran, bisa_email, ringkasan, instruksi_pribadi,
+                                         bisa_ubah_instruksi)
+        except Exception as galat:
+            log_harian.selesai_permintaan(galat=galat)
+            raise
+        log_harian.selesai_permintaan(keadaan.get("alat_dipakai"), keadaan["hasil"].get("jawaban", ""))
+        # token, jumlah panggilan model, dan alat yang dipakai dikirim ke backend untuk halaman kinerja admin
+        return {**keadaan["hasil"], "kinerja": {**pemakaian.ambil(), "alat": keadaan.get("alat_dipakai", [])}}
+
+    def jalankan_graf(self, pertanyaan, konteks, riwayat, ingatan, kabar, lampiran, bisa_email, ringkasan, instruksi_pribadi,
+                      bisa_ubah_instruksi):
+        return self.graf.jalankan({
             "pertanyaan": pertanyaan, "konteks": konteks, "riwayat": riwayat, "ingatan": ingatan, "kabar": kabar,
             "lampiran": lampiran if isinstance(lampiran, dict) else None, "bisa_email": bisa_email is True,
             "ringkasan": str(ringkasan)[:BATAS_RINGKASAN] if isinstance(ringkasan, str) else "",
             "instruksi_pribadi": instruksi_pribadi, "bisa_ubah_instruksi": bisa_ubah_instruksi is True,
         })
-        # token, jumlah panggilan model, dan alat yang dipakai dikirim ke backend untuk halaman kinerja admin
-        return {**keadaan["hasil"], "kinerja": {**pemakaian.ambil(), "alat": keadaan.get("alat_dipakai", [])}}
 
     def ringkas(self, ingatan_lama, riwayat):
         """Memperbarui ingatan jangka panjang pengguna dari percakapan terbaru."""
@@ -91,5 +103,7 @@ class Agen:
     def ringkas_percakapan(self, ringkasan_lama, riwayat):
         """Meringkas pesan lama satu percakapan; pemakaian tokennya ikut dilaporkan."""
         pemakaian.mulai()
+        log_harian.mulai_permintaan("ringkasan percakapan", f"{len(riwayat or [])} pesan")
         teks = ringkas_percakapan(self.klien, ringkasan_lama, bersihkan_data(riwayat))
+        log_harian.selesai_permintaan(jawaban=teks)
         return {"ringkasan": teks, "kinerja": {**pemakaian.ambil(), "alat": []}}

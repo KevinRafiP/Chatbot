@@ -23,6 +23,11 @@ BATAS_WAKTU_BACA_ISI = 8
 POLA_HITUNG = re.compile(r"\d\s*%|\d\s*[-+*/x×÷:^]\s*\d|\b(persen|diskon|ppn|rata-rata|rerata|jumlahkan|dikurangi|ditambah|dikali|dibagi|"
                          r"faktorial|kombinasi|permutasi)\b", re.IGNORECASE)
 
+# alat hitung khusus yang hasilnya tidak boleh dikira-kira model: acak selalu, sisanya jika ada angka atau menanyakan jam sekarang
+ALAT_PASTI_SELALU = {"acak"}
+ALAT_PASTI_ANGKA = {"waktu_tanggal", "konversi", "keuangan", "kalkulus"}
+POLA_ANGKA_ATAU_JAM = re.compile(r"\d|\b(jam|pukul)\s+berapa\b", re.IGNORECASE)
+
 DEKLARASI_CARI = {
     "name": "cari_web",
     "description": "Mencari informasi di internet. Pakai untuk pertanyaan fakta yang tidak terjawab oleh Data internal, atau jika pengguna meminta mencari. Kueri memakai nama dan kata kunci dari pertanyaan; jangan menambahkan judul atau topik dari riwayat dan ingatan kecuali pertanyaan merujuknya.",
@@ -85,6 +90,13 @@ class KotakAlat:
         """Pencarian hanya bisa diwajibkan jika cari_web tersedia dan fiturnya dinyalakan, atau dipaksa (pengguna minta cari ulang)."""
         return self.pencari.ada() and (self.cfg.wajib_cari or paksa)
         
+    def alat_pasti(self, teks):
+        """Alat hitung khusus yang wajib dipakai untuk pertanyaan ini (misalnya acak untuk lempar dadu, waktu_tanggal untuk
+        "100 hari lagi"), karena hasil yang dihitung di kepala model bisa salah atau tidak adil."""
+        cocok = set(self.tambahan.cocok(teks))
+        angka = bool(POLA_ANGKA_ATAU_JAM.search(teks))
+        return sorted(cocok & ALAT_PASTI_SELALU | (cocok & ALAT_PASTI_ANGKA if angka else set()))
+
     def wajib_alat_khusus(self, teks, perlu_cari):
         """Model lokal sering menghitung di kepala, jadi alat wajib dipakai walau ada data internal jika pertanyaan berisi hitungan,
         atau jika pertanyaan fakta cocok dengan kata kunci alat khusus."""

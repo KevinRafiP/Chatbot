@@ -15,6 +15,7 @@ import (
 	"chatbot/backend/database"
 	"chatbot/backend/email"
 	"chatbot/backend/logawal"
+	"chatbot/backend/logharian"
 	"chatbot/backend/model"
 	"chatbot/backend/pelapor"
 	"chatbot/backend/repository"
@@ -28,6 +29,8 @@ const lamaTungguAgen = 30 * time.Second
 
 func main() {
 	cfg := config.Muat()
+	// dipasang sebelum pelapor, agar log yang diteruskan ke Sentry juga tertulis di berkas harian
+	ketLog := logharian.Pasang("backend")
 	sentry := pelapor.Baru(cfg.SentryDSN, cfg.SentryLingkungan, "backend")
 	log.SetOutput(sentry.PenulisLog(log.Writer()))
 	// semua keterangan saat menyala dikumpulkan di sini lalu dicetak sekali sebagai tabel
@@ -135,6 +138,7 @@ func main() {
 	tabel.Isi("Masuk Google", logawal.AktifMati(google != nil, keteranganJika(google != nil,
 		"redirect URI "+alamatKembaliGoogle(cfg))))
 	tabel.Isi("Laporan galat", logawal.AktifMati(sentry != nil, keteranganJika(sentry != nil, "Sentry ("+sentryHost(sentry)+")")))
+	tabel.Isi("Log harian", ketLog)
 
 	penerusGambar := service.BaruPenerusGambar(cfg.AgentAPIKey, cfg.WikiKontak)
 	model.TandaGambar = penerusGambar.Tanda

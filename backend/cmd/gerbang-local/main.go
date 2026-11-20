@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"chatbot/backend/logawal"
+	"chatbot/backend/logharian"
 
 	"github.com/joho/godotenv"
 )
@@ -24,6 +25,7 @@ var jalurDiizinkan = map[string]bool{
 
 func main() {
 	_ = godotenv.Load()
+	ketLog := logharian.Pasang("gerbang-local")
 
 	kunci := os.Getenv("GERBANG_LOCAL_KUNCI")
 	if kunci == "" {
@@ -67,6 +69,7 @@ func main() {
 	}
 	slices.Sort(jalur)
 	tabel.Isi("Jalur dibuka", strings.Join(jalur, ", "))
+	tabel.Isi("Log harian", ketLog)
 	tabel.Cetak()
 	log.Fatal(http.ListenAndServe("127.0.0.1:"+port, mux))
 }

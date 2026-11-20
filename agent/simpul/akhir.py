@@ -153,12 +153,32 @@ def pisah_saran(teks):
     return teks[:terakhir.start()].rstrip(), saran[:MAKS_SARAN]
 
 
+# token acak yang kadang ditulis model di awal jawaban, misalnya "奶茶 passerby": baris pendek beraksara non-Latin
+MAKS_HURUF_PEMBUKA_ACAK = 30
+POLA_AKSARA_LAIN = re.compile(r"[\u0400-\u04ff\u0600-\u06ff\u0e00-\u0e7f\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
+
+
+def buang_pembuka_acak(teks, pertanyaan):
+    """Baris pertama yang pendek, beraksara lain (kanji, hangul, dll.) padahal pertanyaannya tidak, dan tidak memuat satu kata pun dari
+    pertanyaan dibuang; jawaban yang memang dibuka dengan nama asli seperti "山野バン (Yamano Ban)" memuat kata dari pertanyaan."""
+    pertama, _, sisa = teks.lstrip().partition("\n")
+    baris = pertama.strip()
+    if (not sisa.strip() or len(baris) > MAKS_HURUF_PEMBUKA_ACAK or not POLA_AKSARA_LAIN.search(baris)
+            or POLA_AKSARA_LAIN.search(pertanyaan) or baris.startswith(("#", "|", "-", "*", "```"))):
+        return teks
+    if kata_nama(baris) & kata_nama(pertanyaan):
+        return teks
+    logging.info("baris pembuka acak dibuang: %r", baris)
+    return sisa.lstrip("\n")
+
+
 def hasil(keadaan, teks):
     catatan = keadaan["catatan"]
     # gambar dari rencana pemahaman dicari di latar belakang; ditunggu sebentar agar ikut tampil
     tunggu_gambar(catatan, BATAS_TUNGGU_GAMBAR)
     semua = catatan["sumber"]
     teks, saran = pisah_saran(teks)
+    teks = buang_pembuka_acak(teks, keadaan.get("pertanyaan", ""))
     teks = pecah_sitasi_gabungan(teks, len(semua))
     if semua:
         teks = POLA_DAFTAR_SUMBER.sub("", teks).strip()
@@ -182,7 +202,8 @@ def hasil(keadaan, teks):
     if gambar:
         logging.info("gambar tampil: %s", "; ".join(f"{g['kelompok']} {g.get('asal', '-')} {urlparse(g['url']).path.rsplit('/', 1)[-1][:60]}"
                                                    for g in gambar))
-    gambar = [{**{k: v for k, v in g.items() if k != "asal"}, "judul": keterangan_gambar(g, nama.get(g["kelompok"]))} for g in gambar]
+    gambar = [{**{k: v for k, v in g.items() if k not in ("asal", "pasti")}, "judul": keterangan_gambar(g, nama.get(g["kelompok"]))}
+              for g in gambar]
     hasil_akhir = {"jawaban": teks, "sumber": sumber, "pakai_internet": any(s["url"] for s in semua)}
     if catatan.get("email"):
         hasil_akhir["email"] = catatan["email"]
@@ -201,7 +222,7 @@ POLA_GAMBAR_MD = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 
 MAKS_GAMBAR_TAMPIL = 20
 # putaran cek vision: gambar pertama tiap kelompok, lalu pengganti untuk yang ditolak
-PUTARAN_CEK_GAMBAR = 2
+PUTARAN_CEK_GAMBAR = 3
 # awal butir yang bisa menjadi tempat gambar: judul, nomor, poin, atau baris yang diawali teks tebal
 # jenis butir yang dicoba untuk gambar susulan jika tidak ada butir yang menyebut subjek rencana
 URUTAN_JENIS_BUTIR = ("nomor", "tebal", "judul", "poin")
@@ -380,6 +401,7 @@ def tempatkan_gambar(teks, rencana, susulan=None):
             akhir = next((k for k in range(i + 1, len(baris)) if jenis[k] == j or jenis[k] == "judul"), len(baris))
             butir.append((i, akhir, subjek_disebut(judul_butir(baris[i]), ciri, penuh)))
     ditemukan = {k for _, _, s in butir for k in s} | {k for i in tabel for k in subjek_disebut(baris[i], ciri, penuh)}
+    disebut = set(subjek_disebut("\n".join(b for i, b in enumerate(baris) if not kode[i]), ciri, penuh))
 
     for i, b in enumerate(baris):
         if kode[i] or not POLA_PENANDA_GAMBAR.search(b):
@@ -391,6 +413,14 @@ def tempatkan_gambar(teks, rencana, susulan=None):
                                                    else f"[[gambar:{cocok[0]}]]", b)
             continue
         milik = next((s for a, z, s in reversed(butir) if a <= i < z), None)
+        if milik is None:
+            # penanda di luar butir (misalnya di bawah keterangan *Nama*) mengikuti nama terakhir di barisnya atau baris tepat di atasnya;
+            # penanda untuk hal yang tidak disebut sama sekali di jawaban dibuang
+            cocok = subjek_disebut(baris_nama(baris, i, kode), ciri, penuh)
+            baris[i] = POLA_PENANDA_GAMBAR.sub(lambda c: c.group(0) if int(c.group(1)) not in ciri or int(c.group(1)) in cocok
+                                               else f"[[gambar:{cocok[-1]}]]" if cocok
+                                               else "" if int(c.group(1)) not in disebut else c.group(0), b)
+            continue
         baris[i] = POLA_PENANDA_GAMBAR.sub(lambda c: "" if (int(c.group(1)) in ciri and int(c.group(1)) not in (milik or [])
                                                             and (milik or int(c.group(1)) in ditemukan)) else c.group(0), b)
 
@@ -408,6 +438,17 @@ def tempatkan_gambar(teks, rencana, susulan=None):
         baris.insert(ujung + 1, "\n".join(f"[[gambar:{k}]]" for k in kelompok))
     sembunyi = set(ciri) - sudah if ditemukan else set()
     return "\n".join(baris), sembunyi
+
+
+def baris_nama(baris, i, kode):
+    """Teks baris penanda tanpa penandanya; jika kosong, baris tidak kosong terdekat di atasnya (bukan kode dan bukan penanda saja)."""
+    for j in range(i, -1, -1):
+        teks = POLA_PENANDA_GAMBAR.sub(" ", baris[j]).strip()
+        if teks and not kode[j]:
+            return teks
+        if j < i and teks:
+            return ""
+    return ""
 
 
 def butir_susulan(baris, jenis, butir, sisipan, susulan):
@@ -442,17 +483,19 @@ def periksa_gambar(teks, gambar, catatan):
     _, daftar_blokir, _, konteks, jenis = alat
     nama = {k: n for k, (n, _) in (catatan.get("nama_kelompok") or {}).items()}
     nama = {**(catatan.get("kueri_kelompok") or {}), **nama}
-    sudah, kena = set(), set()
+    sudah, kena, kosong = set(), set(), set()
 
     def dicek(g):
-        return konteks or g.get("asal") == "mesin"
+        return (konteks or g.get("asal") == "mesin") and not g.get("pasti")
 
     for _ in range(PUTARAN_CEK_GAMBAR):
         _, tampil = rapikan_gambar(teks, gambar, catatan.get("tanpa_sisa", False))
-        cek = [g for g in tampil if dicek(g) and g["url"] not in sudah][:pemeriksa.maks - len(sudah)]
+        # gambar polos yang ditolak tanpa dinilai model tidak menghabiskan jatah CEK_GAMBAR_MAKS
+        cek = [g for g in tampil if dicek(g) and g["url"] not in sudah][:pemeriksa.maks - len(sudah - kosong)]
         if not cek:
             break
-        ditolak = pemeriksa.periksa([(g["url"], nama.get(g["kelompok"]) or g["judul"]) for g in cek], konteks, jenis, daftar_blokir)
+        ditolak = pemeriksa.periksa([(g["url"], nama.get(g["kelompok"]) or g["judul"]) for g in cek], konteks, jenis, daftar_blokir,
+                                    kosong)
         sudah |= {g["url"] for g in cek}
         if not ditolak:
             break

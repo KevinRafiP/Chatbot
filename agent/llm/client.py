@@ -103,7 +103,15 @@ class KlienCadangan:
 
 
 def buat_klien(cfg, model=""):
-    """Memilih klien LLM sesuai LLM_PROVIDER dan mengembalikan (klien, nama model); model kosong berarti model utama."""
+    """Memilih klien LLM sesuai LLM_PROVIDER dan mengembalikan (klien, nama model); model kosong berarti model utama.
+    Setiap panggilannya ditulis ke log harian jika berjalan di lokal (lihat log_harian.py)."""
+    from log_harian import KlienTercatat
+
+    klien, nama = pilih_klien(cfg, model)
+    return KlienTercatat(klien, nama), nama
+
+
+def pilih_klien(cfg, model):
     if cfg.llm_provider == "aws":
         from llm.aws import KlienAWS
 

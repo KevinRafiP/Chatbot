@@ -1,6 +1,7 @@
 import logging
 import re
 
+from alat.gambar_web import kata_kunci, varian_nama
 from llm.client import GalatLLM
 
 # beberapa pesan terakhir sudah cukup untuk memahami rujukan seperti "dia" atau "kalau inggris?"
@@ -21,7 +22,7 @@ PERTANYAAN: pesan terakhir pengguna sebagai pertanyaan lengkap yang bisa dipaham
 SUBJEK: nama setiap hal yang dibahas, dipisah titik koma, dengan format "nama Indonesia / nama Inggris atau resmi (nama ilmiah)"; tulis - jika tidak ada
 KONTEKS: kerangka makna subjek dalam bahasa Inggris, yaitu karya, game, franchise, produk, versi, sistem, tradisi, atau kategori tempat subjek itu dibahas; tulis - jika subjek dibahas dalam arti umumnya
 FAKTA: kata kunci untuk fakta yang perlu dicari, dipisah koma; tulis - jika tidak perlu mencari
-DUGAAN: ya jika pengguna menanyakan anggota, jenis, wujud, atau isi daftar yang namanya belum ia sebut sendiri, sehingga nama-nama di SUBJEK adalah tebakanmu; selain itu tidak
+DUGAAN: ya jika pengguna menanyakan anggota, jenis, wujud, atau isi daftar yang namanya belum disebut di percakapan, sehingga nama-nama di SUBJEK adalah tebakanmu; selain itu tidak
 GAMBAR: tidak, satu, atau tiap
 JENIS_GAMBAR: rupa gambar yang cocok dalam bahasa Inggris, misalnya photo, illustration, official art, map, diagram, atau logo; tulis - jika GAMBAR tidak
 KUERI_GAMBAR: kueri gambar bahasa Inggris, satu untuk tiap subjek sesuai urutan SUBJEK, dipisah titik koma; tulis - jika GAMBAR tidak
@@ -32,7 +33,7 @@ Aturan:
 - KONTEKS: isi jika nama subjek di sini bermakna lain dari arti umumnya, misalnya Bahamut di Granblue Fantasy berbeda dengan Bahamut di Final Fantasy, dan Tikus sebagai shio berbeda dengan hewan tikus (KONTEKS: Chinese zodiac). Tulis singkat, cukup nama kerangkanya. Isi hanya jika kerangka itu disebut pengguna atau pesan terakhir melanjutkan pembahasannya; jangan mengambil kerangka dari topik lama untuk subjek baru.
 - FAKTA: kata kunci bahasa Inggris. Untuk hal dari budaya, agama, atau negara yang bahasanya bukan Inggris, tambahkan istilah dalam aksara atau bahasa aslinya (misalnya 五龍王 untuk lima raja naga), karena sumber berbahasa asli sering lebih lengkap dan nama Latin yang sama bisa berarti hal lain.
 - JENIS_GAMBAR: pilih rupa yang memang dipakai untuk subjek itu: photo untuk makhluk, tempat, dan benda nyata; official art atau illustration untuk tokoh karya dan simbol tradisi; map, diagram, atau logo jika itu yang ditanyakan. Jika pengguna meminta versi, wujud, atau varian tertentu (misalnya versi asli atau dasar, bukan versi musiman; wujud dewasa; model tahun tertentu), tulis juga di JENIS_GAMBAR, singkat dalam bahasa Inggris, misalnya "official art, base version". Foto mainan, figure, model kit, atau cosplay hanya jika pengguna jelas memintanya, misalnya "toy figure".
-- DUGAAN: nama anggota yang kamu tebak dari ingatan bisa salah atau kurang, jadi jangan menulisnya di FAKTA; tulis nama kelompoknya saja.
+- DUGAAN: nama anggota yang kamu tebak dari ingatan bisa salah atau kurang, jadi jangan menulisnya di FAKTA; tulis nama kelompoknya saja. Jika daftar itu sudah ada di jawaban asisten sebelumnya, salin nama-namanya apa adanya tanpa menambah atau mengurangi; jika kamu tetap menambah nama yang tidak ada di percakapan, tulis ya.
 - GAMBAR tiap: SUBJEK berisi satu nama untuk tiap hal yang diberi gambar, sesuai urutan KUERI_GAMBAR. Jawaban membahas beberapa hal berwujud sekaligus (daftar, beberapa jenis, atau perbandingan yang perbedaannya terlihat seperti bentuk, warna, ukuran, corak, atau desain).
 - GAMBAR satu: jawaban membahas satu hal berwujud yang rupanya membantu pengguna mengenalinya, atau pengguna ingin melihat rupanya.
 - GAMBAR tidak: topik tanpa wujud untuk dilihat (hitungan, kode, konsep, pendapat, jadwal, langkah kerja), perbedaan yang tidak terlihat mata (fungsi, harga, cara kerja, aturan), pertanyaan satu fakta (angka, tanggal, harga, alasan), pengguna meminta tanpa gambar, gambar luka, penyakit, jenazah, atau hal mengerikan yang tidak diminta jelas, atau foto orang biasa yang bukan tokoh publik.
@@ -69,12 +70,33 @@ def pahami_pertanyaan(klien, riwayat, pertanyaan):
         logging.warning("hasil pahami pertanyaan tidak dipakai: %r", teks[:300])
         return None
 
+    if not rencana["dugaan"] and nama_di_luar_percakapan(rencana, riwayat, pertanyaan):
+        rencana["dugaan"] = True
     lengkap = rencana["pertanyaan"]
     if not baris or len(pertanyaan) > MAKS_HURUF_PERTANYAAN or sederhanakan(lengkap) == sederhanakan(pertanyaan):
         lengkap = ""
     rencana["lengkap"] = lengkap
     logging.info("rencana pertanyaan: %s", {k: v for k, v in rencana.items() if k != "pertanyaan"})
     return rencana
+
+
+def nama_di_luar_percakapan(rencana, riwayat, pertanyaan):
+    """Daftar yang sebagian namanya ada di percakapan tetapi ada nama lain yang tidak berarti pemahaman menambah nama dari ingatan
+    (misalnya anggota tambahan di daftar dari jawaban sebelumnya), jadi daftar itu diperlakukan sebagai DUGAAN dan dicari dulu.
+    Satu kata nama yang disebut sudah cukup ("dolar" untuk United States dollar)."""
+    if len(rencana["subjek"]) < 2:
+        return False
+    teks = " ".join([str(p.get("teks", "")) for p in (riwayat or [])[-JUMLAH_PESAN_RIWAYAT:] if isinstance(p, dict)] + [pertanyaan])
+    kata = kata_kunci(teks)
+    konteks = kata_kunci(rencana["konteks"])
+    # singkatan pengguna juga dihitung, misalnya "brachio" untuk Brachiosaurus
+    ada = lambda k: k in kata or any(len(t) >= 4 and k.startswith(t) for t in kata)
+    hilang = [s for s in rencana["subjek"]
+              if not any(ada(k) for nama in varian_nama(s, rencana["konteks"]) for k in kata_kunci(nama) - konteks)]
+    if hilang and len(hilang) < len(rencana["subjek"]):
+        logging.info("nama %s tidak ada di percakapan, daftar dianggap dugaan", hilang)
+        return True
+    return False
 
 
 def baca_rencana(teks):
