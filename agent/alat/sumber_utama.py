@@ -7,7 +7,7 @@ from alat.tingkat import cocok_domain
 TOPIK = {
     "game": (r"\b(game|games|gim|gacha|operator|skill|skills|talent|boss|quest|dlc|build|tier list|banner|steam|playstation|ps4|ps5|"
              r"nintendo|switch|xbox|rpg|jrpg|mmorpg|moba|fps|arknights|genshin|honkai|zenless|wuthering|blue archive|fate grand order|"
-             r"pokemon|zelda|final fantasy|persona|elden ring|minecraft|valorant|dota|mobile legends)\b",
+             r"pokemon|zelda|final fantasy|persona|elden ring|minecraft|valorant|dota|mobile legends|granblue|gbf|playable)\b",
              ("wiki.gg", "fandom.com", "gamepress.gg", "game8.co", "ign.com", "prydwen.gg")),
     "anime": (r"\b(anime|manga|manhwa|manhua|donghua|light novel|episode|studio animasi|seiyuu|pengisi suara|voice actor|mangaka|"
               r"isekai|shonen|shounen|shoujo|seinen)\b",

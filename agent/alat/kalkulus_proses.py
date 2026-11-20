@@ -17,6 +17,8 @@ POLA_NAMA = re.compile(r"[A-Za-z]+")
 # y, y', y'', y''' pada persamaan diferensial diganti nama sementara sebelum dibaca SymPy
 POLA_TURUNAN_Y = re.compile(r"(?:^|(?<=[^A-Za-z]))y('{0,3})")
 OPERASI_MATRIKS = ("determinan", "invers", "eigen", "rref", "transpos", "rank")
+# nama yang tersusun dari variabel satu huruf, misalnya "xy" pada "2xy", dibaca sebagai perkalian x*y
+VARIABEL_HURUF = {v for v in VARIABEL if len(v) == 1}
 OPERASI = ("turunan", "integral", "limit", "selesaikan", "faktorkan", "jabarkan", "sederhanakan", "deret", "taylor",
            "diferensial") + OPERASI_MATRIKS
 
@@ -27,10 +29,21 @@ def periksa(teks, petik=False):
         raise ValueError("ekspresi kosong atau terlalu panjang")
     if not POLA_KARAKTER.match(teks) or re.search(r"[A-Za-z_]\.|\.[A-Za-z_]", teks) or ("'" in teks and not petik):
         raise ValueError("ekspresi berisi karakter yang tidak diizinkan")
+    teks = POLA_NAMA.sub(lambda c: c.group(0) if c.group(0) in NAMA_DIIZINKAN or not set(c.group(0)) <= VARIABEL_HURUF
+                         else "*".join(c.group(0)), teks)
     asing = {nama for nama in POLA_NAMA.findall(teks) if nama not in NAMA_DIIZINKAN}
     if asing:
         raise ValueError(f"nama tidak dikenal: {', '.join(sorted(asing))}; pakai variabel seperti x, y, z, t, n atau fungsi matematika umum")
     return teks
+
+
+def tulis(hasil):
+    """SymPy menulis logaritma natural sebagai log, padahal log di sekolah berbasis 10, jadi ditulis ln."""
+    return str(hasil).replace("log(", "ln(")
+
+
+def tulis_latex(sympy, hasil):
+    return sympy.latex(hasil, ln_notation=True)
 
 
 def main():
@@ -40,7 +53,8 @@ def main():
 
     transformasi = standard_transformations + (implicit_multiplication_application, convert_xor)
     nama = {s: sympy.Symbol(s) for s in VARIABEL}
-    nama.update({"ln": sympy.log, "e": sympy.E, "E": sympy.E, "inf": sympy.oo, "oo": sympy.oo, "pi": sympy.pi, "I": sympy.I})
+    # log berbasis 10 seperti di sekolah; log(x, b) untuk basis lain dan ln untuk logaritma natural
+    nama.update({"log": lambda nilai, basis=10: sympy.log(nilai, basis), "ln": sympy.log, "e": sympy.E, "E": sympy.E, "inf": sympy.oo, "oo": sympy.oo, "pi": sympy.pi, "I": sympy.I})
 
     def baca(teks, tambahan=None):
         return parse_expr(teks if tambahan else periksa(teks), local_dict={**nama, **(tambahan or {})},
@@ -67,13 +81,15 @@ def main():
         # beberapa persamaan dipisah titik koma menjadi sistem persamaan, contoh "x + y = 3; x - y = 1" dengan variabel "x,y"
         semua = [persamaan(periksa(bagian)) for bagian in teks.split(";") if bagian.strip()]
         hasil = sympy.solve(semua if len(semua) > 1 else semua[0], daftar_variabel if len(semua) > 1 else variabel, dict=len(semua) > 1)
-        keluaran = {"solusi": [str(h) for h in hasil], "solusi_latex": [latex_solusi(sympy, h) for h in hasil]}
+        keluaran = {"solusi": [tulis(h) for h in hasil], "solusi_latex": [latex_solusi(sympy, h) for h in hasil]}
         if all(not isinstance(h, dict) and h.is_number for h in hasil):
             keluaran["solusi_desimal"] = [str(sympy.N(h, 8)) for h in hasil]
+            if any(not h.is_real for h in hasil):
+                keluaran["catatan"] = "Solusi yang memuat I adalah bilangan kompleks; untuk soal bilangan real pakai solusi tanpa I saja."
         ekspresi = semua[0] if len(semua) == 1 else semua
     elif operasi == "diferensial":
         ekspresi, hasil = diferensial(sympy, periksa(teks, petik=True), variabel, data.get("kondisi"), persamaan)
-        keluaran = {"hasil": str(hasil), "hasil_latex": sympy.latex(hasil)}
+        keluaran = {"hasil": tulis(hasil), "hasil_latex": tulis_latex(sympy, hasil)}
     elif operasi in OPERASI_MATRIKS:
         ekspresi = sympy.Matrix(baca(teks))
         keluaran = matriks(sympy, operasi, ekspresi)
@@ -104,17 +120,17 @@ def main():
             hasil = sympy.expand(ekspresi)
         else:
             hasil = sympy.simplify(ekspresi)
-        keluaran.update({"hasil": str(hasil), "hasil_latex": sympy.latex(hasil)})
+        keluaran.update({"hasil": tulis(hasil), "hasil_latex": tulis_latex(sympy, hasil)})
         if hasil.is_number:
             keluaran["hasil_desimal"] = str(sympy.N(hasil, 10))
-    keluaran["masukan_latex"] = sympy.latex(ekspresi)
+    keluaran["masukan_latex"] = tulis_latex(sympy, ekspresi)
     print(json.dumps(keluaran, ensure_ascii=False))
 
 
 def latex_solusi(sympy, solusi):
     if isinstance(solusi, dict):
-        return ", ".join(f"{sympy.latex(k)} = {sympy.latex(v)}" for k, v in solusi.items())
-    return sympy.latex(solusi)
+        return ", ".join(f"{tulis_latex(sympy, k)} = {tulis_latex(sympy, v)}" for k, v in solusi.items())
+    return tulis_latex(sympy, solusi)
 
 
 def diferensial(sympy, teks, variabel, kondisi, persamaan):
@@ -150,9 +166,9 @@ def matriks(sympy, operasi, m):
         hasil = m.rref()[0]
     else:
         nilai = m.eigenvects()
-        return {"nilai_eigen": [{"nilai": str(v), "nilai_latex": sympy.latex(v), "kelipatan": k,
-                                 "vektor_latex": [sympy.latex(vektor) for vektor in daftar]} for v, k, daftar in nilai]}
-    return {"hasil": str(hasil), "hasil_latex": sympy.latex(hasil)}
+        return {"nilai_eigen": [{"nilai": tulis(v), "nilai_latex": tulis_latex(sympy, v), "kelipatan": k,
+                                 "vektor_latex": [tulis_latex(sympy, vektor) for vektor in daftar]} for v, k, daftar in nilai]}
+    return {"hasil": tulis(hasil), "hasil_latex": tulis_latex(sympy, hasil)}
 
 
 if __name__ == "__main__":

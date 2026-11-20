@@ -62,6 +62,7 @@ class Config:
     local_penalaran: str
     local_konteks: int
     local_batas_waktu: int
+    local_penalti_ulang: float
     penyedia_cari: list
     cari_jeda_detik: int
     maks_langkah: int
@@ -146,13 +147,13 @@ def ambil_angka(kunci, bawaan):
         return bawaan
     return nilai if nilai > 0 else bawaan
 
-def ambil_desimal(kunci, bawaan):
-    """Angka pecahan 0 sampai 1, contoh 0.35; selain itu memakai bawaan."""
+def ambil_desimal(kunci, bawaan, maks=1):
+    """Angka pecahan 0 sampai maks, contoh 0.35; selain itu memakai bawaan."""
     try:
         nilai = float(os.environ.get(kunci, ""))
     except ValueError:
         return bawaan
-    return nilai if 0 <= nilai <= 1 else bawaan
+    return nilai if 0 <= nilai <= maks else bawaan
 
 def ambil_url(kunci, bawaan):
     """Alamat API dengan bawaan; diisi "mati" untuk mematikan fitur yang memakai alamat itu."""
@@ -276,6 +277,7 @@ def muat():
         local_api_key=ambil("LOCAL_API_KEY"),
         local_penalaran=ambil("LOCAL_PENALARAN"),
         local_batas_waktu=ambil_angka("LOCAL_BATAS_WAKTU_DETIK", 180),
+        local_penalti_ulang=ambil_desimal("LOCAL_PENALTI_ULANG", 1.5, 2),
         penyedia_cari=ambil_penyedia_cari(),
         # penyedia yang kreditnya habis dicoba lagi setelah jeda ini
         cari_jeda_detik=ambil_angka("CARI_JEDA_HABIS_MENIT", 60) * 60,

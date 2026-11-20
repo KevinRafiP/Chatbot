@@ -42,7 +42,8 @@ func (p *penulis) Write(b []byte) (int, error) {
 	var isi strings.Builder
 	for _, baris := range strings.SplitAfter(string(b), "\n") {
 		if baris != "" {
-			isi.WriteString(p.label + baris)
+			isi.WriteString(p.label)
+			isi.WriteString(baris)
 		}
 	}
 	p.berkas.WriteString(isi.String())

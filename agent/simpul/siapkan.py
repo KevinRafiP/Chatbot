@@ -95,7 +95,7 @@ def buat_siapkan(kotak_alat, perencana=None, penggabung=None):
         langsung_cari = segarkan or minta_internet(pertanyaan) or not data_cocok or kotak_alat.cfg.cari_walau_data
         keadaan["butuh_data"] = butuh_data(maksud)
         # kueri cari_web cadangan jika model hanya memanggil alat lain di putaran wajib (lihat pikir.tambah_cari_web)
-        keadaan["kueri_rencana"] = " ".join(f"{rencana['konteks']} {rencana['fakta']}".split())[:300] if rencana and rencana.get("fakta") else ""
+        keadaan["kueri_rencana"] = kueri_rencana(rencana)
         # wajib_web: pencarian internet yang wajib; tetap dijalankan agent walau model tidak bisa dipaksa memakai alat (lihat pikir)
         keadaan["wajib_web"] = bool(langsung_cari and kotak_alat.wajib_cari(segarkan) and perlu_cari)
         keadaan["wajib_cari"] = keadaan["wajib_web"] or kotak_alat.wajib_alat_khusus(pertanyaan, perlu_cari)
@@ -254,6 +254,21 @@ def pertanyaan_sebelumnya(riwayat):
 # gambar per hal ditempatkan dan dicarikan menurut nama di judul butir, jadi isi tabel tidak mendapat gambar
 ATURAN_BUTIR_GAMBAR = ("Tulis tiap hal sebagai butir sendiri dengan namanya di judul butir (misalnya ### Nama), bukan sebagai baris tabel, "
                        "karena gambar ditempatkan di bawah judul butir.")
+
+
+def kueri_rencana(rencana):
+    """Kueri cari_web cadangan dari konteks dan fakta pemahaman. Untuk daftar dugaan, bagian fakta yang memuat nama tebakan dibuang,
+    karena model kecil kadang tetap menulis tebakannya di FAKTA sehingga pencarian hanya menemukan nama-nama itu."""
+    if not rencana or not rencana.get("fakta"):
+        return ""
+    fakta = rencana["fakta"]
+    if rencana.get("dugaan") and rencana["subjek"]:
+        tebakan = kata_kunci(" ".join(rencana["subjek"])) - kata_kunci(rencana["konteks"])
+        fakta = ", ".join(b for b in re.split(r"\s*[,;]\s*", fakta) if b and not kata_kunci(b) & tebakan)
+    # tanpa konteks, fakta dugaan hanya nama kelompok (misalnya "legendary yokai list") tanpa judul karyanya,
+    # jadi pertanyaan pengguna yang memuat judul itu ikut dipakai
+    awalan = rencana["konteks"] or (rencana.get("pertanyaan", "") if rencana.get("dugaan") else "")
+    return " ".join(f"{awalan} {fakta}".split())[:300]
 
 
 def teks_rencana(rencana, catatan, kelompok):

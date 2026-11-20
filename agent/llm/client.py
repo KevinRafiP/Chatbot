@@ -141,6 +141,7 @@ def pilih_klien(cfg, model):
             raise ValueError("LOCAL_URL dan LOCAL_MODEL wajib diisi di .env")
         # sebagian konteks disisakan untuk jawaban model
         batas = cfg.local_konteks - min(cfg.maks_token_jawaban, cfg.local_konteks // 4) if cfg.local_konteks else 0
-        return KlienAPI(cfg.local_url, cfg.local_api_key, model, cfg.local_batas_waktu, cfg.local_penalaran, batas), model
+        return KlienAPI(cfg.local_url, cfg.local_api_key, model, cfg.local_batas_waktu, cfg.local_penalaran, batas,
+                        cfg.local_penalti_ulang), model
 
     raise ValueError("LLM_PROVIDER harus salah satu dari: aws, api, local")

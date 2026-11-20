@@ -9,8 +9,9 @@ from pengaman.aturan import permintaan_merusak
 BATAS_INSTRUKSI = 1500
 MAKS_HURUF_BUTIR = 300
 MAKS_HURUF_PERMINTAAN = 500
-# instruksi dipecah per kalimat, baris, titik koma, atau koma agar satu bagian bisa diganti tanpa menyentuh bagian lain
-POLA_PEMISAH = re.compile(r"(\s*\n\s*|\s*;\s*|[.!?]+\s+|[.!?]+$|,\s+)")
+# instruksi dipecah per kalimat, baris, atau titik koma agar satu bagian bisa diganti tanpa menyentuh bagian lain;
+# koma tidak dipakai karena memotong satu perintah, misalnya "Jika menjawab kode, pakai Python"
+POLA_PEMISAH = re.compile(r"(\s*\n\s*|\s*;\s*|[.!?]+\s+|[.!?]+$)")
 
 DEKLARASI_UBAH_INSTRUKSI = {
     "name": "ubah_instruksi",

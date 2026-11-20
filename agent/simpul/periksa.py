@@ -10,8 +10,12 @@ from simpul.verifikasi import teks_terbaca
 # draf pendek jarang berisi rangkaian penalaran, jadi tidak diperiksa agar token hemat
 MIN_HURUF_DRAF = 600
 MAKS_MASALAH = 5
+# masalah dipotong sepanjang ini; cukup panjang agar data pengganti yang benar dari sumber ikut terbaca penulis ulang
+MAKS_HURUF_MASALAH = 600
 POLA_TABEL = re.compile(r"^\s*\|.*\|\s*$\n^\s*\|[\s:|-]+\|\s*$", re.MULTILINE)
 POLA_JSON = re.compile(r"\{.*\}", re.DOTALL)
+POLA_AWAL_MASALAH = re.compile(r'"masalah"\s*:\s*\[')
+POLA_BUTIR = re.compile(r'\s*,?\s*"((?:[^"\\]|\\.)*)"')
 
 
 def buat_periksa(klien_periksa, klien_utama, instruksi, maks_huruf_sumber):
@@ -55,10 +59,12 @@ def teks_draf(keadaan):
 
 
 def perlu_diperiksa(keadaan, draf):
-    """Hanya draf panjang untuk pertanyaan analisis, atau draf yang memuat tabel."""
+    """Hanya draf panjang untuk pertanyaan analisis, draf yang memuat tabel, atau daftar yang anggotanya awalnya hanya tebakan
+    (rincian tiap anggota mudah terambil dari ingatan model, bukan dari sumber)."""
     if keadaan.get("obrolan") or len(draf) < MIN_HURUF_DRAF:
         return False
-    return bool(keadaan.get("analisis")) or bool(POLA_TABEL.search(draf))
+    dugaan = bool((keadaan.get("catatan") or {}).get("dugaan"))
+    return bool(keadaan.get("analisis")) or dugaan or bool(POLA_TABEL.search(draf))
 
 
 def cari_masalah(klien, keadaan, draf, maks_huruf_sumber):
@@ -82,13 +88,26 @@ def baca_masalah(balasan):
     """Mengambil daftar "masalah" dari balasan JSON; balasan yang tidak bisa dibaca dianggap aman."""
     balasan = re.sub(r"<think>.*?</think>", "", balasan, flags=re.DOTALL)
     cocok = POLA_JSON.search(balasan)
-    if not cocok:
-        return []
     try:
-        data = json.loads(cocok.group(0))
+        data = json.loads(cocok.group(0)) if cocok else None
     except ValueError:
-        return []
-    masalah = data.get("masalah") if isinstance(data, dict) else None
+        data = None
+    masalah = data.get("masalah") if isinstance(data, dict) else masalah_terpotong(balasan)
     if not isinstance(masalah, list):
         return []
-    return [str(m).strip()[:300] for m in masalah if str(m).strip()][:MAKS_MASALAH]
+    return [str(m).strip()[:MAKS_HURUF_MASALAH] for m in masalah if str(m).strip()][:MAKS_MASALAH]
+
+
+def masalah_terpotong(balasan):
+    """JSON yang kurung penutupnya hilang tetap dibaca butir demi butir."""
+    awal = POLA_AWAL_MASALAH.search(balasan)
+    if not awal:
+        return []
+    hasil, posisi = [], awal.end()
+    while cocok := POLA_BUTIR.match(balasan, posisi):
+        try:
+            hasil.append(json.loads(f'"{cocok.group(1)}"'))
+        except ValueError:
+            hasil.append(cocok.group(1))
+        posisi = cocok.end()
+    return hasil

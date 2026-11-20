@@ -42,11 +42,11 @@ DEKLARASI = {
         {"aksi": teks("Jenis perhitungan", ("sekarang", "konversi", "selisih", "tambah", "info", "umur", "libur")),
          "lokasi": daftar("Untuk aksi sekarang: kota, negara, singkatan (WIB, WITA, WIT), atau UTC+7"),
          "waktu": teks("Untuk konversi: YYYY-MM-DD HH:MM atau HH:MM"),
-         "dari": teks("Zona asal untuk konversi, atau tanggal awal untuk selisih (YYYY-MM-DD)"),
+         "dari": teks("Zona asal untuk konversi, atau tanggal/jam awal untuk selisih (YYYY-MM-DD, YYYY-MM-DD HH:MM, atau HH:MM)"),
          "ke": daftar("Zona tujuan untuk konversi"),
          "sampai": teks("Tanggal akhir untuk selisih atau umur; kosong = hari ini"),
          "tanggal": teks("YYYY-MM-DD untuk tambah, info, atau tanggal lahir untuk umur"),
-         "jumlah": angka("Untuk tambah: jumlah yang ditambahkan, negatif untuk mundur"),
+         "jumlah": angka("Untuk tambah: jumlah yang ditambahkan, negatif untuk mundur; boleh desimal untuk hari, minggu, jam, menit"),
          "satuan": teks("Untuk tambah", ("hari", "minggu", "bulan", "tahun", "jam", "menit")),
          "tahun": angka("Untuk libur"), "bulan": angka("Untuk libur, opsional 1-12"),
          "negara": teks("Kode negara 2 huruf untuk libur, bawaan ID")},
@@ -74,13 +74,17 @@ DEKLARASI = {
          "harga_emas_per_gram": angka("zakat: harga emas untuk nisab"), "jumlah_jiwa": angka("zakat fitrah"),
          "harga_beras_per_kg": angka("zakat fitrah"),
          "gaji_bruto_bulanan": angka("pph21"), "status_kawin": teks("pph21: ya atau tidak"),
-         "tanggungan": angka("pph21: 0 sampai 3"), "iuran_pensiun_bulanan": angka("pph21: iuran JHT dan JP pegawai per bulan")},
+         "tanggungan": angka("pph21: 0 sampai 3"), "jumlah_bulan": angka("pph21: jumlah bulan bekerja tahun ini, bawaan 12"),
+         "sejak_awal_tahun": {"type": "boolean", "description": "pph21: false hanya jika baru menjadi subjek pajak dalam negeri "
+                                                                 "setelah Januari, misalnya baru datang dari luar negeri; bawaan true"},
+         "iuran_pensiun_bulanan": angka("pph21: iuran JHT dan JP pegawai per bulan")},
         ("jenis",)),
     "kalkulus": deklarasi(
         "kalkulus",
         "Matematika simbolik: turunan (juga parsial), integral, limit, persamaan dan sistem persamaan, faktorkan, jabarkan, "
         "sederhanakan, jumlah deret, deret Taylor, persamaan diferensial biasa, dan matriks (determinan, invers, eigen, rref, "
-        "transpos, rank). Contoh ekspresi: x^2 + 3*x, sin(x)/x, x + y = 3; x - y = 1, 1/n^2, y'' + 3*y' + 2*y = 0, [[1,2],[3,4]].",
+        "transpos, rank). Contoh ekspresi: x^2 + 3*x, sin(x)/x, x + y = 3; x - y = 1, 1/n^2, y'' + 3*y' + 2*y = 0, [[1,2],[3,4]]. "
+        "log(x) berbasis 10, log(x, 2) untuk basis lain, ln(x) logaritma natural; di hasil, ln berarti logaritma natural.",
         {"operasi": teks("Operasi", ("turunan", "integral", "limit", "selesaikan", "faktorkan", "jabarkan", "sederhanakan",
                                      "deret", "taylor", "diferensial", "determinan", "invers", "eigen", "rref", "transpos", "rank")),
          "ekspresi": teks("Ekspresi, persamaan, sistem persamaan dipisah titik koma, atau matriks [[...],[...]]"),

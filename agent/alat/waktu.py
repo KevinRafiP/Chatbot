@@ -1,6 +1,6 @@
 import calendar
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from alat.jaringan import CacheSingkat, GalatAlat, ambil_json
 from alat.tempat import cari_tempat
@@ -38,6 +38,8 @@ FORMAT_TANGGAL = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%
 SATUAN_TAMBAH = {"hari": "hari", "day": "hari", "days": "hari", "minggu": "minggu", "pekan": "minggu", "week": "minggu",
                  "weeks": "minggu", "bulan": "bulan", "month": "bulan", "months": "bulan", "tahun": "tahun", "year": "tahun",
                  "years": "tahun", "jam": "jam", "hour": "jam", "hours": "jam", "menit": "menit", "minute": "menit"}
+# satuan yang boleh pecahan (1,5 jam); bulan dan tahun harus bulat karena panjang bulan berbeda-beda
+SATUAN_DURASI = {"hari": "days", "minggu": "weeks", "jam": "hours", "menit": "minutes"}
 
 cache_libur = CacheSingkat(24 * 3600, 50)
 # "hari ini" mengikuti WIB, bukan jam server (Render memakai UTC)
@@ -57,7 +59,7 @@ class AlatWaktu:
         if aksi == "konversi":
             return self.konversi(argumen)
         if aksi == "selisih":
-            return selisih(baca_tanggal(argumen.get("dari")).date(), baca_tanggal(argumen.get("sampai") or "hari ini").date())
+            return selisih(baca_tanggal(argumen.get("dari")), baca_tanggal(argumen.get("sampai") or "hari ini"))
         if aksi == "tambah":
             return tambah(baca_tanggal(argumen.get("tanggal") or "hari ini"), argumen.get("jumlah", 0), argumen.get("satuan", "hari"))
         if aksi == "info":
@@ -174,13 +176,27 @@ def uraikan(waktu):
 
 
 def selisih(dari, sampai):
+    """Selisih tanggal; jika salah satunya berisi jam, selisih jam dan menitnya juga dihitung."""
+    dari, sampai = dari.replace(tzinfo=None), sampai.replace(tzinfo=None)
+    hasil = selisih_tanggal(dari.date(), sampai.date())
+    if dari.time() != time() or sampai.time() != time():
+        menit = round(abs((sampai - dari).total_seconds()) / 60)
+        hasil.update({"dari": dari.strftime("%Y-%m-%d %H:%M"), "sampai": sampai.strftime("%Y-%m-%d %H:%M"), "total_menit": menit,
+                      "total_jam": round(menit / 60, 2), "rincian_jam": f"{menit // 1440} hari {menit % 1440 // 60} jam {menit % 60} menit",
+                      "arah": "maju" if sampai >= dari else "mundur"})
+    return hasil
+
+
+def selisih_tanggal(dari, sampai):
     awal, akhir = sorted((dari, sampai))
     tahun, bulan, hari = beda_kalender(awal, akhir)
     total = (akhir - awal).days
     hari_kerja = sum(1 for i in range(total) if (awal + timedelta(days=i)).weekday() < 5) if total <= 40_000 else None
     return {"dari": dari.isoformat(), "sampai": sampai.isoformat(), "total_hari": total, "total_minggu": round(total / 7, 2),
             "rincian": f"{tahun} tahun {bulan} bulan {hari} hari", "hari_kerja_senin_jumat": hari_kerja,
-            "arah": "maju" if sampai >= dari else "mundur"}
+            "hari_kerja_termasuk_tanggal_akhir": None if hari_kerja is None else hari_kerja + (akhir.weekday() < 5),
+            "arah": "maju" if sampai >= dari else "mundur",
+            "catatan": "hari_kerja_senin_jumat dihitung dari tanggal awal sampai sehari sebelum tanggal akhir; hari libur belum dikurangi."}
 
 
 def beda_kalender(awal, akhir):
@@ -200,24 +216,19 @@ def tambah_bulan(tanggal, jumlah):
 
 def tambah(tanggal, jumlah, satuan):
     try:
-        jumlah = int(float(jumlah))
+        jumlah = float(jumlah)
     except (TypeError, ValueError):
         raise GalatAlat("jumlah harus angka")
     if abs(jumlah) > 100_000:
         raise GalatAlat("jumlah terlalu besar")
     satuan = SATUAN_TAMBAH.get(str(satuan).lower())
-    if satuan == "hari":
-        hasil = tanggal + timedelta(days=jumlah)
-    elif satuan == "minggu":
-        hasil = tanggal + timedelta(weeks=jumlah)
-    elif satuan == "bulan":
-        hasil = tambah_bulan(tanggal, jumlah)
-    elif satuan == "tahun":
-        hasil = tambah_bulan(tanggal, jumlah * 12)
-    elif satuan == "jam":
-        hasil = tanggal + timedelta(hours=jumlah)
-    elif satuan == "menit":
-        hasil = tanggal + timedelta(minutes=jumlah)
+    if satuan in SATUAN_DURASI:
+        hasil = tanggal + timedelta(**{SATUAN_DURASI[satuan]: jumlah})
+    elif satuan in ("bulan", "tahun"):
+        bulan = jumlah * 12 if satuan == "tahun" else jumlah
+        if abs(bulan - round(bulan)) > 1e-9:
+            raise GalatAlat("jumlah bulan harus bulat; untuk pecahan bulan pakai satuan hari")
+        hasil = tambah_bulan(tanggal, round(bulan))
     else:
         raise GalatAlat("satuan harus hari, minggu, bulan, tahun, jam, atau menit")
     return {"dari": tanggal.strftime("%Y-%m-%d %H:%M"), "hasil": uraikan(hasil)}

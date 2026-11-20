@@ -242,6 +242,8 @@ def akar_cocok(kata, teks):
 
 def pisah_kueri(kueri):
     """Kata bertanda minus ("-cartoon") adalah jenis gambar yang tidak diinginkan; kueri yang dikirim ke penyedia tanpa kata itu."""
+    # model kecil kadang menulis kata "minus" sebelum kata bertanda minus ("official art minus -figure")
+    kueri = re.sub(r"\bminus\b(?=\s+-[A-Za-z])", " ", kueri, flags=re.IGNORECASE)
     minus = {k.lower() for k in re.findall(r"(?:^|\s)-([A-Za-z][\w-]*)", kueri)}
     bersih = " ".join(re.sub(r"(?:^|\s)-[A-Za-z][\w-]*", " ", kueri).split())
     return bersih, minus

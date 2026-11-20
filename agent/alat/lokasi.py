@@ -1,9 +1,8 @@
 import math
-from datetime import datetime
-
+import re
 from alat.jaringan import CacheSingkat, GalatAlat, ambil_json
 from alat.tempat import cari_tempat
-from alat.waktu import WIB
+from alat.waktu import baca_tanggal
 
 # kode cuaca WMO yang dipakai Open-Meteo
 KODE_CUACA = {
@@ -149,12 +148,8 @@ def nilai(harian, kunci, i):
 
 
 def tanggal_dmy(teks):
-    if not teks or str(teks).lower() in ("hari ini", "sekarang", "today"):
-        return datetime.now(WIB).strftime("%d-%m-%Y")
-    try:
-        return datetime.strptime(str(teks), "%Y-%m-%d").strftime("%d-%m-%Y")
-    except ValueError:
-        raise GalatAlat("tanggal harus berformat YYYY-MM-DD")
+    """Tanggal untuk Aladhan; "besok", "lusa", dan format tanggal lain dibaca seperti di alat waktu."""
+    return baca_tanggal(teks or "hari ini").strftime("%d-%m-%Y")
 
 
 def garis_lurus(lintang1, bujur1, lintang2, bujur2):
@@ -172,7 +167,8 @@ def durasi(detik):
 def cocokkan(daftar, nama):
     """Mencocokkan nama wilayah tanpa peduli awalan seperti "Kota", "Kabupaten", atau "Provinsi"."""
     def bersih(teks):
-        teks = " ".join(str(teks).lower().replace("kab.", "kabupaten").split())
+        # "kab", "kab." dan "kab bandung" disamakan dengan "kabupaten"
+        teks = re.sub(r"^kab\b\.?\s*", "kabupaten ", " ".join(str(teks).lower().split()))
         for awalan in ("provinsi ", "kabupaten ", "kota ", "kecamatan ", "kelurahan ", "desa "):
             teks = teks.removeprefix(awalan)
         return teks
@@ -181,8 +177,11 @@ def cocokkan(daftar, nama):
     tepat = [w for w in daftar if bersih(w["name"]) == dicari]
     # "Kota Bandung" dan "Kabupaten Bandung" sama-sama ada, jadi awalan dari pengguna dipakai untuk memilih
     if len(tepat) > 1:
-        awalan = str(nama).lower().split()[0]
-        tepat = [w for w in tepat if w["name"].lower().startswith(awalan)] or tepat
+        awalan = str(nama).lower().split()[0].rstrip(".")
+        sesuai = [w for w in tepat if w["name"].lower().startswith(awalan)]
+        if not sesuai:
+            raise GalatAlat(f"{nama} ada {len(tepat)}: {', '.join(w['name'] for w in tepat)}; tanyakan atau sebutkan yang dimaksud")
+        tepat = sesuai
     pilihan = tepat or [w for w in daftar if dicari in bersih(w["name"])]
     if not pilihan:
         raise GalatAlat(f"wilayah {nama} tidak ditemukan")

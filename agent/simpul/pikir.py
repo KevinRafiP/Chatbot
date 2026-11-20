@@ -58,8 +58,15 @@ def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM, paksa_cari=False):
                 kabar("teks", {"teks": potongan})
 
         saat_teks = saat_teks if kabar else None
+        isi, saat_kirim = keadaan["isi"], saat_teks
+        paksa_awal = wajib and paksa_cari and bool(keadaan["deklarasi"])
+        if paksa_awal:
+            # Ollama mengabaikan "wajib memakai alat", jadi pesan tegas langsung ikut dikirim agar model tidak menulis jawaban dari ingatan dulu;
+            # tanpa stream seperti permintaan ulang, karena panggilan alat lewat stream Ollama kadang terbaca kosong
+            isi = isi + [{"role": "user", "content": [{"text": PESAN_WAJIB_DATA if keadaan.get("butuh_data") else pesan_wajib(keadaan)}]}]
+            saat_kirim = None
         try:
-            konten = klien.kirim(sistem, keadaan["isi"], keadaan["deklarasi"], wajib, saat_teks)
+            konten = klien.kirim(sistem, isi, keadaan["deklarasi"], wajib, saat_kirim)
         except GalatLLM as galat:
             if keadaan["putaran_llm"] > 0 and (galat.kode in KODE_SEMENTARA or galat.kode >= 500):
                 logging.warning("model gagal setelah memakai alat, jawaban disusun dari data yang terkumpul: %s", galat)
@@ -70,7 +77,11 @@ def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM, paksa_cari=False):
             # 400 = model menolak alat, 204 = model diam saat diberi alat (sering terjadi di model lokal kecil)
             if galat.kode not in (400, 204) or not keadaan["deklarasi"] or keadaan["putaran_llm"] > 0:
                 raise
-            if wajib:
+            if paksa_awal and ada_alat(keadaan, "cari_web"):
+                # pesan tegas sudah dikirim; mengulang tanpa paksaan hanya membuat model menulis jawaban dari ingatan, jadi agent mencari sendiri
+                logging.warning("model gagal memanggil alat di putaran wajib, agent mencari sendiri: %s", galat)
+                konten = cari_sendiri(keadaan, keadaan.get("kueri_rencana") or kueri_sendiri(keadaan), "cari_sendiri")
+            elif wajib:
                 # sebagian model tidak mendukung pilihan "wajib memakai alat" (400), jadi diulang dengan alat biasa
                 logging.warning("model menolak wajib memakai alat, diulang tanpa paksaan: %s", galat)
                 ingat["diam_berturut"] = ingat["diam_berturut"] + 1 if galat.kode == 204 else BATAS_DIAM_WAJIB
@@ -79,9 +90,10 @@ def buat_pikir(klien, instruksi=INSTRUKSI_SISTEM, paksa_cari=False):
                     ingat["diam_berturut"] = 0
                 keadaan["wajib_cari"] = False
                 return pikir(keadaan)
-            logging.warning("model gagal memakai alat, diulang tanpa alat: %s", galat)
-            keadaan["deklarasi"] = None
-            konten = klien.kirim(sistem, keadaan["isi"], None, False, saat_teks)
+            else:
+                logging.warning("model gagal memakai alat, diulang tanpa alat: %s", galat)
+                keadaan["deklarasi"] = None
+                konten = klien.kirim(sistem, keadaan["isi"], None, False, saat_teks)
         if wajib:
             ingat["diam_berturut"] = 0
                 

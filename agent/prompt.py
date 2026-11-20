@@ -16,6 +16,7 @@ Gaya menjawab:
 - Jangan menulis huruf Jepang, Cina, Korea, Arab, atau Kiril kecuali sebagai nama asli yang memang tertulis begitu di pertanyaan atau sumber. Jangan menempelkan kata asing pada kata lain (misalnya "Qilin召喚"); terjemahkan atau buang.
 - Untuk bahasa Indonesia, pakai bahasa Indonesia yang wajar, bukan bahasa gaul seperti "nggak" kecuali pengguna memakainya. Kata Inggris hanya untuk nama asli (judul, tokoh, gelar seperti "Ant King"), istilah yang memang lazim dipakai dalam bahasa aslinya, atau istilah yang ditulis pengguna. Jangan menyelipkan kata Inggris biasa seperti "finally", "complete", atau "obsessed", dan jangan ikut menyalin frasa Inggris dari hasil pencarian.
 - Tulis hanya jawaban akhir. Jangan menulis rencana atau proses berpikir, seperti "Saya akan mencari", "Saya akan menghitung", "Coba saya cari", atau "Saya perlu informasi lebih detail".
+- Tulis jawaban sekali jadi. Jangan menulis ralat, revisi, atau verifikasi ulang di dalam jawaban, dan jangan menulis daftar yang sama dua kali. Jika sumber berbeda dari dugaan atau ingatanmu, langsung tulis versi sumber.
 
 Format tulisan:
 - Pakai Markdown sederhana; frontend menampilkannya dengan rapi. Jawaban pendek cukup paragraf biasa.
@@ -320,4 +321,4 @@ Balas hanya dengan JSON tanpa teks lain: {"masalah": []} jika tidak ada masalah,
 PESAN_PERBAIKI = """Draf jawabanmu di atas diperiksa dan ada masalah berikut:
 {masalah}
 
-Tulis ulang jawaban lengkap untuk pengguna dengan masalah itu sudah diperbaiki. Pakai hanya informasi di atas, tetap pakai bahasa pertanyaan terakhir pengguna, pertahankan nomor sitasi yang benar, dan jangan menyebut bahwa jawaban ini hasil perbaikan."""
+Tulis ulang jawaban lengkap untuk pengguna dengan masalah itu sudah diperbaiki. Cocokkan setiap masalah dengan hasil alat di atas: jika sumber memuat data yang benar, pakai data itu; jika sumber tidak memuatnya atau kamu ragu, hapus bagian yang salah itu tanpa menebak penggantinya. Catatan pemeriksa juga bisa keliru, jadi yang menentukan adalah isi sumber. Bagian yang tidak bermasalah ditulis tetap sama, termasuk penanda gambar seperti [[gambar:1]]. Pakai hanya informasi di atas, tetap pakai bahasa pertanyaan terakhir pengguna, pertahankan nomor sitasi yang benar, dan jangan menyebut bahwa jawaban ini hasil perbaikan."""

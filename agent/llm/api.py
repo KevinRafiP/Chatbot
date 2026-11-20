@@ -12,16 +12,22 @@ HURUF_PER_TOKEN = 3
 MIN_HURUF_ALAT = 1500
 SISA_RIWAYAT = 4
 TANDA_POTONG = " ...(dipotong agar muat di konteks model)"
+# baris panjang yang muncul sekian kali berarti model berputar (meralat lalu menulis ulang daftar yang sama)
+BATAS_BARIS_ULANG = 3
+JUMLAH_BARIS_ULANG = 3
+MIN_HURUF_BARIS_ULANG = 20
 
 class KlienAPI:
-    def __init__(self, alamat, api_key, model, batas_waktu=60, penalaran="", batas_konteks=0):
-        """batas_konteks = token prompt terbanyak; 0 = tidak dipangkas (penyedia API memberi galat sendiri jika penuh)."""
+    def __init__(self, alamat, api_key, model, batas_waktu=60, penalaran="", batas_konteks=0, penalti_ulang=0.0):
+        """batas_konteks = token prompt terbanyak; 0 = tidak dipangkas (penyedia API memberi galat sendiri jika penuh).
+        penalti_ulang = presence_penalty untuk jawaban yang di-stream tanpa alat; 0 = tidak dikirim."""
         self.alamat = alamat.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.batas_waktu = batas_waktu
         self.penalaran = penalaran
         self.batas_konteks = batas_konteks
+        self.penalti_ulang = penalti_ulang
 
 
     def sehat(self, batas_waktu=5):
@@ -72,6 +78,10 @@ class KlienAPI:
         alamat = f"{self.alamat}/chat/completions"
         if saat_teks:
             badan["stream"] = True
+            if self.penalti_ulang and not deklarasi_alat:
+                # hanya jawaban panjang tanpa alat yang di-stream; keluaran berformat (pemahaman, pemeriksa, JSON panggilan alat)
+                # memang perlu tanda dan kata yang berulang
+                badan["presence_penalty"] = self.penalti_ulang
             if self.batas_konteks:
                 # Ollama baru mengirim jumlah token di akhir stream jika diminta; dipakai halaman kinerja
                 badan["stream_options"] = {"include_usage": True}
@@ -162,6 +172,7 @@ def catat_token(usage):
 def rakit_pesan_stream(respon, saat_teks):
     """Menyusun kembali pesan utuh dari baris "data: {...}" stream format OpenAI, sambil meneruskan teksnya."""
     teks, panggilan, alasan, pakai = "", {}, None, None
+    catatan = {"posisi": 0, "baris": {}, "ulang": set()}
     for baris in respon:
         denyut.detak()
         baris = baris.decode("utf-8", "replace").strip()
@@ -184,6 +195,15 @@ def rakit_pesan_stream(respon, saat_teks):
             if delta.get("content"):
                 teks += delta["content"]
                 saat_teks(delta["content"])
+                potong = awal_putaran(teks, catatan)
+                if potong is not None:
+                    logging.warning("model menulis ulang baris yang sama berkali-kali, stream dihentikan di huruf ke-%d", potong)
+                    # kalimat pengantar ralat ("Namun, revisi:") ikut dibuang sampai batas paragraf sebelumnya
+                    paragraf = teks.rfind("\n\n", 0, potong)
+                    teks, alasan = teks[:paragraf if paragraf > 0 else potong].rstrip(), "ulang"
+                    break
+        if alasan == "ulang":
+            break
             for potongan in delta.get("tool_calls") or []:
                 tujuan = panggilan.setdefault(potongan.get("index", 0),
                                               {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
@@ -199,6 +219,25 @@ def rakit_pesan_stream(respon, saat_teks):
     if panggilan:
         pesan["tool_calls"] = [panggilan[nomor] for nomor in sorted(panggilan)]
     return pesan, alasan
+
+def awal_putaran(teks, catatan):
+    """Memeriksa baris yang baru selesai. Jika beberapa baris panjang yang berbeda sudah muncul BATAS_BARIS_ULANG kali,
+    mengembalikan posisi kemunculan kedua yang paling awal, yaitu tempat model mulai mengulang; selain itu None.
+    Baris tabel dan isi blok kode dilewati karena bisa sama dengan wajar."""
+    while (akhir := teks.find("\n", catatan["posisi"])) != -1:
+        mulai, catatan["posisi"] = catatan["posisi"], akhir + 1
+        baris = " ".join(teks[mulai:akhir].split())
+        if baris.startswith("```"):
+            catatan["kode"] = not catatan.get("kode")
+        if catatan.get("kode") or baris.startswith("|") or len(baris) < MIN_HURUF_BARIS_ULANG:
+            continue
+        muncul = catatan["baris"].setdefault(baris, [])
+        muncul.append(mulai)
+        if len(muncul) >= BATAS_BARIS_ULANG:
+            catatan["ulang"].add(baris)
+        if len(catatan["ulang"]) >= JUMLAH_BARIS_ULANG:
+            return min(catatan["baris"][b][1] for b in catatan["ulang"])
+    return None
 
 def ke_format_api(giliran):
     """Mengubah satu giliran berbentuk internal (content berisi text/image/toolUse/toolResult) ke pesan format OpenAI."""

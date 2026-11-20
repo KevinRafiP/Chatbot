@@ -111,20 +111,22 @@ def zakat(argumen):
 
 
 def pph21(argumen):
-    """Perkiraan PPh 21 setahun untuk pegawai tetap dengan tarif progresif UU HPP."""
+    """Perkiraan PPh 21 setahun untuk pegawai tetap dengan tarif progresif UU HPP.
+    PMK 168/2023: penghasilan neto disetahunkan hanya jika kewajiban pajak subjektifnya mulai setelah Januari (misalnya baru datang
+    dari luar negeri); pegawai yang mulai bekerja di tengah tahun tetapi sudah subjek pajak dalam negeri sejak awal tahun tidak disetahunkan."""
     gaji = angka(argumen, "gaji_bruto_bulanan", minimal=0)
     bulan = int(angka(argumen, "jumlah_bulan", 12, minimal=1))
     iuran = angka(argumen, "iuran_pensiun_bulanan", 0)
     kawin = str(argumen.get("status_kawin", "tidak")).lower() in ("ya", "kawin", "k", "menikah", "true")
     tanggungan = min(int(angka(argumen, "tanggungan", 0)), 3)
+    disetahunkan = bulan < 12 and str(argumen.get("sejak_awal_tahun", True)).lower() in ("false", "tidak", "no", "0")
     if bulan > 12:
         raise GalatAlat("jumlah_bulan paling banyak 12")
 
     bruto = gaji * bulan
     biaya_jabatan = min(bruto * 0.05, BIAYA_JABATAN_MAKS * bulan / 12)
     neto = bruto - biaya_jabatan - iuran * bulan
-    # penghasilan neto disetahunkan untuk menentukan lapisan tarif
-    neto_setahun = neto * 12 / bulan
+    neto_setahun = neto * 12 / bulan if disetahunkan else neto
     ptkp = PTKP_DIRI + (PTKP_KAWIN if kawin else 0) + PTKP_TANGGUNGAN * tanggungan
     pkp = max(math.floor((neto_setahun - ptkp) / 1000) * 1000, 0)
 
@@ -138,13 +140,14 @@ def pph21(argumen):
         pajak += bagian * tarif
         rincian.append({"lapisan": f"{tarif:.0%}", "penghasilan": rupiah(bagian), "pajak": rupiah(bagian * tarif)})
         bawah = atas
-    pajak_periode = pajak * bulan / 12
+    pajak_periode = pajak * bulan / 12 if disetahunkan else pajak
     return {"penghasilan_bruto": rupiah(bruto), "biaya_jabatan": rupiah(biaya_jabatan), "penghasilan_neto": rupiah(neto),
-            "ptkp_setahun": ptkp, "status_ptkp": f"{'K' if kawin else 'TK'}/{tanggungan}", "pkp_setahun": pkp,
-            "rincian_tarif": rincian, "pph21_setahun": rupiah(pajak), f"pph21_{bulan}_bulan": rupiah(pajak_periode),
-            "rata_rata_per_bulan": rupiah(pajak_periode / bulan),
-            "catatan": "Perkiraan setahun dengan tarif UU HPP. Potongan bulanan memakai tarif efektif rata-rata (TER) "
-                       "sehingga bisa berbeda tiap bulan, lalu disesuaikan di bulan terakhir."}
+            "jumlah_bulan": bulan, "disetahunkan": disetahunkan, "ptkp_setahun": ptkp,
+            "status_ptkp": f"{'K' if kawin else 'TK'}/{tanggungan}", "pkp": pkp, "rincian_tarif": rincian,
+            "pph21_terutang_tahun_ini": rupiah(pajak_periode), "rata_rata_per_bulan": rupiah(pajak_periode / bulan),
+            "catatan": "Perkiraan dengan tarif UU HPP. Potongan bulanan memakai tarif efektif rata-rata (TER) "
+                       "sehingga bisa berbeda tiap bulan, lalu disesuaikan di bulan terakhir. Pegawai yang mulai bekerja di tengah tahun "
+                       "tetapi sudah tinggal di Indonesia sejak awal tahun tidak disetahunkan (PMK 168/2023)."}
 
 
 class AlatKeuangan:

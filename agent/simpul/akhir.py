@@ -192,7 +192,8 @@ def hasil(keadaan, teks):
     teks = penanda_teks(teks, catatan)
     if catatan.get("mode_gambar") == "tiap":
         teks, sembunyi = tempatkan_gambar(teks, catatan.get("rencana_gambar") or [],
-                                          lambda daftar: gambar_susulan(catatan, daftar, BATAS_TUNGGU_SUSULAN))
+                                          lambda daftar: gambar_susulan(catatan, daftar, BATAS_TUNGGU_SUSULAN),
+                                          bool(catatan.get("dugaan")))
     # foto dari halaman sumber jawaban sendiri didahulukan; jika tidak ada, tetap foto yang sudah dicari di web lain
     utamakan_sumber(catatan, [k for _, k in catatan.get("rencana_gambar") or [] if k not in sembunyi], BATAS_TUNGGU_SUMBER)
     catatan["tanpa_sisa"] = catatan.get("mode_gambar") == "tiap" and bool(POLA_PENANDA_GAMBAR.search(teks))
@@ -217,7 +218,8 @@ def hasil(keadaan, teks):
 
 
 # Markdown gambar yang ditulis model sendiri; gambar asli datang dari alat cari_gambar, bukan dari teks jawaban
-POLA_GAMBAR_MD = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+# juga "![Nama]" tanpa alamat, yang tampil mentah di frontend
+POLA_GAMBAR_MD = re.compile(r"!\[[^\]\n]*\](?:\([^)\n]*\))?")
 
 
 MAKS_GAMBAR_TAMPIL = 20
@@ -310,6 +312,34 @@ def judul_butir(baris):
     return re.split(r":\s|:$|\s[—–-]\s", bersihkan_judul(baris))[0].strip(" .")
 
 
+MAKS_KATA_NAMA_KANAN = 5
+# bagian judul berpasangan "Pemilik – Nama" yang dianggap berdekatan di sumber: kedua nama ada di potongan teks sepanjang ini
+JARAK_PASANGAN = 400
+
+
+def nama_kanan(baris):
+    """Bagian kanan judul berpasangan "Pemilik – Nama" (misalnya "Ann Takamaki – Hecate") jika bagian itu nama: pendek dan tiap katanya
+    berhuruf awal kapital atau angka. Keterangan seperti "mirip Xi Gundam" bukan nama, jadi hasilnya ""."""
+    bagian = re.split(r"\s[—–-]\s", re.split(r":\s|:$", bersihkan_judul(baris))[0], maxsplit=1)
+    if len(bagian) < 2:
+        return ""
+    kanan = bagian[1].strip(" .")
+    kata = re.sub(r"\([^()]*\)", " ", kanan).split()
+    if not kata or len(kata) > MAKS_KATA_NAMA_KANAN or not all(k[0].isupper() or k[0].isdigit() for k in kata):
+        return ""
+    return kanan
+
+
+def berdekatan(kiri, kanan, daftar_teks):
+    """True jika satu kata dari tiap nama muncul bersama di potongan teks sumber yang sama."""
+    for teks in daftar_teks:
+        for awal in range(0, max(len(teks) - JARAK_PASANGAN // 2, 1), JARAK_PASANGAN // 2):
+            kata = kata_nama(teks[awal:awal + JARAK_PASANGAN])
+            if kata & kiri and kata & kanan:
+                return True
+    return False
+
+
 # penanda yang ditulis model dengan kueri, bukan nomor, misalnya [[gambar:Xi Gundam RX-105 full body]]
 POLA_PENANDA_TEKS = re.compile(r"[*_]{0,2}\[\[\s*gambar\s*[:#]\s*([^\]\d\s][^\]]{1,150})\]\][*_]{0,2}", re.IGNORECASE)
 
@@ -326,12 +356,12 @@ def penanda_teks(teks, catatan):
     return "".join(p if p.startswith("```") else POLA_PENANDA_TEKS.sub(ganti, p) for p in potongan)
 
 
-def nama_butir(baris):
+def nama_butir(baris, judul=None):
     """Nama hal di judul butir untuk gambar susulan; "" jika bukan nama, termasuk label seperti "Spesifikasi Teknis:" atau
-    "Tinggi keseluruhan: 28 meter", karena itu keterangan, bukan hal berwujud."""
+    "Tinggi keseluruhan: 28 meter", karena itu keterangan, bukan hal berwujud. judul memilih bagian judul (lihat tempatkan_gambar)."""
     if ":" in bersihkan_judul(baris):
         return ""
-    teks = judul_butir(baris)
+    teks = (judul or judul_butir)(baris)
     if not 3 <= len(teks) <= MAKS_HURUF_NAMA_BUTIR or len(teks.split()) > MAKS_KATA_NAMA_BUTIR or teks.endswith("?"):
         return ""
     return teks
@@ -343,24 +373,32 @@ def buang_butir_tanpa_sumber(teks, catatan):
     satu pun nama yang ditemukan (misalnya semua halaman gagal dibaca), jawaban dibiarkan agar tidak kosong."""
     konteks = catatan.get("konteks_rencana", "")
     with kunci_catatan(catatan):
-        sumber = set().union(*(kata_nama(b.get("isi", "")) for b in (catatan.get("bukti") or {}).values()))
+        daftar_isi = [b.get("isi", "") for b in (catatan.get("bukti") or {}).values()]
+    sumber = set().union(*(kata_nama(isi) for isi in daftar_isi))
     if not sumber:
         return teks
     baris = teks.split("\n")
     jenis = [None if b.lstrip().startswith(("|", "```")) else jenis_butir(b) for b in baris]
     jumlah = {j: jenis.count(j) for j in URUTAN_JENIS_BUTIR if j != "judul"}
     utama = next((j for j in URUTAN_JENIS_BUTIR if jumlah.get(j, 0) >= 2), None)
+    # judul bagian biasanya bukan anggota daftar, kecuali judul berpasangan seperti "### Ann Takamaki – Hecate"
+    if not utama and sum(1 for j, b in zip(jenis, baris) if j == "judul" and nama_kanan(b)) >= 2:
+        utama = "judul"
     if not utama:
         return teks
     buang_kata = kata_nama(konteks)
     butir = []
     for i, j in enumerate(jenis):
-        if j != utama:
+        if j != utama or (utama == "judul" and not nama_kanan(baris[i])):
             continue
         akhir = next((k for k in range(i + 1, len(baris)) if jenis[k] in (utama, "judul")), len(baris))
         nama = re.sub(r"\([^()]*\)", " ", nama_butir(baris[i]))
         kata = kata_nama(nama) - buang_kata
-        butir.append((i, akhir, kata, bool(kata) and kata <= sumber))
+        # judul berpasangan "Pemilik – Nama" (misalnya "Goro Akechi – Orochi"): kedua nama harus ada berdekatan di satu sumber,
+        # karena tiap nama bisa ada di sumber tetapi pasangannya tebakan
+        pasangan = kata_nama(re.sub(r"\([^()]*\)", " ", nama_kanan(baris[i]))) - buang_kata
+        ada = bool(kata) and kata <= sumber and (not pasangan or (pasangan <= sumber and berdekatan(kata, pasangan, daftar_isi)))
+        butir.append((i, akhir, kata, ada))
     bernama = [b for b in butir if b[2]]
     hilang = [b for b in bernama if not b[3]]
     if not hilang or len(hilang) == len(bernama):
@@ -372,13 +410,15 @@ def buang_butir_tanpa_sumber(teks, catatan):
     return re.sub(r"\n{3,}", "\n\n", "\n".join(b for k, b in enumerate(baris) if k not in buang))
 
 
-def tempatkan_gambar(teks, rencana, susulan=None):
+def tempatkan_gambar(teks, rencana, susulan=None, dugaan=False):
     """Gambar yang dicari otomatis per subjek ditaruh di butir yang judulnya menyebut nama subjek itu, karena model sering salah
     menulis nomor penanda. Penanda di butir subjek lain, atau di butir lain padahal subjeknya punya butir sendiri, dipindah;
     penanda subjek yang tidak punya butir dibiarkan. Di tabel, penanda di baris yang menyebut subjek lain diganti nomornya.
     susulan(daftar (nama, pembeda)) -> {nama: kelompok} mencari gambar untuk butir sejenis yang belum bergambar, misalnya hal yang
     tidak ada di rencana awal. Mengembalikan teks dan kelompok yang disembunyikan: subjek rencana yang tidak dibahas jawaban,
-    jika subjek lain berhasil ditemukan namanya."""
+    jika subjek lain berhasil ditemukan namanya.
+    dugaan=True: nama subjek rencana hanya tebakan, jadi penanda hanya boleh ada di butir atau baris yang menyebut namanya;
+    selain itu dibuang dan butirnya dicarikan gambar susulan menurut namanya sendiri."""
     ciri = ciri_tempat(rencana)
     penuh = {kelompok: frasa_nama(nama) for nama, kelompok in rencana}
     if not ciri and not susulan:
@@ -394,12 +434,25 @@ def tempatkan_gambar(teks, rencana, susulan=None):
         jenis.append(None if kode[-1] or b.lstrip().startswith("|") else jenis_butir(b))
     tabel = [i for i, b in enumerate(baris) if not kode[i] and b.lstrip().startswith("|")]
 
+    # judul berpasangan "Pemilik – Nama" (misalnya "Ann Takamaki – Hecate"): jika nama subjek rencana lebih sering ada di bagian kanan,
+    # bagian kanan yang dipakai untuk mencocokkan subjek dan mencari gambar susulan, bukan nama pemiliknya
+    pasangan = [i for i, j in enumerate(jenis) if j and nama_kanan(baris[i])]
+    kiri = sum(1 for i in pasangan if subjek_disebut(judul_butir(baris[i]), ciri, penuh))
+    kanan = sum(1 for i in pasangan if subjek_disebut(nama_kanan(baris[i]), ciri, penuh)
+                and not subjek_disebut(judul_butir(baris[i]), ciri, penuh))
+    judul = (lambda b: nama_kanan(b) or judul_butir(b)) if kanan > kiri else judul_butir
+
     # butir: dari awal butir sampai awal butir berikutnya yang sejenis, atau judul
     butir = []
     for i, j in enumerate(jenis):
         if j:
             akhir = next((k for k in range(i + 1, len(baris)) if jenis[k] == j or jenis[k] == "judul"), len(baris))
-            butir.append((i, akhir, subjek_disebut(judul_butir(baris[i]), ciri, penuh)))
+            butir.append((i, akhir, subjek_disebut(judul(baris[i]), ciri, penuh)))
+    utama = None
+    if dugaan and butir:
+        # nama tebakan bisa juga muncul di catatan ("X bukan termasuk ..."), jadi gambar dugaan hanya untuk butir daftar utama
+        utama = jenis_terbanyak(jenis, butir)
+        butir = [(a, z, s if jenis[a] == utama else []) for a, z, s in butir]
     ditemukan = {k for _, _, s in butir for k in s} | {k for i in tabel for k in subjek_disebut(baris[i], ciri, penuh)}
     disebut = set(subjek_disebut("\n".join(b for i, b in enumerate(baris) if not kode[i]), ciri, penuh))
 
@@ -411,6 +464,8 @@ def tempatkan_gambar(teks, rencana, susulan=None):
             if cocok:
                 baris[i] = POLA_PENANDA_GAMBAR.sub(lambda c: c.group(0) if int(c.group(1)) in cocok or int(c.group(1)) not in ciri
                                                    else f"[[gambar:{cocok[0]}]]", b)
+            elif dugaan:
+                baris[i] = POLA_PENANDA_GAMBAR.sub(lambda c: "" if int(c.group(1)) in ciri else c.group(0), b)
             continue
         milik = next((s for a, z, s in reversed(butir) if a <= i < z), None)
         if milik is None:
@@ -419,10 +474,10 @@ def tempatkan_gambar(teks, rencana, susulan=None):
             cocok = subjek_disebut(baris_nama(baris, i, kode), ciri, penuh)
             baris[i] = POLA_PENANDA_GAMBAR.sub(lambda c: c.group(0) if int(c.group(1)) not in ciri or int(c.group(1)) in cocok
                                                else f"[[gambar:{cocok[-1]}]]" if cocok
-                                               else "" if int(c.group(1)) not in disebut else c.group(0), b)
+                                               else "" if dugaan or int(c.group(1)) not in disebut else c.group(0), b)
             continue
         baris[i] = POLA_PENANDA_GAMBAR.sub(lambda c: "" if (int(c.group(1)) in ciri and int(c.group(1)) not in (milik or [])
-                                                            and (milik or int(c.group(1)) in ditemukan)) else c.group(0), b)
+                                                            and (milik or dugaan or int(c.group(1)) in ditemukan)) else c.group(0), b)
 
     sudah = {int(n) for i, b in enumerate(baris) if not kode[i] for n in POLA_PENANDA_GAMBAR.findall(b)}
     sisipan = []
@@ -433,10 +488,10 @@ def tempatkan_gambar(teks, rencana, susulan=None):
             sudah.update(kurang)
 
     if susulan:
-        sisipan += butir_susulan(baris, jenis, butir, sisipan, susulan)
+        sisipan += butir_susulan(baris, jenis, butir, sisipan, susulan, judul, utama)
     for ujung, kelompok in sorted(sisipan, key=lambda s: -s[0]):
         baris.insert(ujung + 1, "\n".join(f"[[gambar:{k}]]" for k in kelompok))
-    sembunyi = set(ciri) - sudah if ditemukan else set()
+    sembunyi = set(ciri) - sudah if ditemukan or dugaan else set()
     return "\n".join(baris), sembunyi
 
 
@@ -451,15 +506,21 @@ def baris_nama(baris, i, kode):
     return ""
 
 
-def butir_susulan(baris, jenis, butir, sisipan, susulan):
-    """Butir jenis utama (yang menyebut subjek rencana, atau jika tidak ada, jenis daftar terbanyak) yang belum punya gambar
-    dicarikan gambar menurut nama di judulnya. Kata pembeda dihitung dari nama semua butir jenis itu."""
-    utama = {jenis[a] for a, _, s in butir if s}
+def jenis_terbanyak(jenis, butir):
+    """Jenis butir yang paling banyak di jawaban; jika sama banyak, urutan URUTAN_JENIS_BUTIR yang menang."""
+    jumlah = {j: sum(jenis[a] == j for a, _, _ in butir) for j in URUTAN_JENIS_BUTIR}
+    return max(URUTAN_JENIS_BUTIR, key=lambda j: (jumlah[j], -URUTAN_JENIS_BUTIR.index(j)))
+
+
+def butir_susulan(baris, jenis, butir, sisipan, susulan, judul=None, jenis_utama=None):
+    """Butir jenis utama (jenis_utama jika diberikan, lalu yang menyebut subjek rencana, atau jika tidak ada, jenis daftar terbanyak)
+    yang belum punya gambar dicarikan gambar menurut nama di judulnya. Kata pembeda dihitung dari nama semua butir jenis itu."""
+    utama = {jenis_utama} if jenis_utama else {jenis[a] for a, _, s in butir if s}
     if not utama:
         jumlah = {j: sum(jenis[a] == j for a, _, _ in butir) for j in URUTAN_JENIS_BUTIR}
         utama = {next((j for j in URUTAN_JENIS_BUTIR if jumlah[j] >= 2), None)}
     terisi = {u for u, _ in sisipan}
-    calon = [(a, z, nama_butir(baris[a])) for a, z, s in butir if jenis[a] in utama]
+    calon = [(a, z, nama_butir(baris[a], judul)) for a, z, s in butir if jenis[a] in utama]
     calon = [(a, z, n) for a, z, n in calon if n]
     if len(calon) < 2:
         return []

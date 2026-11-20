@@ -47,7 +47,9 @@ def konversi_satuan(nilai, dari, ke):
         if dari in daftar and ke in daftar:
             hasil = nilai * daftar[dari] / daftar[ke]
             catatan = {"ons": "1 ons Indonesia = 100 gram", "pon": "1 pon Indonesia = 500 gram",
-                       "bulan": "1 bulan dihitung rata-rata 30,44 hari"}
+                       "bulan": "1 bulan dihitung rata-rata 30,44 hari",
+                       "galon": "1 galon AS = 3,785 liter; galon air minum isi ulang di Indonesia berisi 19 liter",
+                       "gelas": "1 gelas dihitung 240 ml; ukuran gelas sebenarnya berbeda-beda"}
             keterangan = [catatan[s] for s in (dari, ke) if s in catatan]
             return {"nilai": nilai, "dari": dari, "ke": ke, "hasil": float(f"{hasil:.10g}"), "kelompok": kelompok,
                     **({"catatan": "; ".join(keterangan)} if keterangan else {})}

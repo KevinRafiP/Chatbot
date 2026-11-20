@@ -1,7 +1,11 @@
+from urllib.parse import quote
+
 from alat.jaringan import CacheSingkat, GalatAlat, ambil_json
 
 cache_toko = CacheSingkat(24 * 3600, 2)
 cache_hiburan = CacheSingkat(30 * 60, 200)
+# Jikan memberi paling banyak 25 judul per halaman; satu musim biasanya 50-80 judul
+MAKS_HALAMAN_MUSIM = 5
 
 
 class AlatHiburan:
@@ -47,8 +51,11 @@ class AlatHiburan:
                 } for d in penawaran],
                 "termurah_sepanjang_masa_usd": termurah.get("price"),
             })
-        nomor = tambah_sumber(catatan, f"Harga {judul} - CheapShark", f"https://www.cheapshark.com/search#q:{judul.replace(' ', '%20')}", "")
-        return {"game": daftar, "nomor": nomor,
+        # tiap judul diberi nomor sumbernya sendiri agar sitasi tidak tertukar jika model memakai judul kedua atau ketiga
+        for game in daftar:
+            game["nomor"] = tambah_sumber(catatan, f"Harga {game['judul']} - CheapShark",
+                                          f"https://www.cheapshark.com/search#q:{quote(str(game['judul']))}", "")
+        return {"game": daftar,
                 "catatan": "Harga dalam USD dari toko PC (Steam, GOG, dan lainnya); harga Steam Indonesia dalam rupiah bisa berbeda."}
 
     def anime(self, jenis, judul, catatan, tambah_sumber):
@@ -60,16 +67,25 @@ class AlatHiburan:
         daftar = [ringkas_anime(item, jenis) for item in (data.get("data") or [])[:3]]
         if not daftar:
             raise GalatAlat(f"{jenis} {judul} tidak ditemukan")
-        nomor = tambah_sumber(catatan, f"{daftar[0]['judul']} - MyAnimeList", daftar[0]["url"], daftar[0].get("sinopsis", ""))
-        return {jenis: daftar, "nomor": nomor, "catatan": "Data MyAnimeList lewat Jikan; skor bisa berubah."}
+        for item in daftar:
+            item["nomor"] = tambah_sumber(catatan, f"{item['judul']} - MyAnimeList", item["url"], item.get("sinopsis", ""))
+        return {jenis: daftar, "catatan": "Data MyAnimeList lewat Jikan; skor bisa berubah."}
 
     def musim_ini(self, catatan, tambah_sumber):
         if not self.p.anime_url:
             raise GalatAlat("info anime tidak aktif")
-        data = self.ambil(f"{self.p.anime_url}/seasons/now", {"limit": 15, "sfw": "true"})
-        daftar = [ringkas_anime(item, "anime", singkat=True) for item in (data.get("data") or [])[:15]]
+        daftar, sudah = [], set()
+        for halaman in range(1, MAKS_HALAMAN_MUSIM + 1):
+            data = self.ambil(f"{self.p.anime_url}/seasons/now", {"page": halaman, "sfw": "true"})
+            for item in data.get("data") or []:
+                # Jikan kadang mengulang judul yang sama di halaman berbeda
+                if item.get("mal_id") not in sudah:
+                    sudah.add(item.get("mal_id"))
+                    daftar.append(ringkas_anime(item, "anime", singkat=True))
+            if not (data.get("pagination") or {}).get("has_next_page"):
+                break
         nomor = tambah_sumber(catatan, "Anime musim ini - MyAnimeList", "https://myanimelist.net/anime/season", "")
-        return {"anime": daftar, "nomor": nomor}
+        return {"anime": daftar, "jumlah": len(daftar), "nomor": nomor}
 
 
 def ringkas_anime(item, jenis, singkat=False):

@@ -1,6 +1,7 @@
 import ast
 import math
 import operator
+from decimal import ROUND_HALF_UP, Decimal
 
 BATAS_PANJANG = 300
 BATAS_PANGKAT = 1000
@@ -10,9 +11,29 @@ OPERATOR = {
     ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod, ast.Pow: operator.pow,
     ast.USub: operator.neg, ast.UAdd: operator.pos,
 }
+
+
+def bulatkan(nilai, digit=0):
+    """Pembulatan setengah ke atas seperti di sekolah (2,5 jadi 3), bukan ke angka genap seperti round() bawaan Python."""
+    digit = int(digit)
+    hasil = Decimal(repr(nilai)).quantize(Decimal(1).scaleb(-digit), rounding=ROUND_HALF_UP)
+    return int(hasil) if digit <= 0 else float(hasil)
+
+
+def logaritma(nilai, basis=10):
+    return math.log10(nilai) if basis == 10 else math.log(nilai, basis)
+
+
+def tan_derajat(sudut):
+    if round(math.cos(math.radians(sudut)), 12) == 0:
+        raise ValueError(f"tan {sudut} derajat tidak terdefinisi")
+    return math.tan(math.radians(sudut))
+
+
 FUNGSI = {
-    "sqrt": math.sqrt, "akar": math.sqrt, "abs": abs, "round": round, "floor": math.floor, "ceil": math.ceil,
-    "log": math.log10, "ln": math.log, "exp": math.exp, "sin": math.sin, "cos": math.cos, "tan": math.tan,
+    "sqrt": math.sqrt, "akar": math.sqrt, "abs": abs, "round": bulatkan, "floor": math.floor, "ceil": math.ceil,
+    "log": logaritma, "ln": math.log, "exp": math.exp, "sin": math.sin, "cos": math.cos, "tan": math.tan,
+    "sind": lambda sudut: math.sin(math.radians(sudut)), "cosd": lambda sudut: math.cos(math.radians(sudut)), "tand": tan_derajat,
     "radians": math.radians, "degrees": math.degrees, "factorial": math.factorial, "min": min, "max": max,
 }
 KONSTANTA = {"pi": math.pi, "e": math.e}
